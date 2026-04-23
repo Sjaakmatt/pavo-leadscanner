@@ -14,10 +14,14 @@ export const FTE_OPTIONS = ["10-19", "20-49", "50-99", "100-199"] as const;
 export const DEFAULT_FILTERS: SearchFilters = {
   fte_klassen: [...FTE_OPTIONS],
   branche: "Alle branches",
-  regio_plaats: "",
+  regio_center: null,
   regio_straal_km: 50,
   signaal_query: "",
 };
+
+// Geographic centre of the Netherlands — used as the initial map view
+// when no pin has been placed yet.
+export const NL_CENTER: [number, number] = [52.1, 5.3];
 
 // Builds the streaming status lines the agent "narrates" during a search.
 // Delays are randomised per line (500-900ms) to feel human, not uniform.
@@ -33,8 +37,8 @@ export function buildSearchSteps(
     filters.fte_klassen.length > 0
       ? `${filters.fte_klassen[0].split("-")[0]}-${filters.fte_klassen[filters.fte_klassen.length - 1].split("-")[1]} FTE`
       : "alle groottes";
-  const regio = filters.regio_plaats.trim()
-    ? `omgeving ${filters.regio_plaats.trim()}`
+  const regio = filters.regio_center
+    ? `geografisch afgebakend gebied`
     : "heel Nederland";
 
   const sbiPrefixes = sbiForBranche(filters.branche);
@@ -52,10 +56,12 @@ export function buildSearchSteps(
     `${initialPool} bedrijven gevonden die matchen op sector en grootte`,
   ];
 
-  if (filters.regio_plaats.trim()) {
+  if (filters.regio_center) {
+    const lat = filters.regio_center.lat.toFixed(3);
+    const lng = filters.regio_center.lng.toFixed(3);
     lines.push(
-      `Geocoderen naar centrum ${filters.regio_plaats.trim()} (radius ${filters.regio_straal_km} km) via PDOK`,
-      `${afterRadius} bedrijven binnen straal gefilterd`,
+      `Geografische afbakening: radius ${filters.regio_straal_km} km rond [${lat}, ${lng}]`,
+      `${afterRadius} bedrijven binnen straal gefilterd via haversine-berekening`,
     );
   } else {
     lines.push(`${afterRadius} bedrijven geselecteerd voor signaal-analyse`);

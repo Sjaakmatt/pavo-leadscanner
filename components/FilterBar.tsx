@@ -1,8 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import type { FteKlasse, SearchFilters } from "@/lib/adapters/types";
+import dynamic from "next/dynamic";
+import type { FteKlasse, LatLng, SearchFilters } from "@/lib/adapters/types";
 import { BRANCHE_OPTIONS, FTE_OPTIONS } from "@/lib/filter";
+
+// Leaflet touches `window` at import time, so the map must be client-only.
+const MapPicker = dynamic(() => import("./MapPicker"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full items-center justify-center bg-pavo-gray-100 text-sm text-pavo-gray-600">
+      Kaart laden…
+    </div>
+  ),
+});
 
 type Props = {
   filters: SearchFilters;
@@ -11,7 +22,12 @@ type Props = {
   loading: boolean;
 };
 
-export default function FilterBar({ filters, onChange, onSubmit, loading }: Props) {
+export default function FilterBar({
+  filters,
+  onChange,
+  onSubmit,
+  loading,
+}: Props) {
   const [fteOpen, setFteOpen] = useState(false);
 
   function toggleFte(klasse: FteKlasse) {
@@ -19,6 +35,14 @@ export default function FilterBar({ filters, onChange, onSubmit, loading }: Prop
     if (set.has(klasse)) set.delete(klasse);
     else set.add(klasse);
     onChange({ ...filters, fte_klassen: Array.from(set) as FteKlasse[] });
+  }
+
+  function handlePickCenter(c: LatLng) {
+    onChange({ ...filters, regio_center: c });
+  }
+
+  function handleResetCenter() {
+    onChange({ ...filters, regio_center: null });
   }
 
   const fteLabel =
@@ -29,9 +53,10 @@ export default function FilterBar({ filters, onChange, onSubmit, loading }: Prop
       : filters.fte_klassen.join(", ");
 
   return (
-    <div className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm">
+    <div className="space-y-5 rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm">
+      {/* Compacte filter-rij */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-        <div className="md:col-span-2">
+        <div className="md:col-span-3">
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
             Bedrijfsomvang
           </label>
@@ -44,7 +69,7 @@ export default function FilterBar({ filters, onChange, onSubmit, loading }: Prop
               {fteLabel}
             </button>
             {fteOpen && (
-              <div className="absolute z-10 mt-1 w-full rounded-lg border border-pavo-gray-100 bg-white p-2 shadow-md">
+              <div className="absolute z-[1100] mt-1 w-full rounded-lg border border-pavo-gray-100 bg-white p-2 shadow-md">
                 {FTE_OPTIONS.map((opt) => {
                   const checked = filters.fte_klassen.includes(opt);
                   return (
@@ -84,41 +109,7 @@ export default function FilterBar({ filters, onChange, onSubmit, loading }: Prop
           </select>
         </div>
 
-        <div className="md:col-span-3">
-          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
-            Regio — plaats
-          </label>
-          <input
-            type="text"
-            value={filters.regio_plaats}
-            onChange={(e) =>
-              onChange({ ...filters, regio_plaats: e.target.value })
-            }
-            placeholder="bv. Apeldoorn"
-            className="w-full rounded-lg border border-pavo-gray-100 bg-white px-3 py-2 text-sm text-pavo-gray-900 transition-all duration-200 placeholder:text-pavo-gray-600/60 hover:border-pavo-teal focus:border-pavo-teal focus:outline-none"
-          />
-          <div className="mt-2 flex items-center gap-2">
-            <input
-              type="range"
-              min={5}
-              max={200}
-              step={5}
-              value={filters.regio_straal_km}
-              onChange={(e) =>
-                onChange({
-                  ...filters,
-                  regio_straal_km: Number(e.target.value),
-                })
-              }
-              className="flex-1 accent-pavo-teal"
-            />
-            <span className="w-14 text-right text-xs text-pavo-gray-600">
-              {filters.regio_straal_km} km
-            </span>
-          </div>
-        </div>
-
-        <div className="md:col-span-3">
+        <div className="md:col-span-4">
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
             Bijzondere signalen
           </label>
@@ -133,7 +124,7 @@ export default function FilterBar({ filters, onChange, onSubmit, loading }: Prop
           />
         </div>
 
-        <div className="flex items-end md:col-span-1">
+        <div className="flex items-end md:col-span-2">
           <button
             type="button"
             onClick={onSubmit}
@@ -149,6 +140,73 @@ export default function FilterBar({ filters, onChange, onSubmit, loading }: Prop
               "Zoek leads"
             )}
           </button>
+        </div>
+      </div>
+
+      {/* Regio-sectie met kaart */}
+      <div>
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <label className="text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
+            Regio
+          </label>
+          <span className="text-xs text-pavo-gray-600">
+            {filters.regio_center
+              ? `Pin op ${filters.regio_center.lat.toFixed(3)}°N, ${filters.regio_center.lng.toFixed(3)}°E`
+              : "Klik op de kaart om een middelpunt te kiezen — of laat leeg voor heel NL"}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+          <div className="md:col-span-8">
+            <div className="relative h-[320px] overflow-hidden rounded-lg border border-pavo-gray-100">
+              <MapPicker
+                center={filters.regio_center}
+                radiusKm={filters.regio_straal_km}
+                onPick={handlePickCenter}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4 md:col-span-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
+                Straal
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={5}
+                  max={200}
+                  step={5}
+                  value={filters.regio_straal_km}
+                  onChange={(e) =>
+                    onChange({
+                      ...filters,
+                      regio_straal_km: Number(e.target.value),
+                    })
+                  }
+                  className="flex-1 accent-pavo-teal"
+                />
+                <span className="w-16 text-right text-sm tabular-nums text-pavo-gray-900">
+                  {filters.regio_straal_km} km
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleResetCenter}
+              disabled={!filters.regio_center}
+              className="w-full rounded-lg border border-pavo-gray-100 bg-white px-3 py-2 text-sm text-pavo-gray-900 transition-all duration-200 hover:border-pavo-teal hover:text-pavo-teal disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Reset pin
+            </button>
+
+            <p className="text-xs leading-relaxed text-pavo-gray-600">
+              De agent beperkt zich tot bedrijven binnen deze straal. Geen pin
+              = heel Nederland.
+            </p>
+          </div>
         </div>
       </div>
     </div>

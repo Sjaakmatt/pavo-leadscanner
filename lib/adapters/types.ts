@@ -44,6 +44,8 @@ export type Archetype = {
 
 export type FteKlasse = "10-19" | "20-49" | "50-99" | "100-199";
 
+export type LatLng = { lat: number; lng: number };
+
 export type Lead = {
   id: string;
   naam: string;
@@ -57,12 +59,16 @@ export type Lead = {
   signalen: Signaal[];
   diensten: DienstMatch[];
   observatie: string;
+  // Optional so leads without coordinates still load. When regio_center is
+  // set on a search, leads without coords are excluded.
+  lat?: number;
+  lng?: number;
 };
 
 export type SearchFilters = {
   fte_klassen: FteKlasse[];
   branche: string;
-  regio_plaats: string;
+  regio_center: LatLng | null;
   regio_straal_km: number;
   signaal_query: string;
 };

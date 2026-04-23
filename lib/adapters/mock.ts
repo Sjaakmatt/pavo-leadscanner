@@ -1,6 +1,7 @@
 import leadsData from "@/data/leads.json";
 import type {
   FteKlasse,
+  LatLng,
   Lead,
   LeadSource,
   SearchFilters,
@@ -38,12 +39,31 @@ function resolveSearchId(branche: string): string {
   return BRANCHE_TO_SEARCH_ID[branche] ?? data.searches[0]?.id ?? "search-1-bouw";
 }
 
-function matchesRegio(lead: Lead, regio: string): boolean {
-  if (!regio.trim()) return true;
-  const q = regio.trim().toLowerCase();
+function toRad(deg: number): number {
+  return (deg * Math.PI) / 180;
+}
+
+export function distanceKm(a: LatLng, b: LatLng): number {
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const la1 = toRad(a.lat);
+  const la2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function matchesRegio(
+  lead: Lead,
+  center: LatLng | null,
+  radiusKm: number,
+): boolean {
+  if (!center) return true;
+  if (lead.lat === undefined || lead.lng === undefined) return false;
   return (
-    lead.plaats.toLowerCase().includes(q) ||
-    lead.provincie.toLowerCase().includes(q)
+    distanceKm(center, { lat: lead.lat, lng: lead.lng }) <= radiusKm
   );
 }
 
@@ -63,7 +83,7 @@ export class MockLeadSource implements LeadSource {
     const filtered = search.leads.filter(
       (l) =>
         matchesFte(l, filters.fte_klassen) &&
-        matchesRegio(l, filters.regio_plaats),
+        matchesRegio(l, filters.regio_center, filters.regio_straal_km),
     );
 
     const warmteRank: Record<Lead["warmte"], number> = {
