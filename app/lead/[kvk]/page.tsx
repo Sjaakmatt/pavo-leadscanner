@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import ArchetypeCard from "@/components/ArchetypeCard";
+import LeadChat from "@/components/LeadChat";
 import ServiceMatchBar from "@/components/ServiceMatchBar";
 import SignalList from "@/components/SignalList";
 import WarmteBadge from "@/components/WarmteBadge";
@@ -15,6 +16,7 @@ export default function LeadDetailPage({ params }: Props) {
   const { kvk } = use(params);
   const [lead, setLead] = useState<Lead | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,16 +74,26 @@ export default function LeadDetailPage({ params }: Props) {
         ← Terug naar resultaten
       </Link>
 
-      <header className="mt-5 md:mt-6">
-        <WarmteBadge warmte={lead.warmte} />
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
-          {lead.naam}
-        </h1>
-        <p className="mt-2 text-sm text-pavo-gray-600">
-          {lead.plaats}, {lead.provincie} · KvK {lead.kvk} · {lead.fte_klasse}{" "}
-          FTE
-        </p>
-        <p className="text-sm text-pavo-gray-600">{lead.sector}</p>
+      <header className="mt-5 flex items-start justify-between gap-4 md:mt-6">
+        <div className="min-w-0">
+          <WarmteBadge warmte={lead.warmte} />
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
+            {lead.naam}
+          </h1>
+          <p className="mt-2 text-sm text-pavo-gray-600">
+            {lead.plaats}, {lead.provincie} · KvK {lead.kvk} ·{" "}
+            {lead.fte_klasse} FTE
+          </p>
+          <p className="text-sm text-pavo-gray-600">{lead.sector}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-pavo-teal bg-white px-3 py-2 text-sm font-semibold text-pavo-teal transition-all duration-200 hover:bg-pavo-teal hover:text-white md:px-4"
+        >
+          <ChatIcon className="h-4 w-4" />
+          <span className="hidden sm:inline">Vraag de agent</span>
+        </button>
       </header>
 
       <motion.div
@@ -109,7 +121,32 @@ export default function LeadDetailPage({ params }: Props) {
           <SignalList signalen={lead.signalen} />
         </SectionFade>
       </motion.div>
+
+      <LeadChat
+        kvk={lead.kvk}
+        leadNaam={lead.naam}
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+      />
     </div>
+  );
+}
+
+function ChatIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M3 4.5h14v10H11l-4 3v-3H3z" />
+      <path d="M6.5 8.5h7M6.5 11.5h4.5" />
+    </svg>
   );
 }
 
