@@ -2,11 +2,10 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import ArchetypeCard from "@/components/ArchetypeCard";
 import ServiceMatchBar from "@/components/ServiceMatchBar";
 import SignalList from "@/components/SignalList";
-import StreamingStatus, { type StreamStep } from "@/components/StreamingStatus";
 import WarmteBadge from "@/components/WarmteBadge";
 import type { Lead } from "@/lib/adapters/types";
 
@@ -15,25 +14,19 @@ type Props = { params: Promise<{ kvk: string }> };
 export default function LeadDetailPage({ params }: Props) {
   const { kvk } = use(params);
   const [lead, setLead] = useState<Lead | null>(null);
-  const [steps, setSteps] = useState<StreamStep[]>([]);
   const [notFound, setNotFound] = useState(false);
-  const [streamDone, setStreamDone] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       const res = await fetch(`/api/lead/${kvk}`);
-      const data = (await res.json()) as {
-        lead: Lead | null;
-        steps: StreamStep[];
-      };
+      const data = (await res.json()) as { lead: Lead | null };
       if (cancelled) return;
       if (!data.lead) {
         setNotFound(true);
         return;
       }
       setLead(data.lead);
-      setSteps(data.steps);
     }
     load();
     return () => {
@@ -59,6 +52,17 @@ export default function LeadDetailPage({ params }: Props) {
     );
   }
 
+  if (!lead) {
+    // Korte skeleton — de data staat al lokaal paraat, dit knippert
+    // meestal maar 1 frame.
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-6 md:px-6 md:py-10">
+        <div className="h-4 w-40 animate-pulse rounded bg-pavo-gray-100" />
+        <div className="mt-6 h-8 w-2/3 animate-pulse rounded bg-pavo-gray-100" />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 md:px-6 md:py-10">
       <Link
@@ -68,56 +72,43 @@ export default function LeadDetailPage({ params }: Props) {
         ← Terug naar resultaten
       </Link>
 
-      {lead && (
-        <header className="mt-5 md:mt-6">
-          <WarmteBadge warmte={lead.warmte} />
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
-            {lead.naam}
-          </h1>
-          <p className="mt-2 text-sm text-pavo-gray-600">
-            {lead.plaats}, {lead.provincie} · KvK {lead.kvk} ·{" "}
-            {lead.fte_klasse} FTE
-          </p>
-          <p className="text-sm text-pavo-gray-600">{lead.sector}</p>
-        </header>
-      )}
+      <header className="mt-5 md:mt-6">
+        <WarmteBadge warmte={lead.warmte} />
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
+          {lead.naam}
+        </h1>
+        <p className="mt-2 text-sm text-pavo-gray-600">
+          {lead.plaats}, {lead.provincie} · KvK {lead.kvk} · {lead.fte_klasse}{" "}
+          FTE
+        </p>
+        <p className="text-sm text-pavo-gray-600">{lead.sector}</p>
+      </header>
 
-      {lead && steps.length > 0 && (
-        <div className="mt-8">
-          <StreamingStatus
-            steps={steps}
-            onComplete={() => setStreamDone(true)}
-          />
-        </div>
-      )}
+      <motion.div
+        initial="hidden"
+        animate="shown"
+        variants={{
+          hidden: {},
+          shown: { transition: { staggerChildren: 0.08 } },
+        }}
+        className="mt-6 space-y-6"
+      >
+        <SectionFade>
+          <ArchetypeCard archetype={lead.archetype} />
+        </SectionFade>
 
-      <AnimatePresence>
-        {lead && streamDone && (
-          <motion.div
-            key="sections"
-            initial="hidden"
-            animate="shown"
-            variants={{
-              hidden: {},
-              shown: { transition: { staggerChildren: 0.4 } },
-            }}
-            className="mt-6 space-y-6"
-          >
-            <SectionFade>
-              <ArchetypeCard archetype={lead.archetype} />
-            </SectionFade>
-            <SectionFade>
-              <SignalList signalen={lead.signalen} />
-            </SectionFade>
-            <SectionFade>
-              <ServiceMatchBar diensten={lead.diensten} />
-            </SectionFade>
-            <SectionFade>
-              <ObservationCard observatie={lead.observatie} />
-            </SectionFade>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <SectionFade>
+          <AnalyseCard observatie={lead.observatie} />
+        </SectionFade>
+
+        <SectionFade>
+          <ServiceMatchBar diensten={lead.diensten} />
+        </SectionFade>
+
+        <SectionFade>
+          <SignalList signalen={lead.signalen} />
+        </SectionFade>
+      </motion.div>
     </div>
   );
 }
@@ -135,16 +126,16 @@ function SectionFade({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ObservationCard({ observatie }: { observatie: string }) {
+function AnalyseCard({ observatie }: { observatie: string }) {
   return (
     <section className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
       <div className="flex items-center gap-2">
         <LightbulbIcon className="h-4 w-4 text-pavo-orange" />
         <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
-          Analyse
+          Analyse van de agent
         </h2>
       </div>
-      <div className="mt-3 rounded-lg bg-pavo-gray-50 p-4 text-sm leading-relaxed text-pavo-gray-900">
+      <div className="mt-3 rounded-lg bg-pavo-gray-50 p-4 text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]">
         {observatie}
       </div>
     </section>
