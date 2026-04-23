@@ -29,3 +29,13 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
+
+/* Prevent iOS Safari auto-zooming form inputs when the declared font-size
+   is below 16px. Desktop keeps the smaller text-sm via Tailwind utilities. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}

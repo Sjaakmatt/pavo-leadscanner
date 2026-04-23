@@ -53,7 +53,7 @@ export default function FilterBar({
       : filters.fte_klassen.join(", ");
 
   return (
-    <div className="space-y-5 rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm">
+    <div className="space-y-5 rounded-lg border border-pavo-gray-100 bg-white p-4 shadow-sm md:p-5">
       {/* Compacte filter-rij */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
         <div className="md:col-span-3">
@@ -145,7 +145,7 @@ export default function FilterBar({
 
       {/* Regio-sectie met kaart */}
       <div>
-        <div className="mb-1.5 flex items-baseline justify-between">
+        <div className="mb-1.5 flex flex-col gap-0.5 md:flex-row md:items-baseline md:justify-between md:gap-4">
           <label className="text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
             Regio
           </label>
@@ -158,7 +158,7 @@ export default function FilterBar({
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
           <div className="md:col-span-8">
-            <div className="relative h-[320px] overflow-hidden rounded-lg border border-pavo-gray-100">
+            <div className="relative h-[260px] overflow-hidden rounded-lg border border-pavo-gray-100 md:h-[320px]">
               <MapPicker
                 center={filters.regio_center}
                 radiusKm={filters.regio_straal_km}

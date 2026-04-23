@@ -12,7 +12,7 @@ export default function ServiceMatchBar({
   const secundair = diensten.filter((d) => d.prioriteit === "secundair");
 
   return (
-    <section className="rounded-lg border border-pavo-gray-100 bg-white p-6 shadow-sm">
+    <section className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
       <div className="flex items-center gap-2">
         <BadgeIcon className="h-4 w-4 text-pavo-teal" />
         <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
