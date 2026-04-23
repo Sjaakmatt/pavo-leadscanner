@@ -1,4 +1,5 @@
 import leadsData from "@/data/leads.json";
+import { coordsForPlaats } from "./coords";
 import type {
   FteKlasse,
   LatLng,
@@ -22,7 +23,25 @@ type LeadsJson = {
   }>;
 };
 
-const data = leadsData as unknown as LeadsJson;
+// One-time enrichment at module load: attach lat/lng from the city
+// lookup so the map-filter has something to chew on. Leads where the
+// plaats is unknown keep no coords and are simply skipped when a pin
+// is set — which is the safe default.
+function enrichWithCoords(raw: LeadsJson): LeadsJson {
+  return {
+    meta: raw.meta,
+    searches: raw.searches.map((s) => ({
+      ...s,
+      leads: s.leads.map((l) => {
+        if (l.lat !== undefined && l.lng !== undefined) return l;
+        const c = coordsForPlaats(l.plaats);
+        return c ? { ...l, lat: c.lat, lng: c.lng } : l;
+      }),
+    })),
+  };
+}
+
+const data = enrichWithCoords(leadsData as unknown as LeadsJson);
 
 const BRANCHE_TO_SEARCH_ID: Record<string, string> = {
   "Bouw & installatie": "search-1-bouw",
