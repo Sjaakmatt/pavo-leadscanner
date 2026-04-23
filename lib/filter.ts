@@ -78,7 +78,7 @@ export function buildSearchSteps(
     );
     return lines.map((text) => ({
       text,
-      delay: 500 + Math.floor(Math.random() * 400),
+      delay: 300 + Math.floor(Math.random() * 250),
     }));
   }
 
@@ -86,10 +86,8 @@ export function buildSearchSteps(
   const refinedCount = Math.max(hitCount + 2, Math.floor(hitCount * 2.5));
 
   lines.push(
-    `Vacature-historie analyseren via Jobdigger voor ${refinedCount} bedrijven`,
-    `Bedrijfswebsites scannen op HR-aanwezigheid en team-paginas`,
-    `Rechtspraak.nl controleren op arbeidsrechtzaken`,
-    `KvK-historie vergelijken voor FTE-mutaties en bestuurderswissels`,
+    `Vacature-historie via Jobdigger + bedrijfswebsites gescand voor ${refinedCount} bedrijven`,
+    `Rechtspraak.nl en KvK-historie gekruist op arbeidsconflicten en FTE-mutaties`,
   );
 
   if (filters.signaal_query.trim()) {
@@ -106,7 +104,7 @@ export function buildSearchSteps(
 
   return lines.map((text) => ({
     text,
-    delay: 500 + Math.floor(Math.random() * 400),
+    delay: 300 + Math.floor(Math.random() * 250),
   }));
 }
 
@@ -133,20 +131,16 @@ export function buildLeadSteps(
 ): Array<{ text: string; delay: number }> {
   const lines = [
     `Bedrijfsgegevens opgehaald uit KvK voor ${lead.naam}`,
-    "KvK-historie geanalyseerd (18 maanden)",
-    "Bedrijfswebsite gescand op HR-pagina en team-overzicht",
-    "Actieve vacatures geïdentificeerd via Jobdigger",
-    "Vacature-historie geanalyseerd (24 maanden)",
+    "KvK-historie en bedrijfswebsite geanalyseerd",
+    "Vacature-historie via Jobdigger gekruist (24 mnd)",
     "Rechtspraak.nl gecontroleerd op arbeidsrechtzaken",
-    "HR-signalen gescoord en gewogen",
     lead.archetype
       ? `Archetype bepaald: ${lead.archetype.naam}`
       : "Geen significant archetype herkend",
     "Match met PAVO-dienstenportfolio berekend",
-    "Rapport samengesteld",
   ];
   return lines.map((text) => ({
     text,
-    delay: 450 + Math.floor(Math.random() * 350),
+    delay: 300 + Math.floor(Math.random() * 250),
   }));
 }
