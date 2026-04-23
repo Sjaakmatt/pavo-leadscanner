@@ -1,0 +1,2219 @@
+{
+  "meta": {
+    "diensten": {
+      "D1": "Moeite met vinden van personeel",
+      "D2": "Hoog personeelsverloop",
+      "D3": "Onvoldoende flexibiliteit in personeelsinzet",
+      "D4": "Hulp bij (langdurig) verzuim",
+      "D5": "Hulp bij regelgeving/afspraken",
+      "D6": "Gebrek aan tijd en kennis voor personeelszaken",
+      "D7": "Onduidelijk personeelsbeleid",
+      "D8": "Hulp bij leidinggeven aan personeel"
+    },
+    "archetypes": {
+      "A1": "Scale-up hits HR wall",
+      "A2": "50-FTE drempel gepasseerd",
+      "A3": "Draaideur in operations",
+      "A4": "Werf-wanhoop in krappe branche",
+      "A5": "Familie-MKB professionaliseert",
+      "A6": "Post-overname HR-chaos",
+      "A7": "Seizoenspieken zonder flex-laag",
+      "A8": "Verzuim-spiraal in fysieke sector"
+    },
+    "archetype_beschrijvingen": {
+      "A1": "Snelle groei heeft het bedrijf voorbij het punt gedragen waar informele HR-afspraken volstaan. Professionalisering is noodzakelijk maar nog niet ingezet.",
+      "A2": "Bedrijf heeft recent de wettelijke drempel van 50 medewerkers overschreden, wat nieuwe verplichtingen activeert op OR-instelling, verzuimrapportage en arbo-beleid.",
+      "A3": "Dezelfde functie wordt herhaaldelijk opnieuw ingevuld binnen korte tijd. Wijst op structureel probleem in werving, leidinggeven of arbeidsvoorwaarden.",
+      "A4": "Bedrijf toont meerdere signalen van structurele wervingsproblemen gecombineerd met gebrek aan HR-capaciteit om dit strategisch aan te pakken.",
+      "A5": "Generatie-wissel of opvolging is gaande. Kantelpunt waarop informele familie-afspraken gedocumenteerd en formeel gemaakt moeten worden.",
+      "A6": "Recente overname creëert integratie-vraagstukken rond arbeidsvoorwaarden-harmonisatie, management-structuur en culturele afstemming.",
+      "A7": "Structureel seizoenspatroon wordt ad-hoc opgevangen zonder strategische flex-strategie. Inefficiënt en duur op langere termijn.",
+      "A8": "Verhoogd verzuimpercentage in combinatie met fysiek belastende sector. Vaak verweven met leiderschap-kwaliteit en werk-inrichting."
+    }
+  },
+  "searches": [
+    {
+      "id": "search-1-bouw",
+      "titel": "Bouw & installatie — 30-80 FTE — heel NL",
+      "filters": {
+        "fte_min": "20-49",
+        "fte_max": "50-99",
+        "sector_label": "Bouw & installatie",
+        "sector_sbi_prefix": [
+          "41",
+          "42",
+          "43"
+        ],
+        "regio_label": "Heel Nederland",
+        "regio_provincies": [],
+        "signaal_query": "werving, leidinggeven, flexibiliteit"
+      },
+      "leads": [
+        {
+          "id": "34256789",
+          "naam": "Van Dijck Installatietechniek BV",
+          "kvk": "34256789",
+          "plaats": "Tilburg",
+          "provincie": "Noord-Brabant",
+          "sector": "Elektrotechnische installatie (SBI 43211)",
+          "fte_klasse": "50-99",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A4",
+            "naam": "Werf-wanhoop in krappe branche",
+            "beschrijving": "Bedrijf toont meerdere signalen van structurele wervingsproblemen gecombineerd met gebrek aan HR-capaciteit om dit strategisch aan te pakken."
+          },
+          "signalen": [
+            {
+              "tekst": "Vacature 'Eerste monteur E' staat 94 dagen open, 3x herpost",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Vacaturetekst vermeldt '€1.500 tekenbonus' in laatste versie (was €0 in eerste)",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Tegelijk actieve vacatures voor vast én oproepbasis zelfde functie",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Geen HR-functie zichtbaar op website, directeur staat als contactpersoon personeelszaken",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "Bedrijf gegroeid van FTE-klasse 20-49 naar 50-99 in afgelopen 14 maanden (KvK-diff)",
+              "bron": "KvK-historie"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 95
+            },
+            {
+              "code": "D3",
+              "naam": "Onvoldoende flexibiliteit in personeelsinzet",
+              "prioriteit": "primair",
+              "score": 85
+            },
+            {
+              "code": "D6",
+              "naam": "Gebrek aan tijd en kennis voor personeelszaken",
+              "prioriteit": "secundair",
+              "score": 63
+            }
+          ],
+          "observatie": "Klassieke krappe-markt-werf-wanhoop gecombineerd met gebrek aan HR-capaciteit. Directeur lost personeelszaken zelf op naast operationele rol. Sterke match met D6 (tijd/kennis-tekort) én D1 (werving). D3 secundair door dubbele werving vast+flex."
+        },
+        {
+          "id": "08156342",
+          "naam": "Bouwbedrijf Kamphuis & Zn. BV",
+          "kvk": "08156342",
+          "plaats": "Apeldoorn",
+          "provincie": "Gelderland",
+          "sector": "Algemene burgerlijke en utiliteitsbouw (SBI 41201)",
+          "fte_klasse": "20-49",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A5",
+            "naam": "Familie-MKB professionaliseert",
+            "beschrijving": "Generatie-wissel of opvolging is gaande. Kantelpunt waarop informele familie-afspraken gedocumenteerd en formeel gemaakt moeten worden."
+          },
+          "signalen": [
+            {
+              "tekst": "Oprichter (64) nog bestuurder, zoon (39) recent aangetreden als medebestuurder (KvK-mutatie 3 maanden terug)",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Website 'Over ons'-pagina vermeldt 'sinds 1978 familiebedrijf'",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "Vacature 'Uitvoerder/Projectleider' mentioneert 'doorgroeimogelijkheden naar leidinggevende rol'",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Geen personeelshandboek of arbeidsvoorwaarden-sectie op website",
+              "bron": "bedrijfswebsite"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 97
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 87
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "secundair",
+              "score": 65
+            }
+          ],
+          "observatie": "Generatiewissel aan de gang. Typisch moment waarop informele afspraken gedocumenteerd moeten worden. Geen acute pijn, maar voorspelbare behoefte aan beleid-formalisering binnen 6-12 maanden."
+        },
+        {
+          "id": "51243897",
+          "naam": "Hoogeveen Dak & Gevel BV",
+          "kvk": "51243897",
+          "plaats": "Hoogeveen",
+          "provincie": "Drenthe",
+          "sector": "Dakbedekking (SBI 43911)",
+          "fte_klasse": "50-99",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A8",
+            "naam": "Verzuim-spiraal in fysieke sector",
+            "beschrijving": "Verhoogd verzuimpercentage in combinatie met fysiek belastende sector. Vaak verweven met leiderschap-kwaliteit en werk-inrichting."
+          },
+          "signalen": [
+            {
+              "tekst": "Jaarverslag 2024 (KvK-deponering) vermeldt verzuimpercentage 7,8% (branchegemiddelde 5,2%)",
+              "bron": "KvK-deponering"
+            },
+            {
+              "tekst": "Arbeidsrechtzaak op rechtspraak.nl: UWV-procedure langdurig verzuim, uitspraak 4 maanden geleden",
+              "bron": "Rechtspraak.nl"
+            },
+            {
+              "tekst": "Recente vacature 'HR-medewerker met focus op verzuim' (intern, 2 dagen/week)",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Branche-benchmark CBS: dakbedekking zit structureel in top-5 verzuim-sectoren",
+              "bron": "CBS"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D4",
+              "naam": "Hulp bij (langdurig) verzuim",
+              "prioriteit": "primair",
+              "score": 93
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "primair",
+              "score": 87
+            }
+          ],
+          "observatie": "Meerdere signalen wijzen op actief verzuimprobleem. De interne vacature voor verzuim-medewerker suggereert dat ze een oplossing zoeken maar nog niet de schaal hebben voor fulltime rol. Primaire match D4. D8 secundair: verzuim hangt vaak samen met leidinggeven-kwaliteit."
+        },
+        {
+          "id": "17234561",
+          "naam": "Installatiegroep Terbeek BV",
+          "kvk": "17234561",
+          "plaats": "Venlo",
+          "provincie": "Limburg",
+          "sector": "Loodgieters- en fitterswerk (SBI 43221)",
+          "fte_klasse": "50-99",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A1",
+            "naam": "Scale-up hits HR wall",
+            "beschrijving": "Snelle groei heeft het bedrijf voorbij het punt gedragen waar informele HR-afspraken volstaan. Professionalisering is noodzakelijk maar nog niet ingezet."
+          },
+          "signalen": [
+            {
+              "tekst": "Bedrijf van 24 naar 67 FTE in 26 maanden (drie KvK-klasse-sprongen)",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Recent vacature 'Werkvoorbereider' én 'Teamleider installatiemonteurs' tegelijkertijd",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Bestuurderswissel 7 maanden terug: oprichter teruggetreden, externe CEO aangesteld",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Geen HR-functie op LinkedIn-bedrijfspagina, geen carrière-pagina op eigen website",
+              "bron": "LinkedIn-bedrijfspagina"
+            },
+            {
+              "tekst": "Nieuwsbericht lokale krant 6 maanden terug over uitbreiding tweede locatie Roermond",
+              "bron": "Nieuws"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D6",
+              "naam": "Gebrek aan tijd en kennis voor personeelszaken",
+              "prioriteit": "primair",
+              "score": 97
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 89
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "secundair",
+              "score": 65
+            }
+          ],
+          "observatie": "Textbook scale-up-crisis. Snelle groei + nieuwe management-laag + geen HR-structuur = voorspelbare problemen binnen 6 maanden als er niet wordt ingegrepen. Alle drie de diensten (D6, D7, D8) relevant. Externe CEO is waarschijnlijk de juiste ingang — die ziet de HR-leemte als eerste."
+        },
+        {
+          "id": "09876543",
+          "naam": "Betonbouw Scholten BV",
+          "kvk": "09876543",
+          "plaats": "Hengelo",
+          "provincie": "Overijssel",
+          "sector": "Beton- en fundatiewerk (SBI 43991)",
+          "fte_klasse": "20-49",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A3",
+            "naam": "Draaideur in operations",
+            "beschrijving": "Dezelfde functie wordt herhaaldelijk opnieuw ingevuld binnen korte tijd. Wijst op structureel probleem in werving, leidinggeven of arbeidsvoorwaarden."
+          },
+          "signalen": [
+            {
+              "tekst": "Vacature 'Betontimmerman' in afgelopen 18 maanden 4x gepost (zelfde rol, steeds nieuwe start)",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Vacaturetekst laatste versie: 'geen ervaring vereist, wij leiden op' (was vorig jaar nog '3+ jaar ervaring')",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Glassdoor-review (anoniem, 5 maanden geleden): 'geen duidelijke aansturing op de bouw'",
+              "bron": "Glassdoor"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D2",
+              "naam": "Hoog personeelsverloop",
+              "prioriteit": "primair",
+              "score": 97
+            },
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 87
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "secundair",
+              "score": 65
+            }
+          ],
+          "observatie": "Draaideur-patroon in specifieke functie. Inlevering van eisen duidt op wanhoop. Glassdoor-review suggereert leiderschap-component. D2 primair (verloop), D1 en D8 secundair. Let op: één Glassdoor-review is geen trend, dit is signaal met lager vertrouwen."
+        },
+        {
+          "id": "62458913",
+          "naam": "AVT Elektrotechniek BV",
+          "kvk": "62458913",
+          "plaats": "Amersfoort",
+          "provincie": "Utrecht",
+          "sector": "Elektrotechnische installatie (SBI 43211)",
+          "fte_klasse": "20-49",
+          "warmte": "COLD",
+          "archetype": null,
+          "signalen": [
+            {
+              "tekst": "Vacature 'Eerste monteur' open, 22 dagen (normaal voor functie)",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Stabiele FTE-klasse al 3 jaar",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Website heeft uitgebreide 'werken bij'-sectie met personeelshandboek-link",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "Volledige HR-manager zichtbaar in teampagina",
+              "bron": "bedrijfswebsite"
+            }
+          ],
+          "diensten": [],
+          "observatie": "Bedrijf heeft HR-zaken op orde. Wervingsdruk is normaal voor branche. Geen acute pijnpunten gedetecteerd. Afleider: op filters matcht hij, op werkelijk HR-behoefte niet."
+        },
+        {
+          "id": "28374615",
+          "naam": "Koninklijke Van der Velden Bouw BV",
+          "kvk": "28374615",
+          "plaats": "Gouda",
+          "provincie": "Zuid-Holland",
+          "sector": "Algemene burgerlijke en utiliteitsbouw (SBI 41202)",
+          "fte_klasse": "50-99",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A5",
+            "naam": "Familie-MKB professionaliseert",
+            "beschrijving": "Generatie-wissel of opvolging is gaande. Kantelpunt waarop informele familie-afspraken gedocumenteerd en formeel gemaakt moeten worden."
+          },
+          "signalen": [
+            {
+              "tekst": "Predicaat 'Koninklijk' sinds 2019, familiebedrijf 3e generatie",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Recent twee nieuwe bestuurders ingeschreven (broers, 41 en 38) — 4 maanden terug",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Vacature voor 'HR-adviseur (interim)' uitgestaan, niet meer zichtbaar — mogelijk vervuld",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Geen zichtbaar personeelsbeleid op website, terwijl zakelijke presentatie verder zeer uitgebreid is",
+              "bron": "bedrijfswebsite"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 92
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 84
+            }
+          ],
+          "observatie": "Derde generatie-wissel. Mogelijk al iemand HR-interim ingeschakeld — check tijdens gesprek. Als dat zo is, kan PAVO de structurele opvolging na interim bieden. Als niet: directe ingang."
+        },
+        {
+          "id": "71824356",
+          "naam": "Wolters Technische Installaties BV",
+          "kvk": "71824356",
+          "plaats": "Groningen",
+          "provincie": "Groningen",
+          "sector": "Bouwinstallatie overig (SBI 43291)",
+          "fte_klasse": "20-49",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A4",
+            "naam": "Werf-wanhoop in krappe branche",
+            "beschrijving": "Bedrijf toont meerdere signalen van structurele wervingsproblemen gecombineerd met gebrek aan HR-capaciteit om dit strategisch aan te pakken."
+          },
+          "signalen": [
+            {
+              "tekst": "Drie vacatures tegelijk open, alle drie >45 dagen",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Regio Groningen: CBS-data toont vacaturegraad techniek 2x landelijk gemiddelde",
+              "bron": "CBS"
+            },
+            {
+              "tekst": "Tegelijkertijd oproepcontracten uitgestaan",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Geen tekenbonussen of salarisindicaties in vacaturetekst",
+              "bron": "Jobdigger"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 93
+            },
+            {
+              "code": "D3",
+              "naam": "Onvoldoende flexibiliteit in personeelsinzet",
+              "prioriteit": "primair",
+              "score": 83
+            }
+          ],
+          "observatie": "Structurele wervingspijn in een krappe regio. Minder urgent dan lead #1 omdat er geen acute wanhopige taal in vacatures zit — meer een chronische situatie. PAVO kan hier met regionale werving-diensten en flex-oplossingen aan de slag."
+        },
+        {
+          "id": "43219876",
+          "naam": "Bouwgroep Nederland Zuid BV",
+          "kvk": "43219876",
+          "plaats": "Eindhoven",
+          "provincie": "Noord-Brabant",
+          "sector": "Algemene bouw (SBI 41201)",
+          "fte_klasse": "20-49",
+          "warmte": "COLD",
+          "archetype": null,
+          "signalen": [
+            {
+              "tekst": "Bestuurdersstructuur en FTE al 5 jaar stabiel",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Vacatures alleen reguliere rotatie (<30 dagen open)",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Website vermeldt externe HR-partner (Driessen)",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "Geen andere HR-stress-indicatoren gedetecteerd",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [],
+          "observatie": "Al HR-dienstverlening extern geregeld. Overstappen vereist concurrentie-verhaal, geen pijn-verhaal. Afleider — wegfilteren in gespreksvoorbereiding tenzij contract-afloop bekend wordt."
+        },
+        {
+          "id": "54321678",
+          "naam": "Dekker Klimaattechniek BV",
+          "kvk": "54321678",
+          "plaats": "Alkmaar",
+          "provincie": "Noord-Holland",
+          "sector": "Installatie van verwarmings- en koelapparatuur (SBI 43222)",
+          "fte_klasse": "50-99",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A2",
+            "naam": "50-FTE drempel gepasseerd",
+            "beschrijving": "Bedrijf heeft recent de wettelijke drempel van 50 medewerkers overschreden, wat nieuwe verplichtingen activeert op OR-instelling, verzuimrapportage en arbo-beleid."
+          },
+          "signalen": [
+            {
+              "tekst": "FTE-klasse deze maand overgegaan van 20-49 naar 50-99 (KvK-diff)",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Bedrijf moet binnen 6 maanden OR instellen — nieuwe verplichting",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Jaarrekening boekjaar 2024 deponering overdue (normaal binnen 12 maanden)",
+              "bron": "KvK-deponering"
+            },
+            {
+              "tekst": "Geen HR-functie op LinkedIn — financial controller staat als 'contact personeelszaken'",
+              "bron": "LinkedIn-bedrijfspagina"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 92
+            },
+            {
+              "code": "D4",
+              "naam": "Hulp bij (langdurig) verzuim",
+              "prioriteit": "primair",
+              "score": 84
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "secundair",
+              "score": 60
+            }
+          ],
+          "observatie": "Perfecte timing-lead. De 50-FTE-drempel activeert OR-plicht, uitgebreide arbo-verplichtingen, verzuimrapportage-plicht. Dit bedrijf staat op een compliance-kruising en weet het waarschijnlijk niet volledig. Urgente actie binnen 90 dagen aan te bevelen. D5 primair, D4 en D7 volgen."
+        }
+      ]
+    },
+    {
+      "id": "search-2-logistiek",
+      "titel": "Logistiek & transport — 50-150 FTE — Midden/Oost-NL",
+      "filters": {
+        "fte_min": "50-99",
+        "fte_max": "100-199",
+        "sector_label": "Logistiek & transport",
+        "sector_sbi_prefix": [
+          "49",
+          "50",
+          "51",
+          "52",
+          "53"
+        ],
+        "regio_label": "Gelderland, Overijssel, Utrecht, Flevoland",
+        "regio_provincies": [
+          "Gelderland",
+          "Overijssel",
+          "Utrecht",
+          "Flevoland"
+        ],
+        "signaal_query": "verloop, verzuim, regelgeving"
+      },
+      "leads": [
+        {
+          "id": "11223344",
+          "naam": "Transportbedrijf Noordzee-Oost BV",
+          "kvk": "11223344",
+          "plaats": "Zwolle",
+          "provincie": "Overijssel",
+          "sector": "Goederenvervoer over de weg (SBI 49410)",
+          "fte_klasse": "100-199",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A3",
+            "naam": "Draaideur in operations",
+            "beschrijving": "Dezelfde functie wordt herhaaldelijk opnieuw ingevuld binnen korte tijd. Wijst op structureel probleem in werving, leidinggeven of arbeidsvoorwaarden."
+          },
+          "signalen": [
+            {
+              "tekst": "Vacature 'Internationaal chauffeur CE' in afgelopen 12 maanden 7x opnieuw uitgezet",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Aanwervings-premies zichtbaar in vacaturetekst: '€2.000 aanbrengbonus + welkomstbonus'",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Recente bestuurderswissel: HR-directeur 5 maanden geleden uit dienst, niet vervangen",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Tegelijk actief met uitzendbureau (meerdere vacatures zichtbaar via uitzendkanaal)",
+              "bron": "Jobdigger"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D2",
+              "naam": "Hoog personeelsverloop",
+              "prioriteit": "primair",
+              "score": 95
+            },
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 89
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "secundair",
+              "score": 63
+            }
+          ],
+          "observatie": "Zware draaideur. CE-chauffeurs zijn notoir schaars maar dit bedrijf heeft het veel slechter dan sector-gemiddelde. Vertrek HR-directeur + geen opvolger = acute gat in HR-kennis. Ingang: vervanger vinden of interim plus structurele werving-herziening."
+        },
+        {
+          "id": "22334455",
+          "naam": "Logiek Warehousing & Distribution BV",
+          "kvk": "22334455",
+          "plaats": "Apeldoorn",
+          "provincie": "Gelderland",
+          "sector": "Opslag in loodsen (SBI 52101)",
+          "fte_klasse": "50-99",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A7",
+            "naam": "Seizoenspieken zonder flex-laag",
+            "beschrijving": "Structureel seizoenspatroon wordt ad-hoc opgevangen zonder strategische flex-strategie. Inefficiënt en duur op langere termijn."
+          },
+          "signalen": [
+            {
+              "tekst": "Jaarlijks piek-vacatures in oktober-november (e-commerce piek), zichtbaar in Jobdigger-historie",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Dit jaar piek 8 weken eerder ingezet dan vorig jaar — mogelijk klanten bredere forecasts",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Nog geen strategische flex-laag: elk jaar wordt opnieuw gestart met werving",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Geen duidelijke uitzendbureau-partner zichtbaar (pakt het zelf op, inefficiënt)",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D3",
+              "naam": "Onvoldoende flexibiliteit in personeelsinzet",
+              "prioriteit": "primair",
+              "score": 97
+            },
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 85
+            }
+          ],
+          "observatie": "Structureel seizoenspatroon zonder strategische oplossing. Type klant waarmee je een meerjaren-flex-arrangement kunt opzetten. D3 primair, D1 secundair in piek-fase."
+        },
+        {
+          "id": "33445566",
+          "naam": "Van Dam Expeditie BV",
+          "kvk": "33445566",
+          "plaats": "Veenendaal",
+          "provincie": "Utrecht",
+          "sector": "Expeditie (SBI 52291)",
+          "fte_klasse": "50-99",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A8",
+            "naam": "Verzuim-spiraal in fysieke sector",
+            "beschrijving": "Verhoogd verzuimpercentage in combinatie met fysiek belastende sector. Vaak verweven met leiderschap-kwaliteit en werk-inrichting."
+          },
+          "signalen": [
+            {
+              "tekst": "Jaarverslag 2024 vermeldt verzuimpercentage 9,1% (logistiek-gemiddelde 6,4%)",
+              "bron": "KvK-deponering"
+            },
+            {
+              "tekst": "Twee UWV-procedures langdurig verzuim op rechtspraak.nl — uitspraken laatste 8 maanden",
+              "bron": "Rechtspraak.nl"
+            },
+            {
+              "tekst": "Vacature 'Casemanager verzuim' uitgestaan bij interne HR-afdeling",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Recente reorganisatie-aankondiging in regionale krant: 'herstructurering administratieve functies'",
+              "bron": "Nieuws"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D4",
+              "naam": "Hulp bij (langdurig) verzuim",
+              "prioriteit": "primair",
+              "score": 96
+            },
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 84
+            }
+          ],
+          "observatie": "Acuut verzuimprobleem én nog lopende reorganisatie. Combinatie is gevoelig — PAVO moet oppassen voor indruk van 'haaien rondom zieke prooi'. Ingang is via verzuim-expertise, niet via werving. D4 primair."
+        },
+        {
+          "id": "44556677",
+          "naam": "Koninklijke Saan BV",
+          "kvk": "44556677",
+          "plaats": "Amsterdam",
+          "provincie": "Noord-Holland",
+          "sector": "Verhuisvervoer (SBI 49421)",
+          "fte_klasse": "100-199",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A6",
+            "naam": "Post-overname HR-chaos",
+            "beschrijving": "Recente overname creëert integratie-vraagstukken rond arbeidsvoorwaarden-harmonisatie, management-structuur en culturele afstemming."
+          },
+          "signalen": [
+            {
+              "tekst": "Overgenomen 11 maanden geleden door investeringsmaatschappij (KvK-structuur-wijziging)",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Drie nieuwe bestuurders ingeschreven in afgelopen jaar, één vertrokken",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Nieuwe handelsnamen toegevoegd aan KvK-registratie",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Mix van oude + nieuwe arbeidsvoorwaarden zichtbaar in recente vacatures (inconsistent aanbod)",
+              "bron": "Jobdigger"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 94
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 88
+            }
+          ],
+          "observatie": "Post-overname integratiefase. Arbeidsvoorwaarden-harmonisatie is klassieke PAVO-klus, én vaak politiek gevoelig. D5 (regelgeving bij harmonisatie) en D7 (beleid uitlijnen) primair. Valt buiten regio-filter — deze dient in search-resultaten als afleider op regio maar kwalificeert hoog op signaal."
+        },
+        {
+          "id": "55667788",
+          "naam": "Regio Distributie Nederland BV",
+          "kvk": "55667788",
+          "plaats": "Almere",
+          "provincie": "Flevoland",
+          "sector": "Post- en koeriersdiensten (SBI 53202)",
+          "fte_klasse": "100-199",
+          "warmte": "COLD",
+          "archetype": null,
+          "signalen": [
+            {
+              "tekst": "Grote werkgever met interne HR-afdeling (meerdere HR-functies op LinkedIn-bedrijfspagina zichtbaar)",
+              "bron": "LinkedIn-bedrijfspagina"
+            },
+            {
+              "tekst": "CAO Beroepsgoederenvervoer van toepassing, extern toegepast",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Geen anomalie in vacatures of bestuurdersstructuur",
+              "bron": "KvK-historie"
+            }
+          ],
+          "diensten": [],
+          "observatie": "Geen pijn gedetecteerd. Interne HR-capaciteit en CAO-structuur maken externe hulp minder waarschijnlijk. Afleider op filters."
+        },
+        {
+          "id": "66778899",
+          "naam": "Jansen Transport & Logistiek BV",
+          "kvk": "66778899",
+          "plaats": "Deventer",
+          "provincie": "Overijssel",
+          "sector": "Goederenvervoer over de weg (SBI 49410)",
+          "fte_klasse": "50-99",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A2",
+            "naam": "50-FTE drempel gepasseerd",
+            "beschrijving": "Bedrijf heeft recent de wettelijke drempel van 50 medewerkers overschreden, wat nieuwe verplichtingen activeert op OR-instelling, verzuimrapportage en arbo-beleid."
+          },
+          "signalen": [
+            {
+              "tekst": "FTE-klasse 3 maanden geleden overgegaan van 20-49 naar 50-99",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Geen jaarrekening 2024 gedeponeerd, deadline verstreken 2 maanden terug",
+              "bron": "KvK-deponering"
+            },
+            {
+              "tekst": "Logistieke sector zit al in top-3 verzuim — dubbel risico bij nieuwe OR-plicht",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Geen HR-functie zichtbaar; oprichter plus CFO zijn enige bestuurders",
+              "bron": "KvK-historie"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 97
+            },
+            {
+              "code": "D4",
+              "naam": "Hulp bij (langdurig) verzuim",
+              "prioriteit": "primair",
+              "score": 87
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "secundair",
+              "score": 65
+            }
+          ],
+          "observatie": "Drempel-lead in sector met extra verzuim-complexiteit. OR-plicht + verzuim-rapportage + uitgebreide arbo = kritiek moment. Vertraging jaarrekening-deponering kan wijzen op administratieve overbelasting. Sterke ingang via D5."
+        },
+        {
+          "id": "77889900",
+          "naam": "Oost-Nederland Logistics BV",
+          "kvk": "77889900",
+          "plaats": "Nijmegen",
+          "provincie": "Gelderland",
+          "sector": "Opslag in loodsen (SBI 52101)",
+          "fte_klasse": "20-49",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A1",
+            "naam": "Scale-up hits HR wall",
+            "beschrijving": "Snelle groei heeft het bedrijf voorbij het punt gedragen waar informele HR-afspraken volstaan. Professionalisering is noodzakelijk maar nog niet ingezet."
+          },
+          "signalen": [
+            {
+              "tekst": "Bedrijf van 9 naar 34 FTE in 18 maanden",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Vacature 'Operationeel Manager' open, 67 dagen",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Oprichter staat als enige bestuurder, nog geen management-laag",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Buiten gevraagde FTE-range (20-49 i.p.v. 50-150), maar profiel sluit sterk aan",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D6",
+              "naam": "Gebrek aan tijd en kennis voor personeelszaken",
+              "prioriteit": "primair",
+              "score": 96
+            },
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 86
+            }
+          ],
+          "observatie": "Op FTE-filter is deze lead net te klein, maar de trajectorie wijst op bereiken 50-150 binnen een jaar. Early engagement — minder acuut dan andere hot-leads, maar lange relatie-potentie. Opnemen als 'opkomend'."
+        },
+        {
+          "id": "88990011",
+          "naam": "Polderweg Vervoer BV",
+          "kvk": "88990011",
+          "plaats": "Harderwijk",
+          "provincie": "Gelderland",
+          "sector": "Goederenvervoer over de weg (SBI 49410)",
+          "fte_klasse": "50-99",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A3",
+            "naam": "Draaideur in operations",
+            "beschrijving": "Dezelfde functie wordt herhaaldelijk opnieuw ingevuld binnen korte tijd. Wijst op structureel probleem in werving, leidinggeven of arbeidsvoorwaarden."
+          },
+          "signalen": [
+            {
+              "tekst": "Vacature 'Planner' in 2 jaar 3x opgevuld, telkens nieuwe persoon na <12 maanden",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Recent LinkedIn-post bedrijfspagina: 'we zoeken opnieuw een planner' (openhartige toon)",
+              "bron": "LinkedIn-bedrijfspagina"
+            },
+            {
+              "tekst": "Twee negatieve Google-reviews door ex-medewerkers in afgelopen 6 maanden",
+              "bron": "Glassdoor"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D2",
+              "naam": "Hoog personeelsverloop",
+              "prioriteit": "primair",
+              "score": 94
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "primair",
+              "score": 88
+            }
+          ],
+          "observatie": "Draaideur in specifieke kantoorrol (niet chauffeur). Planner is kritieke rol — 3x draaien wijst op óf salaris-probleem, óf leidinggeven-probleem, óf werk-inrichting. D2 primair, D8 secundair — vraag in gesprek welke richting."
+        },
+        {
+          "id": "99001122",
+          "naam": "Achterhoek Transport Groep BV",
+          "kvk": "99001122",
+          "plaats": "Doetinchem",
+          "provincie": "Gelderland",
+          "sector": "Goederenvervoer over de weg (SBI 49410)",
+          "fte_klasse": "50-99",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A5",
+            "naam": "Familie-MKB professionaliseert",
+            "beschrijving": "Generatie-wissel of opvolging is gaande. Kantelpunt waarop informele familie-afspraken gedocumenteerd en formeel gemaakt moeten worden."
+          },
+          "signalen": [
+            {
+              "tekst": "Oprichter (67) nog bestuurder, dochter (35) recent bestuurder geworden",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Website-tekst vermeldt 'sinds 1962' en 'familiaal karakter'",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "Geen arbeidsvoorwaarden-sectie op website",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "Recent vacature voor 'Teamleider chauffeurs' — eerste formele leidinggevende laag",
+              "bron": "Jobdigger"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 96
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 82
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "secundair",
+              "score": 64
+            }
+          ],
+          "observatie": "Generatie-wissel + eerste management-laag = klassiek PAVO-profiel. Alle drie de diensten (D5, D7, D8) relevant. Minder acuut dan A2-leads, maar langdurige engagement mogelijk."
+        }
+      ]
+    },
+    {
+      "id": "search-3-zakelijk",
+      "titel": "Zakelijke dienstverlening — 15-50 FTE — Randstad",
+      "filters": {
+        "fte_min": "10-19",
+        "fte_max": "20-49",
+        "sector_label": "Zakelijke dienstverlening",
+        "sector_sbi_prefix": [
+          "69",
+          "70",
+          "71",
+          "72",
+          "73",
+          "74"
+        ],
+        "regio_label": "Randstad",
+        "regio_provincies": [
+          "Noord-Holland",
+          "Zuid-Holland",
+          "Utrecht"
+        ],
+        "signaal_query": "scale-up, beleid, leidinggeven"
+      },
+      "leads": [
+        {
+          "id": "12121212",
+          "naam": "Relay Consultancy BV",
+          "kvk": "12121212",
+          "plaats": "Amsterdam",
+          "provincie": "Noord-Holland",
+          "sector": "Management consultancy (SBI 70221)",
+          "fte_klasse": "20-49",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A1",
+            "naam": "Scale-up hits HR wall",
+            "beschrijving": "Snelle groei heeft het bedrijf voorbij het punt gedragen waar informele HR-afspraken volstaan. Professionalisering is noodzakelijk maar nog niet ingezet."
+          },
+          "signalen": [
+            {
+              "tekst": "Bedrijf van 7 naar 38 FTE in 22 maanden",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Recente Series A-ronde (TechLeap nieuws 6 maanden terug, €4M opgehaald)",
+              "bron": "Nieuws"
+            },
+            {
+              "tekst": "Vier vacatures tegelijk open, waaronder 'Head of People' (50+ dagen open)",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Nog geen personeelshandboek zichtbaar, evenmin arbeidsvoorwaarden-sectie",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "LinkedIn-bedrijfspagina toont gemiddelde tenure 1,3 jaar",
+              "bron": "LinkedIn-bedrijfspagina"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D6",
+              "naam": "Gebrek aan tijd en kennis voor personeelszaken",
+              "prioriteit": "primair",
+              "score": 92
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 86
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "secundair",
+              "score": 60
+            }
+          ],
+          "observatie": "Textbook scale-up. Open 'Head of People'-vacature suggereert dat ze de behoefte erkennen maar nog niet ingevuld hebben. Dat is juist de inkoopmoment voor PAVO — óf de rol helpen invullen, óf het interim-gat overbruggen. D6 (tijd/kennis) primair, D7 en D8 groeien mee."
+        },
+        {
+          "id": "13131313",
+          "naam": "De Jong & Partners Advocaten",
+          "kvk": "13131313",
+          "plaats": "Utrecht",
+          "provincie": "Utrecht",
+          "sector": "Rechtskundige dienstverlening (SBI 69101)",
+          "fte_klasse": "10-19",
+          "warmte": "COLD",
+          "archetype": null,
+          "signalen": [
+            {
+              "tekst": "Kleine advocatenpraktijk, stabiele FTE",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Partner-structuur, geen klassieke HR-behoefte",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Secretariaat regelt personeelszaken, geen groei-druk",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [],
+          "observatie": "Wettelijk raamwerk (advocatenwet, beroepsregels) maakt HR-uitbesteding ongebruikelijk. Geen signalen van pijn. Afleider."
+        },
+        {
+          "id": "14141414",
+          "naam": "Studio Kromme Amstel BV",
+          "kvk": "14141414",
+          "plaats": "Amsterdam",
+          "provincie": "Noord-Holland",
+          "sector": "Grafische vormgeving (SBI 74102)",
+          "fte_klasse": "10-19",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A3",
+            "naam": "Draaideur in operations",
+            "beschrijving": "Dezelfde functie wordt herhaaldelijk opnieuw ingevuld binnen korte tijd. Wijst op structureel probleem in werving, leidinggeven of arbeidsvoorwaarden."
+          },
+          "signalen": [
+            {
+              "tekst": "LinkedIn-bedrijfspagina: 9 van 15 medewerkers <18 maanden tenure",
+              "bron": "LinkedIn-bedrijfspagina"
+            },
+            {
+              "tekst": "Vacature 'Senior Designer' in 14 maanden 2x opnieuw uitgezet",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Glassdoor (2 reviews, beperkt): 'groeipijn', 'geen duidelijke richting'",
+              "bron": "Glassdoor"
+            },
+            {
+              "tekst": "Instagram/LinkedIn feed: veel focus op 'cultuur' en 'team outings' — kan duiden op compensation-via-sfeer",
+              "bron": "LinkedIn-bedrijfspagina"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D2",
+              "naam": "Hoog personeelsverloop",
+              "prioriteit": "primair",
+              "score": 93
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 83
+            }
+          ],
+          "observatie": "Creatieve sector heeft hoger verloop als norm, maar deze cijfers zitten boven gemiddelde. Studio-cultuur met sfeer-focus kan signaal zijn van gebrek aan structurele arbeidsvoorwaarden. D7 primair. Voorzichtig qua tooncommerciële — creative studios zijn allergisch voor 'HR-consultancy'-taal."
+        },
+        {
+          "id": "15151515",
+          "naam": "Finview Finance & Control BV",
+          "kvk": "15151515",
+          "plaats": "Rotterdam",
+          "provincie": "Zuid-Holland",
+          "sector": "Administratiekantoren (SBI 69202)",
+          "fte_klasse": "20-49",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A1",
+            "naam": "Scale-up hits HR wall",
+            "beschrijving": "Snelle groei heeft het bedrijf voorbij het punt gedragen waar informele HR-afspraken volstaan. Professionalisering is noodzakelijk maar nog niet ingezet."
+          },
+          "signalen": [
+            {
+              "tekst": "Groei van 12 naar 41 FTE in 20 maanden (2 KvK-klasse-sprongen)",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Recent artikel in lokaal nieuws over snelle groei en nieuwe kantoorruimte",
+              "bron": "Nieuws"
+            },
+            {
+              "tekst": "Oprichter én medeoprichter staan nog als enige bestuurders, geen COO of CFO",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Vacatures voor junior én senior tegelijk — breedte van behoefte",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Geen HR-functie op LinkedIn-bedrijfspagina",
+              "bron": "LinkedIn-bedrijfspagina"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D6",
+              "naam": "Gebrek aan tijd en kennis voor personeelszaken",
+              "prioriteit": "primair",
+              "score": 95
+            },
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 85
+            }
+          ],
+          "observatie": "Administratiekantoor dat zelf snel groeit en de kookkunst niet op zijn eigen HR toepast. Bekend patroon. Goede ingang via 'professionalize-wat-je-aan-klanten-predikt'-frame."
+        },
+        {
+          "id": "16161616",
+          "naam": "Bright Marketing BV",
+          "kvk": "16161616",
+          "plaats": "Haarlem",
+          "provincie": "Noord-Holland",
+          "sector": "Reclamebureaus (SBI 73111)",
+          "fte_klasse": "10-19",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A5",
+            "naam": "Familie-MKB professionaliseert",
+            "beschrijving": "Generatie-wissel of opvolging is gaande. Kantelpunt waarop informele familie-afspraken gedocumenteerd en formeel gemaakt moeten worden."
+          },
+          "signalen": [
+            {
+              "tekst": "Oprichter aftredend, opvolger (niet-familielid) 2 maanden geleden aangetreden",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Website 'Over ons' vermeldt 20-jarig bestaan",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "Geen personeelshandboek, vacaturetekst informeel ('jij past bij ons als je...')",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Stabiele FTE al jaren",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 94
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "primair",
+              "score": 84
+            }
+          ],
+          "observatie": "Wisseling van generatie-wissel (oprichter-naar-opvolger zonder familieband). Opvolger wil vaak professionaliseren. D7 en D8 primair. Lagere urgentie, langere verkoopcyclus."
+        },
+        {
+          "id": "17171717",
+          "naam": "TechLegal BV",
+          "kvk": "17171717",
+          "plaats": "Amsterdam",
+          "provincie": "Noord-Holland",
+          "sector": "Rechtskundige dienstverlening (SBI 69101)",
+          "fte_klasse": "20-49",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A1",
+            "naam": "Scale-up hits HR wall",
+            "beschrijving": "Snelle groei heeft het bedrijf voorbij het punt gedragen waar informele HR-afspraken volstaan. Professionalisering is noodzakelijk maar nog niet ingezet."
+          },
+          "signalen": [
+            {
+              "tekst": "Niche-kantoor gericht op tech/AI-contracten, gegroeid van 8 naar 31 FTE in 24 maanden",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Vacature 'Legal Director' én 'Senior Counsel' tegelijk — groei-signaal",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Blog-posts signaleren klanten-overvraag",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Geen zichtbare HR-functie ondanks 30+ FTE",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Partners hebben zelf geen HR-achtergrond zichtbaar",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D6",
+              "naam": "Gebrek aan tijd en kennis voor personeelszaken",
+              "prioriteit": "primair",
+              "score": 93
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 87
+            }
+          ],
+          "observatie": "Sterke scale-up in juridische niche. Partners zijn juristen, geen HR-mensen — typisch profiel waar PAVO externe HR-rol kan vervullen. Goede marktklanten-positie maakt investeringen mogelijk."
+        },
+        {
+          "id": "18181818",
+          "naam": "Rotterdam Research & Analytics BV",
+          "kvk": "18181818",
+          "plaats": "Rotterdam",
+          "provincie": "Zuid-Holland",
+          "sector": "Markt- en opinieonderzoek (SBI 73201)",
+          "fte_klasse": "10-19",
+          "warmte": "COLD",
+          "archetype": null,
+          "signalen": [
+            {
+              "tekst": "Partner-structuur, drie medevennoten",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Stabiele FTE 4 jaar, trage groei",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Externe HR-partner gemeld op website (Driessen)",
+              "bron": "bedrijfswebsite"
+            }
+          ],
+          "diensten": [],
+          "observatie": "Al HR extern geregeld. Concurrentie-verhaal nodig om wissel te triggeren. Afleider tenzij contract-einde bekend."
+        },
+        {
+          "id": "19191919",
+          "naam": "Ventu Innovation Consulting BV",
+          "kvk": "19191919",
+          "plaats": "Utrecht",
+          "provincie": "Utrecht",
+          "sector": "Bedrijfsadvies (SBI 70221)",
+          "fte_klasse": "10-19",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A3",
+            "naam": "Draaideur in operations",
+            "beschrijving": "Dezelfde functie wordt herhaaldelijk opnieuw ingevuld binnen korte tijd. Wijst op structureel probleem in werving, leidinggeven of arbeidsvoorwaarden."
+          },
+          "signalen": [
+            {
+              "tekst": "LinkedIn: 6 van 14 consultants <12 maanden tenure",
+              "bron": "LinkedIn-bedrijfspagina"
+            },
+            {
+              "tekst": "Vacature 'Management Consultant' in 10 maanden 3x uitgezet",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Oprichter actief op LinkedIn met burnout-gerelateerde posts",
+              "bron": "LinkedIn-bedrijfspagina"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D2",
+              "naam": "Hoog personeelsverloop",
+              "prioriteit": "primair",
+              "score": 95
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "primair",
+              "score": 81
+            }
+          ],
+          "observatie": "Hoog verloop in consultancy is normaal, maar deze ratio is aan de hoge kant voor team van 14. Burnout-posts oprichter kunnen wijzen op leidinggeven-overbelasting. Gevoelig dossier — benadering via 'werkdruk-management' eerder dan via 'HR-optimalisatie'."
+        }
+      ]
+    },
+    {
+      "id": "search-4-productie",
+      "titel": "Productie & techniek — 80-200 FTE — Brainport/Twente",
+      "filters": {
+        "fte_min": "50-99",
+        "fte_max": "100-199",
+        "sector_label": "Productie & techniek",
+        "sector_sbi_prefix": [
+          "10",
+          "22",
+          "25",
+          "26",
+          "27",
+          "28"
+        ],
+        "regio_label": "Brabant/Gelderland/Overijssel/Limburg",
+        "regio_provincies": [
+          "Noord-Brabant",
+          "Gelderland",
+          "Overijssel",
+          "Limburg"
+        ],
+        "signaal_query": "verzuim, regelgeving, leidinggeven"
+      },
+      "leads": [
+        {
+          "id": "20202020",
+          "naam": "Metaalbedrijf Veltman BV",
+          "kvk": "20202020",
+          "plaats": "Enschede",
+          "provincie": "Overijssel",
+          "sector": "Machinale metaalbewerking (SBI 25621)",
+          "fte_klasse": "100-199",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A8",
+            "naam": "Verzuim-spiraal in fysieke sector",
+            "beschrijving": "Verhoogd verzuimpercentage in combinatie met fysiek belastende sector. Vaak verweven met leiderschap-kwaliteit en werk-inrichting."
+          },
+          "signalen": [
+            {
+              "tekst": "Jaarverslag 2024: verzuim 8,4% (metaal-gemiddelde 5,7%)",
+              "bron": "KvK-deponering"
+            },
+            {
+              "tekst": "Drie UWV-procedures op rechtspraak.nl afgelopen 18 maanden",
+              "bron": "Rechtspraak.nl"
+            },
+            {
+              "tekst": "Recente vacature 'Arbo-coördinator' — nooit eerder dergelijke functie uitgezet",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Branche-rapport CBS: Twente-regio metaal structureel verhoogd verzuim",
+              "bron": "CBS"
+            },
+            {
+              "tekst": "Bedrijf CAO Metalektro, cao-harmonisatie in gang (cao-tekst-wijzigingen 2025)",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D4",
+              "naam": "Hulp bij (langdurig) verzuim",
+              "prioriteit": "primair",
+              "score": 95
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "primair",
+              "score": 85
+            },
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "secundair",
+              "score": 69
+            }
+          ],
+          "observatie": "Zeer sterke hot-lead voor PAVO's verzuim-expertise. Nieuwe arbo-functie wijst op erkenning intern, maar PAVO kan structurele advieslaag erbovenop leveren. CAO-context versterkt D5-aanknopingspunt."
+        },
+        {
+          "id": "21212121",
+          "naam": "Schoemaker Machine Engineering BV",
+          "kvk": "21212121",
+          "plaats": "Helmond",
+          "provincie": "Noord-Brabant",
+          "sector": "Machine-industrie (SBI 28291)",
+          "fte_klasse": "100-199",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A4",
+            "naam": "Werf-wanhoop in krappe branche",
+            "beschrijving": "Bedrijf toont meerdere signalen van structurele wervingsproblemen gecombineerd met gebrek aan HR-capaciteit om dit strategisch aan te pakken."
+          },
+          "signalen": [
+            {
+              "tekst": "9 vacatures open, meeste >60 dagen",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Brainport-regio: vacaturegraad techniek 2,3x landelijk (CBS)",
+              "bron": "CBS"
+            },
+            {
+              "tekst": "Vacaturetekst vermeldt relocation-bonus voor buitenlandse kandidaten",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Bedrijf partneren met technische hogescholen (Fontys zichtbaar)",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Jaarverslag meldt 'beperking door werving' als bedrijfsrisico",
+              "bron": "KvK-deponering"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 94
+            },
+            {
+              "code": "D6",
+              "naam": "Gebrek aan tijd en kennis voor personeelszaken",
+              "prioriteit": "primair",
+              "score": 88
+            }
+          ],
+          "observatie": "Chronische wervingspijn in krappe markt. Al actief met universiteiten, dus pure 'werving-hulp' is te dun. PAVO-angle: werkgeversbranding, retentie, strategische HR-planning. D6 (strategische HR-capaciteit) belangrijker dan simpele D1."
+        },
+        {
+          "id": "22222222",
+          "naam": "Foodservice Brabant BV",
+          "kvk": "22222222",
+          "plaats": "Eindhoven",
+          "provincie": "Noord-Brabant",
+          "sector": "Vervaardiging bereide maaltijden (SBI 10851)",
+          "fte_klasse": "100-199",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A6",
+            "naam": "Post-overname HR-chaos",
+            "beschrijving": "Recente overname creëert integratie-vraagstukken rond arbeidsvoorwaarden-harmonisatie, management-structuur en culturele afstemming."
+          },
+          "signalen": [
+            {
+              "tekst": "Overname 8 maanden terug door Belgische holding",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Drie KvK-registratie-wijzigingen afgelopen jaar",
+              "bron": "KvK-deponering"
+            },
+            {
+              "tekst": "Vacature-tekst gebruikt twee verschillende CAO-verwijzingen (inconsistent)",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Nieuws over 'harmonisatie-traject' in branche-publicatie 3 maanden geleden",
+              "bron": "Nieuws"
+            },
+            {
+              "tekst": "Oprichter vertrokken, nieuwe plant manager uit overnemende partij aangesteld",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 93
+            },
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 89
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "secundair",
+              "score": 67
+            }
+          ],
+          "observatie": "Post-overname complexiteit op volle kracht. Arbeidsvoorwaarden-harmonisatie na cross-border acquisitie is juridisch pittig en emotioneel gevoelig. Hoogwaardige PAVO-klus, waarschijnlijk langere engagement."
+        },
+        {
+          "id": "23232323",
+          "naam": "Hesseltech BV",
+          "kvk": "23232323",
+          "plaats": "Almelo",
+          "provincie": "Overijssel",
+          "sector": "Vervaardiging van elektrische apparaten (SBI 27511)",
+          "fte_klasse": "50-99",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A3",
+            "naam": "Draaideur in operations",
+            "beschrijving": "Dezelfde functie wordt herhaaldelijk opnieuw ingevuld binnen korte tijd. Wijst op structureel probleem in werving, leidinggeven of arbeidsvoorwaarden."
+          },
+          "signalen": [
+            {
+              "tekst": "Vacature 'Productieleider' in 16 maanden 2x opnieuw uitgezet",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Managementlaag recent uitgebreid: 2 nieuwe teamleiders benoemd vorig jaar",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Glassdoor-review: 'leidinggevenden zijn pas net benoemd en leren nog'",
+              "bron": "Glassdoor"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D2",
+              "naam": "Hoog personeelsverloop",
+              "prioriteit": "primair",
+              "score": 96
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "primair",
+              "score": 86
+            }
+          ],
+          "observatie": "Middle-management crisis, klassiek patroon bij productiebedrijven die groeien. D8 (leidinggeven-ontwikkeling) primair. PAVO kan leiderschapsprogramma + coaching bieden."
+        },
+        {
+          "id": "24242424",
+          "naam": "Nederlandse Rubberfabriek BV",
+          "kvk": "24242424",
+          "plaats": "Doetinchem",
+          "provincie": "Gelderland",
+          "sector": "Vervaardiging rubberproducten (SBI 22191)",
+          "fte_klasse": "100-199",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A8",
+            "naam": "Verzuim-spiraal in fysieke sector",
+            "beschrijving": "Verhoogd verzuimpercentage in combinatie met fysiek belastende sector. Vaak verweven met leiderschap-kwaliteit en werk-inrichting."
+          },
+          "signalen": [
+            {
+              "tekst": "Jaarverslag 2024: verzuim 9,8%",
+              "bron": "KvK-deponering"
+            },
+            {
+              "tekst": "Werknemers-ontslagzaak op rechtspraak.nl 4 maanden terug (langdurig verzuim)",
+              "bron": "Rechtspraak.nl"
+            },
+            {
+              "tekst": "Recent inspectie-bezoek NLA volgens regionale media",
+              "bron": "Nieuws"
+            },
+            {
+              "tekst": "Geen arbo-catalogus op website ondanks sector-norm",
+              "bron": "bedrijfswebsite"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D4",
+              "naam": "Hulp bij (langdurig) verzuim",
+              "prioriteit": "primair",
+              "score": 97
+            },
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 85
+            }
+          ],
+          "observatie": "Acute verzuim- én toezichts-druk. NLA-inspectie is serieus signaal. PAVO-ingang via risico-inventarisatie + verzuimbegeleiding. Snelle urgentie."
+        },
+        {
+          "id": "25252525",
+          "naam": "BrainPort Semiconductor Solutions BV",
+          "kvk": "25252525",
+          "plaats": "Eindhoven",
+          "provincie": "Noord-Brabant",
+          "sector": "Semiconductor industrie (SBI 26111)",
+          "fte_klasse": "100-199",
+          "warmte": "COLD",
+          "archetype": null,
+          "signalen": [
+            {
+              "tekst": "Onderdeel van groter internationaal concern",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Uitgebreide interne HR-afdeling zichtbaar",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "CAO Metalektro toegepast met eigen uitbreidingen",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Stabiele performance-indicatoren",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [],
+          "observatie": "Te groot en te geprofessionaliseerd. Eventuele niche-advies mogelijk maar PAVO waarschijnlijk niet de juiste schaal. Afleider."
+        },
+        {
+          "id": "26262626",
+          "naam": "Kramer Kunststoffen BV",
+          "kvk": "26262626",
+          "plaats": "Hengelo",
+          "provincie": "Overijssel",
+          "sector": "Vervaardiging kunststofproducten (SBI 22291)",
+          "fte_klasse": "50-99",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A2",
+            "naam": "50-FTE drempel gepasseerd",
+            "beschrijving": "Bedrijf heeft recent de wettelijke drempel van 50 medewerkers overschreden, wat nieuwe verplichtingen activeert op OR-instelling, verzuimrapportage en arbo-beleid."
+          },
+          "signalen": [
+            {
+              "tekst": "KvK-klasse 4 maanden geleden overgegaan naar 50-99",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "CAO Kunststof- en rubberindustrie van toepassing — OR nu verplicht",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Kunststoffen is top-10 verzuim-sector",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Geen HR-functie op LinkedIn, oprichter als contactpersoon personeel",
+              "bron": "LinkedIn-bedrijfspagina"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 96
+            },
+            {
+              "code": "D4",
+              "naam": "Hulp bij (langdurig) verzuim",
+              "prioriteit": "primair",
+              "score": 86
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "secundair",
+              "score": 64
+            }
+          ],
+          "observatie": "Drempel-lead in verhoogd-risico-sector. Triple-matchpotentie (D5, D4, D7). Urgente actie binnen 90 dagen gewenst — OR-installatie-procedure duurt en moet proactief."
+        },
+        {
+          "id": "27272727",
+          "naam": "Twentse Voedingsindustrie BV",
+          "kvk": "27272727",
+          "plaats": "Oldenzaal",
+          "provincie": "Overijssel",
+          "sector": "Vervaardiging geconserveerde voedingsmiddelen (SBI 10391)",
+          "fte_klasse": "100-199",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A7",
+            "naam": "Seizoenspieken zonder flex-laag",
+            "beschrijving": "Structureel seizoenspatroon wordt ad-hoc opgevangen zonder strategische flex-strategie. Inefficiënt en duur op langere termijn."
+          },
+          "signalen": [
+            {
+              "tekst": "Jaarlijkse piek zichtbaar in Jobdigger-historie rond juni-augustus (zomer-oogstverwerking)",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Wisselend uitzendbureau-gebruik per jaar — geen strategisch partner",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "CAO Voedingsindustrie van toepassing",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Stabiele FTE-klasse, piek wordt met uitzend opgevangen",
+              "bron": "KvK-historie"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D3",
+              "naam": "Onvoldoende flexibiliteit in personeelsinzet",
+              "prioriteit": "primair",
+              "score": 96
+            },
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 86
+            }
+          ],
+          "observatie": "Patroon-matig seizoensbedrijf. PAVO-angle: strategische flex-laag opzetten, meerjaren-contracten met uitzendpartner, retentie van piek-krachten. D3 primair."
+        }
+      ]
+    },
+    {
+      "id": "search-5-retail",
+      "titel": "Retail & e-commerce — 20-60 FTE — gemengd",
+      "filters": {
+        "fte_min": "20-49",
+        "fte_max": "50-99",
+        "sector_label": "Retail & e-commerce",
+        "sector_sbi_prefix": [
+          "45",
+          "46",
+          "47"
+        ],
+        "regio_label": "Heel Nederland",
+        "regio_provincies": [],
+        "signaal_query": "seizoenspieken, verloop, familie"
+      },
+      "leads": [
+        {
+          "id": "30303030",
+          "naam": "Winkelketen De Pelikaan BV",
+          "kvk": "30303030",
+          "plaats": "Zwolle",
+          "provincie": "Overijssel",
+          "sector": "Detailhandel in huishoudelijke artikelen (SBI 47521)",
+          "fte_klasse": "50-99",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A7",
+            "naam": "Seizoenspieken zonder flex-laag",
+            "beschrijving": "Structureel seizoenspatroon wordt ad-hoc opgevangen zonder strategische flex-strategie. Inefficiënt en duur op langere termijn."
+          },
+          "signalen": [
+            {
+              "tekst": "10 vestigingen, jaarlijkse piek november-januari (feestdagen + winteruitverkoop)",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Vacatures voor winkelmedewerkers 3x piekaantal in oktober-november",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Draaideur op verkoopleiders (LinkedIn-tenure gemiddeld 1,4 jaar)",
+              "bron": "LinkedIn-bedrijfspagina"
+            },
+            {
+              "tekst": "Geen strategische flex-laag zichtbaar",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Recent aankondiging 2 nieuwe filialen in 2026",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D3",
+              "naam": "Onvoldoende flexibiliteit in personeelsinzet",
+              "prioriteit": "primair",
+              "score": 97
+            },
+            {
+              "code": "D2",
+              "naam": "Hoog personeelsverloop",
+              "prioriteit": "primair",
+              "score": 85
+            },
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "secundair",
+              "score": 71
+            }
+          ],
+          "observatie": "Klassiek retail-patroon: seizoenspiek + hoog verloop + groei = drievoudige druk. D3, D2, D1 allemaal relevant. Goede kandidaat voor meerjaren-HR-partnerschap."
+        },
+        {
+          "id": "31313131",
+          "naam": "Modehuis Verhoef BV",
+          "kvk": "31313131",
+          "plaats": "Breda",
+          "provincie": "Noord-Brabant",
+          "sector": "Detailhandel in kleding (SBI 47711)",
+          "fte_klasse": "20-49",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A5",
+            "naam": "Familie-MKB professionaliseert",
+            "beschrijving": "Generatie-wissel of opvolging is gaande. Kantelpunt waarop informele familie-afspraken gedocumenteerd en formeel gemaakt moeten worden."
+          },
+          "signalen": [
+            {
+              "tekst": "Familiezaak 3e generatie (websitetekst)",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "Vader (62) en zoon (34) beide bestuurder, dochter recent toegevoegd",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Geen personeelshandboek op website",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "CAO Mode- en sportdetailhandel van toepassing",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 93
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 85
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "secundair",
+              "score": 61
+            }
+          ],
+          "observatie": "Generatie-overgang klassiek voorbeeld. Drie leden één familie in bestuur kan zowel sterkte als conflict-bron zijn. PAVO-angle: formalisering van informele afspraken, rol-verheldering, opvolging-planning."
+        },
+        {
+          "id": "32323232",
+          "naam": "OnlineTrends E-commerce BV",
+          "kvk": "32323232",
+          "plaats": "Amsterdam",
+          "provincie": "Noord-Holland",
+          "sector": "Detailhandel via internet (SBI 47911)",
+          "fte_klasse": "20-49",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A1",
+            "naam": "Scale-up hits HR wall",
+            "beschrijving": "Snelle groei heeft het bedrijf voorbij het punt gedragen waar informele HR-afspraken volstaan. Professionalisering is noodzakelijk maar nog niet ingezet."
+          },
+          "signalen": [
+            {
+              "tekst": "Van 8 naar 38 FTE in 18 maanden",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Piek-behoefte Q4 (Black Friday, feestdagen)",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Geen HR-functie zichtbaar, founders behandelen zelf personeel",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Vacature 'Operations Manager' 73 dagen open",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "LinkedIn-post oprichter recent: 'onze onboarding moet beter'",
+              "bron": "LinkedIn-bedrijfspagina"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D6",
+              "naam": "Gebrek aan tijd en kennis voor personeelszaken",
+              "prioriteit": "primair",
+              "score": 96
+            },
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 80
+            },
+            {
+              "code": "D3",
+              "naam": "Onvoldoende flexibiliteit in personeelsinzet",
+              "prioriteit": "secundair",
+              "score": 70
+            }
+          ],
+          "observatie": "E-commerce scale-up met klassieke triple-druk: groei + seizoenspiek + gebrek aan HR-structuur. De LinkedIn-post van oprichter is bijna een open uitnodiging. Urgente ingang."
+        },
+        {
+          "id": "33333333",
+          "naam": "Bakkerij Het Broodhuis BV",
+          "kvk": "33333333",
+          "plaats": "Delft",
+          "provincie": "Zuid-Holland",
+          "sector": "Vervaardiging van brood (SBI 10711)",
+          "fte_klasse": "20-49",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A8",
+            "naam": "Verzuim-spiraal in fysieke sector",
+            "beschrijving": "Verhoogd verzuimpercentage in combinatie met fysiek belastende sector. Vaak verweven met leiderschap-kwaliteit en werk-inrichting."
+          },
+          "signalen": [
+            {
+              "tekst": "Vroege-ochtend-werk, hoog fysiek beroep",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "3 vacatures voor broodbakker open (krappe markt)",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Bakkersbranche structureel top-3 verzuim",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Geen jaarverslag gedeponeerd dus geen eigen verzuim-cijfers bekend",
+              "bron": "KvK-deponering"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D4",
+              "naam": "Hulp bij (langdurig) verzuim",
+              "prioriteit": "primair",
+              "score": 95
+            },
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 83
+            }
+          ],
+          "observatie": "Branche-risico-profiel eerder dan bedrijfs-specifiek signaal. Zonder harde verzuim-data is dit meer WARM dan HOT. D4 via branche-expertise, D1 via werving-schaarste."
+        },
+        {
+          "id": "34343434",
+          "naam": "Kinderkleding Polly & Tim BV",
+          "kvk": "34343434",
+          "plaats": "Zaandam",
+          "provincie": "Noord-Holland",
+          "sector": "Detailhandel kinderkleding (SBI 47713)",
+          "fte_klasse": "10-19",
+          "warmte": "COLD",
+          "archetype": null,
+          "signalen": [
+            {
+              "tekst": "Kleine FTE, onder minimumgrens voor de meeste PAVO-diensten",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Familie-eigendom, alleen eigenaar en partner als bestuurders",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Weinig vacatures, stabiele situatie",
+              "bron": "Jobdigger"
+            }
+          ],
+          "diensten": [],
+          "observatie": "Te klein voor PAVO-engagement. Afleider op regio-filter, niet op dienst-match."
+        },
+        {
+          "id": "35353535",
+          "naam": "GroothandelGroep Maas BV",
+          "kvk": "35353535",
+          "plaats": "Venlo",
+          "provincie": "Limburg",
+          "sector": "Groothandel in levensmiddelen (SBI 46311)",
+          "fte_klasse": "50-99",
+          "warmte": "HOT",
+          "archetype": {
+            "code": "A6",
+            "naam": "Post-overname HR-chaos",
+            "beschrijving": "Recente overname creëert integratie-vraagstukken rond arbeidsvoorwaarden-harmonisatie, management-structuur en culturele afstemming."
+          },
+          "signalen": [
+            {
+              "tekst": "Overgenomen door Duitse groothandel 14 maanden terug",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Recent drie bestuurderswissels in 6 maanden",
+              "bron": "KvK-historie"
+            },
+            {
+              "tekst": "Vacatures gebruiken inconsistent 'CAO Groothandel' en 'Gruppen-CAO'",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Duitse moeder oefent druk uit op harmonisatie (branche-nieuws)",
+              "bron": "Nieuws"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D7",
+              "naam": "Onduidelijk personeelsbeleid",
+              "prioriteit": "primair",
+              "score": 96
+            },
+            {
+              "code": "D5",
+              "naam": "Hulp bij regelgeving/afspraken",
+              "prioriteit": "primair",
+              "score": 84
+            }
+          ],
+          "observatie": "Cross-border harmonisatie-complexiteit. Juridisch verschil NL-D arbeidsrecht is aanzienlijk — PAVO kan brug-functie vervullen. Hoogwaardige langere engagement."
+        },
+        {
+          "id": "36363636",
+          "naam": "Tuincentrum De Lente BV",
+          "kvk": "36363636",
+          "plaats": "Utrecht",
+          "provincie": "Utrecht",
+          "sector": "Detailhandel in bloemen en planten (SBI 47761)",
+          "fte_klasse": "20-49",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A7",
+            "naam": "Seizoenspieken zonder flex-laag",
+            "beschrijving": "Structureel seizoenspatroon wordt ad-hoc opgevangen zonder strategische flex-strategie. Inefficiënt en duur op langere termijn."
+          },
+          "signalen": [
+            {
+              "tekst": "Duidelijke seizoenspiek maart-mei (planttijd)",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Jaarlijkse vacature-piek zichtbaar in historie",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Gebruikt telkens ander uitzendbureau",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Stabiele vaste-kern-FTE",
+              "bron": "KvK"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D3",
+              "naam": "Onvoldoende flexibiliteit in personeelsinzet",
+              "prioriteit": "primair",
+              "score": 95
+            },
+            {
+              "code": "D1",
+              "naam": "Moeite met vinden van personeel",
+              "prioriteit": "primair",
+              "score": 83
+            }
+          ],
+          "observatie": "Typisch seizoensbedrijf zonder flex-strategie. D3 primair. Minder acuut dan retail-ketens omdat schaal kleiner is, maar chronisch."
+        },
+        {
+          "id": "37373737",
+          "naam": "Computer & Cartridge Online BV",
+          "kvk": "37373737",
+          "plaats": "Groningen",
+          "provincie": "Groningen",
+          "sector": "Detailhandel via internet (SBI 47912)",
+          "fte_klasse": "20-49",
+          "warmte": "WARM",
+          "archetype": {
+            "code": "A3",
+            "naam": "Draaideur in operations",
+            "beschrijving": "Dezelfde functie wordt herhaaldelijk opnieuw ingevuld binnen korte tijd. Wijst op structureel probleem in werving, leidinggeven of arbeidsvoorwaarden."
+          },
+          "signalen": [
+            {
+              "tekst": "LinkedIn-tenure gemiddeld 14 maanden bij team van 32",
+              "bron": "LinkedIn-bedrijfspagina"
+            },
+            {
+              "tekst": "Vacature 'Customer Service Manager' 3x in 18 maanden uitgezet",
+              "bron": "Jobdigger"
+            },
+            {
+              "tekst": "Google-reviews ex-medewerkers (4 van laatste 8 reviews negatief)",
+              "bron": "Glassdoor"
+            }
+          ],
+          "diensten": [
+            {
+              "code": "D2",
+              "naam": "Hoog personeelsverloop",
+              "prioriteit": "primair",
+              "score": 93
+            },
+            {
+              "code": "D8",
+              "naam": "Hulp bij leidinggeven aan personeel",
+              "prioriteit": "primair",
+              "score": 85
+            }
+          ],
+          "observatie": "Mogelijk leiderschaps- of cultuur-probleem. Gevoelig dossier — ingang via feitelijke cijfers, niet via 'verbeter jullie cultuur'-verhaal. D2 primair, D8 als structurele oplossing."
+        },
+        {
+          "id": "38383838",
+          "naam": "Biologisch Warenhuis 't Veld BV",
+          "kvk": "38383838",
+          "plaats": "Arnhem",
+          "provincie": "Gelderland",
+          "sector": "Detailhandel in voedingsmiddelen (SBI 47291)",
+          "fte_klasse": "20-49",
+          "warmte": "COLD",
+          "archetype": null,
+          "signalen": [
+            {
+              "tekst": "Stabiele FTE al 4 jaar",
+              "bron": "KvK"
+            },
+            {
+              "tekst": "Externe HR-partner op website (ADP)",
+              "bron": "bedrijfswebsite"
+            },
+            {
+              "tekst": "Normale vacature-rotatie",
+              "bron": "Jobdigger"
+            }
+          ],
+          "diensten": [],
+          "observatie": "HR regelgeving al uitbesteed. Wissel-verhaal nodig, geen pijn-verhaal. Afleider."
+        }
+      ]
+    }
+  ]
+}
