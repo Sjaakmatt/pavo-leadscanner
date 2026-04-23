@@ -16,7 +16,7 @@ export default function ServiceMatchBar({
       <div className="flex items-center gap-2">
         <BadgeIcon className="h-4 w-4 text-pavo-teal" />
         <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
-          Match met PAVO-diensten
+          Waar PAVO kan helpen
         </h2>
       </div>
 
@@ -25,14 +25,33 @@ export default function ServiceMatchBar({
           Geen significante dienst-match gevonden.
         </p>
       ) : (
-        <div className="mt-4 space-y-6">
-          {primair.length > 0 && (
-            <Group title="Primair" items={primair} />
-          )}
-          {secundair.length > 0 && (
-            <Group title="Secundair" items={secundair} />
-          )}
-        </div>
+        <>
+          <p className="mt-2 text-sm text-pavo-gray-900">
+            Op basis van de gedetecteerde signalen matchen{" "}
+            {primair.length > 0 ? (
+              <>
+                <strong className="font-semibold text-pavo-navy">
+                  {primair.length} primaire
+                </strong>{" "}
+                {primair.length === 1 ? "dienst" : "diensten"}
+              </>
+            ) : (
+              "geen primaire diensten"
+            )}
+            {secundair.length > 0 &&
+              ` en ${secundair.length} secundaire ${secundair.length === 1 ? "dienst" : "diensten"}`}{" "}
+            uit het PAVO-portfolio.
+          </p>
+
+          <div className="mt-5 space-y-6">
+            {primair.length > 0 && (
+              <Group title="Primair — hier zou PAVO als eerste insteken" items={primair} />
+            )}
+            {secundair.length > 0 && (
+              <Group title="Secundair — ondersteunende diensten" items={secundair} />
+            )}
+          </div>
+        </>
       )}
     </section>
   );
@@ -52,7 +71,7 @@ function Group({ title, items }: { title: string; items: DienstMatch[] }) {
                 <span className="inline-flex min-w-[36px] justify-center rounded-md bg-pavo-teal/10 px-2 py-0.5 text-xs font-semibold text-pavo-teal">
                   {d.code}
                 </span>
-                <span className="text-pavo-gray-900">{d.naam}</span>
+                <span className="font-medium text-pavo-gray-900">{d.naam}</span>
               </div>
               <span className="text-sm font-semibold tabular-nums text-pavo-navy">
                 {d.score}%

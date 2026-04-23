@@ -10,19 +10,19 @@ import { DEFAULT_FILTERS } from "@/lib/filter";
 
 type Relaxation = { regio: boolean; fte: boolean };
 
+// One "active" state covers streaming AND post-streaming: the
+// StreamingStatus component mounts once per search and transitions
+// itself from live-ticker to collapsed-summary. Splitting the state
+// caused the status card to remount on the streaming -> results
+// transition, which restarted the whole narrative from step 1.
 type ViewState =
   | { kind: "empty" }
   | {
-      kind: "streaming";
-      steps: StreamStep[];
-      pendingLeads: Lead[];
-      relaxation: Relaxation;
-    }
-  | {
-      kind: "results";
+      kind: "active";
       steps: StreamStep[];
       leads: Lead[];
       relaxation: Relaxation;
+      streamingDone: boolean;
     };
 
 export default function DashboardPage() {
@@ -44,10 +44,11 @@ export default function DashboardPage() {
         relaxation: Relaxation;
       };
       setView({
-        kind: "streaming",
+        kind: "active",
         steps: data.steps,
-        pendingLeads: data.leads,
+        leads: data.leads,
         relaxation: data.relaxation ?? { regio: false, fte: false },
+        streamingDone: false,
       });
     } catch (err) {
       console.error(err);
@@ -56,15 +57,9 @@ export default function DashboardPage() {
   }
 
   function handleStreamingComplete() {
-    setView((curr) => {
-      if (curr.kind !== "streaming") return curr;
-      return {
-        kind: "results",
-        steps: curr.steps,
-        leads: curr.pendingLeads,
-        relaxation: curr.relaxation,
-      };
-    });
+    setView((curr) =>
+      curr.kind === "active" ? { ...curr, streamingDone: true } : curr,
+    );
     setLoading(false);
   }
 
@@ -86,7 +81,7 @@ export default function DashboardPage() {
         loading={loading}
       />
 
-      <div className="mt-8">
+      <div className="mt-8 space-y-6">
         <AnimatePresence mode="wait">
           {view.kind === "empty" && (
             <motion.div
@@ -107,46 +102,43 @@ export default function DashboardPage() {
               </p>
             </motion.div>
           )}
-
-          {view.kind === "streaming" && (
-            <motion.div
-              key="streaming"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <StreamingStatus
-                steps={view.steps}
-                onComplete={handleStreamingComplete}
-              />
-            </motion.div>
-          )}
-
-          {view.kind === "results" && (
-            <motion.div
-              key="results"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-6"
-            >
-              <StreamingStatus steps={view.steps} />
-              {(view.relaxation.regio || view.relaxation.fte) &&
-                view.leads.length > 0 && (
-                  <RelaxationNotice relaxation={view.relaxation} />
-                )}
-              <div>
-                <div className="mb-3 text-sm text-pavo-gray-600">
-                  {view.leads.length}{" "}
-                  {view.leads.length === 1 ? "lead" : "leads"} gevonden
-                </div>
-                <LeadGrid leads={view.leads} />
-              </div>
-            </motion.div>
-          )}
         </AnimatePresence>
+
+        {view.kind === "active" && (
+          <>
+            {/* key = steps array => resets cleanly bij een nieuwe zoekopdracht */}
+            <StreamingStatus
+              key={view.steps.length + "-" + view.steps[0]?.text}
+              steps={view.steps}
+              onComplete={handleStreamingComplete}
+            />
+
+            <AnimatePresence>
+              {view.streamingDone && (
+                <motion.div
+                  key="results"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.25, ease: "easeOut" }}
+                  className="space-y-6"
+                >
+                  {(view.relaxation.regio || view.relaxation.fte) &&
+                    view.leads.length > 0 && (
+                      <RelaxationNotice relaxation={view.relaxation} />
+                    )}
+                  <div>
+                    <div className="mb-3 text-sm text-pavo-gray-600">
+                      {view.leads.length}{" "}
+                      {view.leads.length === 1 ? "lead" : "leads"} gevonden
+                    </div>
+                    <LeadGrid leads={view.leads} />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </>
+        )}
       </div>
     </div>
   );

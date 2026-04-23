@@ -6,11 +6,21 @@ import type { Signaal } from "@/lib/adapters/types";
 export default function SignalList({ signalen }: { signalen: Signaal[] }) {
   return (
     <section className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
-      <div className="flex items-center gap-2">
-        <SearchIcon className="h-4 w-4 text-pavo-teal" />
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
-          Gedetecteerde signalen
-        </h2>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <SearchIcon className="h-4 w-4 text-pavo-teal" />
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
+            Onderliggende signalen
+          </h2>
+        </div>
+        {signalen.length > 0 && (
+          <span className="text-xs text-pavo-gray-600">
+            {signalen.length}{" "}
+            {signalen.length === 1
+              ? "bron geraadpleegd"
+              : "bronnen geraadpleegd"}
+          </span>
+        )}
       </div>
 
       {signalen.length === 0 ? (
