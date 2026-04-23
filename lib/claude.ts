@@ -14,6 +14,26 @@ const meta = (leadsData as unknown as { meta: Meta }).meta;
 
 export const CHAT_MODEL = "claude-sonnet-4-6";
 export const CHAT_MAX_TOKENS = 1024;
+export const BRIEFING_MAX_TOKENS = 700;
+
+// Identical shape to a user turn — we reuse the full chat system prompt
+// (persona + portfolio + lead data) so the briefing and the chat share
+// the same cached prefix. First call: full cost. Every chat question
+// about the same lead after: cache HIT.
+export const BRIEFING_USER_PROMPT = `Schrijf een briefing voor de PAVO-consultant die dit dossier zo meteen opent.
+
+Structuur (exact deze koppen, geen andere markdown):
+
+## Situatie
+3-4 zinnen die de lead-data interpreteren — niet herhalen. Leg verbanden tussen signalen. Noem waar het knelt en waarom dit bedrijf nu relevant is voor PAVO.
+
+## Wat me opvalt
+2-3 genummerde observaties die de consultant niet direct uit de signalen-lijst leest. Wees specifiek en onderbouwd. Citeer kerngetallen of bronnen waar relevant.
+
+## Zo zou ik het eerste gesprek openen
+2-3 concrete aanpak-suggesties. Korte zinnen. Gesprekshoek, niet verkooppraatje.
+
+Toon: zakelijk, analytisch, Nederlands. Geen opsommingstekens anders dan in 'Wat me opvalt'. Totaal maximaal 300 woorden.`;
 
 export function getClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;

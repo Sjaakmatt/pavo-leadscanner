@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import ArchetypeCard from "@/components/ArchetypeCard";
+import LeadBriefing from "@/components/LeadBriefing";
 import LeadChat from "@/components/LeadChat";
 import ServiceMatchBar from "@/components/ServiceMatchBar";
 import SignalList from "@/components/SignalList";
@@ -106,11 +107,14 @@ export default function LeadDetailPage({ params }: Props) {
         className="mt-6 space-y-6"
       >
         <SectionFade>
-          <ArchetypeCard archetype={lead.archetype} />
+          <LeadBriefing
+            kvk={lead.kvk}
+            fallbackObservatie={lead.observatie}
+          />
         </SectionFade>
 
         <SectionFade>
-          <AnalyseCard observatie={lead.observatie} />
+          <ArchetypeCard archetype={lead.archetype} />
         </SectionFade>
 
         <SectionFade>
@@ -163,36 +167,3 @@ function SectionFade({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AnalyseCard({ observatie }: { observatie: string }) {
-  return (
-    <section className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
-      <div className="flex items-center gap-2">
-        <LightbulbIcon className="h-4 w-4 text-pavo-orange" />
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
-          Analyse van de agent
-        </h2>
-      </div>
-      <div className="mt-3 rounded-lg bg-pavo-gray-50 p-4 text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]">
-        {observatie}
-      </div>
-    </section>
-  );
-}
-
-function LightbulbIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M10 2.5a5.5 5.5 0 0 0-3.3 9.9c.5.4.8 1 .8 1.6v.5h5v-.5c0-.6.3-1.2.8-1.6A5.5 5.5 0 0 0 10 2.5Z" />
-      <path d="M8 17h4" />
-    </svg>
-  );
-}
