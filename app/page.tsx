@@ -54,9 +54,9 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-6 py-10">
-      <div className="mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight text-pavo-navy">
+    <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-10">
+      <div className="mb-6 md:mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
           Onderzoek naar MKB-leads met HR-behoefte
         </h1>
         <p className="mt-2 text-sm text-pavo-gray-600">
@@ -80,15 +80,14 @@ export default function DashboardPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="rounded-lg border border-dashed border-pavo-gray-100 bg-white p-16 text-center"
+              className="rounded-lg border border-dashed border-pavo-gray-100 bg-white p-8 text-center md:p-16"
             >
-              <SearchGlassIcon className="mx-auto h-12 w-12 text-pavo-teal" />
+              <SearchGlassIcon className="mx-auto h-10 w-10 text-pavo-teal md:h-12 md:w-12" />
               <h2 className="mt-4 text-base font-semibold text-pavo-navy">
                 Geen zoekopdracht gestart
               </h2>
-              <p className="mt-1 text-sm text-pavo-gray-600">
+              <p className="mx-auto mt-1 max-w-sm text-sm text-pavo-gray-600">
                 Pas de filters hierboven aan en klik op &quot;Zoek leads&quot;
-                <br />
                 om de research-agent te starten
               </p>
             </motion.div>

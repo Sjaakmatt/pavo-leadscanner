@@ -57,7 +57,7 @@ export default function StreamingStatus({
   const shown = steps.slice(0, visible);
 
   return (
-    <div className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm">
+    <div className="rounded-lg border border-pavo-gray-100 bg-white p-4 shadow-sm md:p-5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-semibold text-pavo-teal">
           {!done ? (

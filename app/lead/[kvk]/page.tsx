@@ -43,14 +43,14 @@ export default function LeadDetailPage({ params }: Props) {
 
   if (notFound) {
     return (
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-4xl px-4 py-6 md:px-6 md:py-10">
         <Link
           href="/"
           className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
         >
           ← Terug naar resultaten
         </Link>
-        <div className="mt-6 rounded-lg border border-pavo-gray-100 bg-white p-10 text-center shadow-sm">
+        <div className="mt-6 rounded-lg border border-pavo-gray-100 bg-white p-6 text-center shadow-sm md:p-10">
           <p className="text-sm text-pavo-gray-600">
             Lead met KvK {kvk} niet gevonden.
           </p>
@@ -60,7 +60,7 @@ export default function LeadDetailPage({ params }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
+    <div className="mx-auto max-w-4xl px-4 py-6 md:px-6 md:py-10">
       <Link
         href="/"
         className="inline-flex items-center gap-1 text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
@@ -69,13 +69,11 @@ export default function LeadDetailPage({ params }: Props) {
       </Link>
 
       {lead && (
-        <header className="mt-6">
-          <div className="flex items-start gap-3">
-            <WarmteBadge warmte={lead.warmte} className="mt-1.5" />
-            <h1 className="text-3xl font-semibold tracking-tight text-pavo-navy">
-              {lead.naam}
-            </h1>
-          </div>
+        <header className="mt-5 md:mt-6">
+          <WarmteBadge warmte={lead.warmte} />
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
+            {lead.naam}
+          </h1>
           <p className="mt-2 text-sm text-pavo-gray-600">
             {lead.plaats}, {lead.provincie} · KvK {lead.kvk} ·{" "}
             {lead.fte_klasse} FTE
@@ -139,7 +137,7 @@ function SectionFade({ children }: { children: React.ReactNode }) {
 
 function ObservationCard({ observatie }: { observatie: string }) {
   return (
-    <section className="rounded-lg border border-pavo-gray-100 bg-white p-6 shadow-sm">
+    <section className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
       <div className="flex items-center gap-2">
         <LightbulbIcon className="h-4 w-4 text-pavo-orange" />
         <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
