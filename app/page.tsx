@@ -8,10 +8,22 @@ import StreamingStatus, { type StreamStep } from "@/components/StreamingStatus";
 import type { Lead, SearchFilters } from "@/lib/adapters/types";
 import { DEFAULT_FILTERS } from "@/lib/filter";
 
+type Relaxation = { regio: boolean; fte: boolean };
+
 type ViewState =
   | { kind: "empty" }
-  | { kind: "streaming"; steps: StreamStep[]; pendingLeads: Lead[] }
-  | { kind: "results"; steps: StreamStep[]; leads: Lead[] };
+  | {
+      kind: "streaming";
+      steps: StreamStep[];
+      pendingLeads: Lead[];
+      relaxation: Relaxation;
+    }
+  | {
+      kind: "results";
+      steps: StreamStep[];
+      leads: Lead[];
+      relaxation: Relaxation;
+    };
 
 export default function DashboardPage() {
   const [filters, setFilters] = useState<SearchFilters>(DEFAULT_FILTERS);
@@ -29,11 +41,13 @@ export default function DashboardPage() {
       const data = (await res.json()) as {
         steps: StreamStep[];
         leads: Lead[];
+        relaxation: Relaxation;
       };
       setView({
         kind: "streaming",
         steps: data.steps,
         pendingLeads: data.leads,
+        relaxation: data.relaxation ?? { regio: false, fte: false },
       });
     } catch (err) {
       console.error(err);
@@ -48,6 +62,7 @@ export default function DashboardPage() {
         kind: "results",
         steps: curr.steps,
         leads: curr.pendingLeads,
+        relaxation: curr.relaxation,
       };
     });
     setLoading(false);
@@ -118,6 +133,10 @@ export default function DashboardPage() {
               className="space-y-6"
             >
               <StreamingStatus steps={view.steps} />
+              {(view.relaxation.regio || view.relaxation.fte) &&
+                view.leads.length > 0 && (
+                  <RelaxationNotice relaxation={view.relaxation} />
+                )}
               <div>
                 <div className="mb-3 text-sm text-pavo-gray-600">
                   {view.leads.length}{" "}
@@ -129,6 +148,24 @@ export default function DashboardPage() {
           )}
         </AnimatePresence>
       </div>
+    </div>
+  );
+}
+
+function RelaxationNotice({ relaxation }: { relaxation: Relaxation }) {
+  const parts: string[] = [];
+  if (relaxation.regio) parts.push("het zoekgebied");
+  if (relaxation.fte) parts.push("de FTE-selectie");
+  const joined =
+    parts.length === 2 ? parts.join(" en ") : parts[0] ?? "de filters";
+
+  return (
+    <div className="rounded-lg border border-pavo-orange/30 bg-pavo-orange/5 px-4 py-3 text-sm text-pavo-gray-900">
+      <span className="font-semibold text-pavo-orange">
+        Filters verruimd —{" "}
+      </span>
+      geen bedrijven voldeden aan de oorspronkelijke filters, daarom heeft de
+      agent {joined} verruimd om je toch relevante leads te tonen.
     </div>
   );
 }

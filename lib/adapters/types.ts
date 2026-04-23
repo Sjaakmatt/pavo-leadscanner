@@ -77,6 +77,12 @@ export type SearchResult = {
   search_id: string;
   titel: string;
   leads: Lead[];
+  // Set when strict filters returned nothing and the adapter expanded
+  // the search. UI can surface this so the user knows what happened.
+  relaxation: {
+    regio: boolean;
+    fte: boolean;
+  };
 };
 
 export interface LeadSource {

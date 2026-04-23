@@ -95,26 +95,51 @@ export class MockLeadSource implements LeadSource {
   async runSearch(filters: SearchFilters): Promise<SearchResult> {
     const searchId = resolveSearchId(filters.branche);
     const search = data.searches.find((s) => s.id === searchId);
+    const emptyRelaxation = { regio: false, fte: false };
     if (!search) {
-      return { search_id: searchId, titel: "Geen resultaten", leads: [] };
+      return {
+        search_id: searchId,
+        titel: "Geen resultaten",
+        leads: [],
+        relaxation: emptyRelaxation,
+      };
     }
 
-    const filtered = search.leads.filter(
-      (l) =>
-        matchesFte(l, filters.fte_klassen) &&
-        matchesRegio(l, filters.regio_center, filters.regio_straal_km),
-    );
+    const meetsFte = (l: Lead) => matchesFte(l, filters.fte_klassen);
+    const meetsRegio = (l: Lead) =>
+      matchesRegio(l, filters.regio_center, filters.regio_straal_km);
+
+    // Strict pass first — honour every filter the user set.
+    let leads = search.leads.filter((l) => meetsFte(l) && meetsRegio(l));
+    const relaxation = { regio: false, fte: false };
+
+    // Mock datasets are small, so a legit zero-result looks like a bug in
+    // a sales demo. Progressively loosen: drop the pin first, then FTE.
+    if (leads.length === 0 && filters.regio_center) {
+      leads = search.leads.filter(meetsFte);
+      relaxation.regio = true;
+    }
+    if (leads.length === 0) {
+      leads = [...search.leads];
+      relaxation.fte = true;
+      if (filters.regio_center) relaxation.regio = true;
+    }
 
     const warmteRank: Record<Lead["warmte"], number> = {
       HOT: 0,
       WARM: 1,
       COLD: 2,
     };
-    const sorted = [...filtered].sort(
+    const sorted = [...leads].sort(
       (a, b) => warmteRank[a.warmte] - warmteRank[b.warmte],
     );
 
-    return { search_id: search.id, titel: search.titel, leads: sorted };
+    return {
+      search_id: search.id,
+      titel: search.titel,
+      leads: sorted,
+      relaxation,
+    };
   }
 
   async getLead(kvk: string): Promise<Lead | null> {

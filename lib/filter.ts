@@ -25,9 +25,12 @@ export const NL_CENTER: [number, number] = [52.1, 5.3];
 
 // Builds the streaming status lines the agent "narrates" during a search.
 // Delays are randomised per line (500-900ms) to feel human, not uniform.
+// Intermediate counts scale with hitCount so the narrative never ends in
+// "Top 0 leads" after claiming 91 candidates were filtered.
 export function buildSearchSteps(
   filters: SearchFilters,
   hitCount: number,
+  relaxation: { regio: boolean; fte: boolean } = { regio: false, fte: false },
 ): Array<{ text: string; delay: number }> {
   const branche =
     filters.branche === "Alle branches"
@@ -42,18 +45,12 @@ export function buildSearchSteps(
     : "heel Nederland";
 
   const sbiPrefixes = sbiForBranche(filters.branche);
-
-  const initialPool = 120 + Math.floor(Math.random() * 120);
-  const afterRadius = Math.max(
-    hitCount + 20,
-    Math.floor(initialPool * 0.55),
-  );
-  const afterSignals = Math.max(hitCount, Math.floor(afterRadius * 0.25));
+  const initialPool = 140 + Math.floor(Math.random() * 80);
 
   const lines: string[] = [
     `Query analyseren: ${branche} in ${fteRange}, ${regio}`,
     `Kamer van Koophandel doorzoeken voor SBI-codes ${sbiPrefixes}`,
-    `${initialPool} bedrijven gevonden die matchen op sector en grootte`,
+    `${initialPool} bedrijven in populatie geladen`,
   ];
 
   if (filters.regio_center) {
@@ -61,14 +58,35 @@ export function buildSearchSteps(
     const lng = filters.regio_center.lng.toFixed(3);
     lines.push(
       `Geografische afbakening: radius ${filters.regio_straal_km} km rond [${lat}, ${lng}]`,
-      `${afterRadius} bedrijven binnen straal gefilterd via haversine-berekening`,
     );
-  } else {
-    lines.push(`${afterRadius} bedrijven geselecteerd voor signaal-analyse`);
+    if (relaxation.regio) {
+      lines.push(
+        `Onvoldoende matches binnen straal — zoekgebied verruimd naar heel Nederland`,
+      );
+    }
   }
 
+  if (relaxation.fte) {
+    lines.push(
+      `FTE-selectie (${fteRange}) gaf geen matches — FTE-filter verruimd om relevante leads te tonen`,
+    );
+  }
+
+  if (hitCount === 0) {
+    lines.push(
+      `Geen bedrijven voldoen aan de gecombineerde filters — probeer een andere branche of bredere FTE-selectie`,
+    );
+    return lines.map((text) => ({
+      text,
+      delay: 500 + Math.floor(Math.random() * 400),
+    }));
+  }
+
+  // Enrichment numbers scale with hitCount so we never overclaim.
+  const refinedCount = Math.max(hitCount + 2, Math.floor(hitCount * 2.5));
+
   lines.push(
-    `Vacature-historie analyseren via Jobdigger voor ${afterRadius} bedrijven`,
+    `Vacature-historie analyseren via Jobdigger voor ${refinedCount} bedrijven`,
     `Bedrijfswebsites scannen op HR-aanwezigheid en team-paginas`,
     `Rechtspraak.nl controleren op arbeidsrechtzaken`,
     `KvK-historie vergelijken voor FTE-mutaties en bestuurderswissels`,
@@ -81,9 +99,9 @@ export function buildSearchSteps(
   }
 
   lines.push(
-    `HR-signalen gedetecteerd bij ${afterSignals} bedrijven`,
+    `HR-signalen gedetecteerd bij ${hitCount} ${hitCount === 1 ? "bedrijf" : "bedrijven"}`,
     `Archetypes herkend en gescoord tegen PAVO-dienstenportfolio`,
-    `Top ${hitCount} leads geselecteerd op basis van match-kwaliteit`,
+    `${hitCount} ${hitCount === 1 ? "lead" : "leads"} gepresenteerd op basis van match-kwaliteit`,
   );
 
   return lines.map((text) => ({
