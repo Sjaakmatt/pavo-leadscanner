@@ -1,0 +1,106 @@
+{
+  "meta": {
+    "diensten": {
+      "D1": "Moeite met vinden van personeel",
+      "D2": "Hoog verloop / behoud van personeel",
+      "D3": "Onvoldoende flexibiliteit in personeelsinzet",
+      "D4": "Onvoldoende ontwikkeling / opleiding",
+      "D5": "Verzuim en duurzame inzetbaarheid",
+      "D6": "Gebrek aan tijd en kennis voor personeelszaken",
+      "D7": "Arbeidsvoorwaarden en beloningsbeleid",
+      "D8": "Leiderschap en aansturing"
+    },
+    "archetypes": {
+      "A1": "Scale-up hits HR wall",
+      "A2": "Familiebedrijf in generatiewissel",
+      "A3": "Verzuim-spiraal",
+      "A4": "Werf-wanhoop in krappe branche",
+      "A5": "Arbeidsrechtelijk kwetsbaar",
+      "A6": "Net-over-50-FTE stress",
+      "A7": "Seizoenspiek-chaos",
+      "A8": "Leiderschap-vacuüm"
+    },
+    "archetype_beschrijvingen": {
+      "A1": "Snelle groei heeft de informele HR-structuur voorbijgestreefd.",
+      "A2": "Overdracht van eigenaarschap legt HR-achterstallig-onderhoud bloot.",
+      "A3": "Structureel hoog verzuim met onvoldoende grip op oorzaken.",
+      "A4": "Bedrijf toont meerdere signalen van structurele wervingsproblemen gecombineerd met gebrek aan HR-capaciteit.",
+      "A5": "Recente arbeidsrechtelijke signalen wijzen op onvoldoende HR-basis.",
+      "A6": "Net de drempel van 50 FTE gepasseerd, OR- en compliance-verplichtingen nog niet ingericht.",
+      "A7": "Piekbelasting in seizoen zonder flexibele personeelsstrategie.",
+      "A8": "Eigenaar combineert te veel rollen, onvoldoende capaciteit voor teamaansturing."
+    }
+  },
+  "searches": [
+    {
+      "id": "search-1-bouw",
+      "titel": "Bouw & installatie — 30-80 FTE — heel NL",
+      "filters": {
+        "fte_min": "20-49",
+        "fte_max": "50-99",
+        "sector_label": "Bouw & installatie",
+        "sector_sbi_prefix": ["41", "42", "43"],
+        "regio_label": "Heel Nederland",
+        "regio_provincies": [],
+        "signaal_query": "werving, leidinggeven, flexibiliteit"
+      },
+      "leads": []
+    },
+    {
+      "id": "search-2-logistiek",
+      "titel": "Logistiek & transport — 50-150 FTE — heel NL",
+      "filters": {
+        "fte_min": "50-99",
+        "fte_max": "100-199",
+        "sector_label": "Logistiek & transport",
+        "sector_sbi_prefix": ["49", "52", "53"],
+        "regio_label": "Heel Nederland",
+        "regio_provincies": [],
+        "signaal_query": "verloop, seizoen, verzuim"
+      },
+      "leads": []
+    },
+    {
+      "id": "search-3-zakelijk",
+      "titel": "Zakelijke dienstverlening — 20-100 FTE — Randstad",
+      "filters": {
+        "fte_min": "20-49",
+        "fte_max": "100-199",
+        "sector_label": "Zakelijke dienstverlening",
+        "sector_sbi_prefix": ["69", "70", "73", "82"],
+        "regio_label": "Randstad",
+        "regio_provincies": ["Noord-Holland", "Zuid-Holland", "Utrecht"],
+        "signaal_query": "scale-up, leiderschap"
+      },
+      "leads": []
+    },
+    {
+      "id": "search-4-productie",
+      "titel": "Productie & techniek — 30-150 FTE — Oost-NL",
+      "filters": {
+        "fte_min": "20-49",
+        "fte_max": "100-199",
+        "sector_label": "Productie & techniek",
+        "sector_sbi_prefix": ["25", "28", "29"],
+        "regio_label": "Oost-Nederland",
+        "regio_provincies": ["Gelderland", "Overijssel"],
+        "signaal_query": "werving, verzuim, generatiewissel"
+      },
+      "leads": []
+    },
+    {
+      "id": "search-5-retail",
+      "titel": "Retail & e-commerce — 20-80 FTE — heel NL",
+      "filters": {
+        "fte_min": "20-49",
+        "fte_max": "50-99",
+        "sector_label": "Retail & e-commerce",
+        "sector_sbi_prefix": ["47"],
+        "regio_label": "Heel Nederland",
+        "regio_provincies": [],
+        "signaal_query": "verloop, seizoen, flexibiliteit"
+      },
+      "leads": []
+    }
+  ]
+}
