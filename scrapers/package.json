@@ -12,7 +12,8 @@
     "scrape:insolventie": "tsx scrapers/04-insolventie.ts",
     "scrape:indeed": "tsx scrapers/05-indeed.ts",
     "scrape:news": "tsx scrapers/06-google-news.ts",
-    "scrape:all": "npm run scrape:website && npm run scrape:rechtspraak && npm run scrape:nla && npm run scrape:insolventie && npm run scrape:news",
+    "scrape:vacatures": "tsx scrapers/07-vacatures.ts",
+    "scrape:all": "npm run scrape:website && npm run scrape:rechtspraak && npm run scrape:nla && npm run scrape:insolventie && npm run scrape:news && npm run scrape:vacatures",
     "report:compare": "tsx tools/compare-reports.ts",
     "typecheck": "tsc --noEmit"
   },
