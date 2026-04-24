@@ -8,17 +8,26 @@ export type StreamStep = { text: string; delay: number };
 type Props = {
   steps: StreamStep[];
   onComplete?: () => void;
+  // Als `live` = true: geen animatie-delays, nieuwste step is meteen
+  // zichtbaar. Gebruik de `liveDone` prop om het "klaar"-frame te tonen.
+  // Voor demo-mode (legacy pad) blijven we animeren met delays uit de
+  // server-response.
+  live?: boolean;
+  liveDone?: boolean;
 };
 
 // Slim status bar. During streaming it shows a single ticker line with
 // the current step; when finished it collapses to a quiet one-liner
 // with an optional "Toon stappen" expander for power-users.
-export default function StreamingStatus({ steps, onComplete }: Props) {
+export default function StreamingStatus({ steps, onComplete, live, liveDone }: Props) {
   const [visible, setVisible] = useState(0);
   const [done, setDone] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
+  // Animated mode — steps come in as a static array at the start of the
+  // search, we advance through them with random per-step delays.
   useEffect(() => {
+    if (live) return;
     setVisible(0);
     setDone(false);
     setExpanded(false);
@@ -45,12 +54,30 @@ export default function StreamingStatus({ steps, onComplete }: Props) {
       clearTimeout(first);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [steps]);
+  }, [steps, live]);
 
-  if (steps.length === 0) return null;
+  // Live mode — elke keer dat `steps` of `liveDone` wijzigt, volgt de
+  // ticker de laatste step. Callback-done draait op de externe flag.
+  useEffect(() => {
+    if (!live) return;
+    setVisible(steps.length);
+    if (liveDone) {
+      setDone(true);
+      onComplete?.();
+    } else {
+      setDone(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steps.length, live, liveDone]);
+
+  if (steps.length === 0 && !live) return null;
 
   const current = steps[Math.min(visible, steps.length) - 1];
-  const progressPct = Math.round((visible / steps.length) * 100);
+  // In live-mode kennen we het eindtotaal niet — tonen we een
+  // indeterminate progressbar (pulsing), anders percentage-based.
+  const progressPct = live
+    ? undefined
+    : Math.round((visible / Math.max(steps.length, 1)) * 100);
 
   return (
     <div className="overflow-hidden rounded-lg border border-pavo-gray-100 bg-white shadow-sm">
@@ -91,7 +118,8 @@ export default function StreamingStatus({ steps, onComplete }: Props) {
         )}
       </div>
 
-      {/* Progress bar: kruipt tijdens streaming, verdwijnt bij afronden */}
+      {/* Progress bar: kruipt tijdens streaming, verdwijnt bij afronden.
+          In live-mode kennen we het totaal niet, dus pulseren we. */}
       <AnimatePresence>
         {!done && (
           <motion.div
@@ -101,12 +129,24 @@ export default function StreamingStatus({ steps, onComplete }: Props) {
             exit={{ opacity: 0 }}
             className="h-0.5 w-full bg-pavo-gray-100"
           >
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${progressPct}%` }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="h-full bg-pavo-teal"
-            />
+            {progressPct === undefined ? (
+              <motion.div
+                className="h-full w-1/3 bg-pavo-teal"
+                animate={{ x: ["-30%", "330%"] }}
+                transition={{
+                  duration: 1.8,
+                  ease: "easeInOut",
+                  repeat: Infinity,
+                }}
+              />
+            ) : (
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPct}%` }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="h-full bg-pavo-teal"
+              />
+            )}
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
-import { mockLeadSource } from "@/lib/adapters/mock";
+import { getLeadSource } from "@/lib/lead-source";
 import { buildLeadSteps } from "@/lib/filter";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ kvk: string }> },
 ) {
   try {
     const { kvk } = await params;
-    const lead = await mockLeadSource.getLead(kvk);
+    const url = new URL(req.url);
+    const refresh = url.searchParams.get("refresh") === "true";
+    const lead = await getLeadSource().getLead(kvk, { refresh });
     if (!lead) {
       return NextResponse.json({ lead: null, steps: [] }, { status: 404 });
     }
