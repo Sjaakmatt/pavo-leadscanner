@@ -38,6 +38,11 @@ export type LeadScore = {
   diensten_match: LeadScoreDienst[];
   totale_score: number;
   samenvatting: string;
+  archetype: {
+    code: "A1" | "A2" | "A3" | "A4" | "A5" | "A6" | "A7" | "A8";
+    naam: string;
+    beschrijving: string;
+  } | null;
 };
 
 // ---------- cluster-scoring ----------------------------------------------
@@ -271,6 +276,108 @@ function buildSamenvatting(
   return `${profile.naam} — ${warmte}. ${reden} ${dienstDeel}`;
 }
 
+// ---------- archetype-afleiding ----------------------------------------
+
+// De 8 PAVO-archetypes (zie data/leads.json meta.archetype_beschrijvingen).
+// We kiezen het best-passende archetype op basis van de signaal-signature;
+// als er geen duidelijke match is geven we null terug en laat de UI het
+// archetype-blok weg.
+const ARCHETYPES = {
+  A1: {
+    naam: "Scale-up hits HR wall",
+    beschrijving:
+      "Snelle groei heeft het bedrijf voorbij het punt gedragen waar informele HR-afspraken volstaan. Professionalisering is noodzakelijk maar nog niet ingezet.",
+  },
+  A2: {
+    naam: "50-FTE drempel gepasseerd",
+    beschrijving:
+      "Bedrijf heeft recent de wettelijke drempel van 50 medewerkers overschreden, wat nieuwe verplichtingen activeert op OR-instelling, verzuimrapportage en arbo-beleid.",
+  },
+  A3: {
+    naam: "Draaideur in operations",
+    beschrijving:
+      "Dezelfde functie wordt herhaaldelijk opnieuw ingevuld binnen korte tijd. Wijst op structureel probleem in werving, leidinggeven of arbeidsvoorwaarden.",
+  },
+  A4: {
+    naam: "Werf-wanhoop in krappe branche",
+    beschrijving:
+      "Bedrijf toont meerdere signalen van structurele wervingsproblemen gecombineerd met gebrek aan HR-capaciteit om dit strategisch aan te pakken.",
+  },
+  A5: {
+    naam: "Familie-MKB professionaliseert",
+    beschrijving:
+      "Generatie-wissel of opvolging is gaande. Kantelpunt waarop informele familie-afspraken gedocumenteerd en formeel gemaakt moeten worden.",
+  },
+  A6: {
+    naam: "Post-overname HR-chaos",
+    beschrijving:
+      "Recente overname creëert integratie-vraagstukken rond arbeidsvoorwaarden-harmonisatie, management-structuur en culturele afstemming.",
+  },
+  A7: {
+    naam: "Seizoenspieken zonder flex-laag",
+    beschrijving:
+      "Structureel seizoenspatroon wordt ad-hoc opgevangen zonder strategische flex-strategie. Inefficiënt en duur op langere termijn.",
+  },
+  A8: {
+    naam: "Verzuim-spiraal in fysieke sector",
+    beschrijving:
+      "Verhoogd verzuimpercentage in combinatie met fysiek belastende sector. Vaak verweven met leiderschap-kwaliteit en werk-inrichting.",
+  },
+} as const;
+
+function inferArchetype(
+  profile: KvkBasisprofiel,
+  categorieen: Set<string>,
+): LeadScore["archetype"] {
+  const fteLower = fteLowerBound(profile.fteKlasse);
+  const fteUpper = fteUpperBound(profile.fteKlasse);
+  const has = (c: string) => categorieen.has(c);
+
+  // Volgorde is prioriteit: sterkere combinaties eerst zodat we niet per
+  // ongeluk een zwakker archetype kiezen als meerdere matchen.
+
+  // A1 — scale-up overshoot: groei + FTE door de 30+ heen + HR ontbreekt
+  if (has("snelle_groei") && fteUpper >= 30 && has("geen_hr_rol_zichtbaar")) {
+    return { code: "A1", ...ARCHETYPES.A1 };
+  }
+  // A4 — werf-wanhoop
+  if (
+    (has("veel_open_vacatures") || has("langlopende_vacatures")) &&
+    has("herposte_vacatures")
+  ) {
+    return { code: "A4", ...ARCHETYPES.A4 };
+  }
+  // A3 — draaideur: reposts + negatieve-reviews/verloop
+  if (has("herposte_vacatures") && has("negatieve_reviews_chaos")) {
+    return { code: "A3", ...ARCHETYPES.A3 };
+  }
+  // A8 — verzuim-spiraal, vooral in bouw/productie (SBI 10-33/41-43)
+  const sbi = profile.sbiCodes[0]?.slice(0, 2) ?? "";
+  const fysiek = ["41", "42", "43", "10", "11", "12", "13", "14", "15",
+    "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26",
+    "27", "28", "29", "30", "31", "32", "33"].includes(sbi);
+  if (has("verzuim_burnout_signalen") && fysiek) {
+    return { code: "A8", ...ARCHETYPES.A8 };
+  }
+  // A2 — 50-FTE-drempel: recent over 50 heen + groei
+  if (fteLower >= 50 && fteUpper <= 99 && has("snelle_groei")) {
+    return { code: "A2", ...ARCHETYPES.A2 };
+  }
+  // A5 — familie-MKB: founder-run + groei
+  if (has("founder_run") && (has("snelle_groei") || has("klein_team_in_groei"))) {
+    return { code: "A5", ...ARCHETYPES.A5 };
+  }
+  // A6 — post-overname: nieuwe managementlaag + internationale uitbreiding
+  if (has("nieuwe_managementlaag") && has("internationale_uitbreiding")) {
+    return { code: "A6", ...ARCHETYPES.A6 };
+  }
+  // A7 — seizoenspieken
+  if (has("seizoenspieken")) {
+    return { code: "A7", ...ARCHETYPES.A7 };
+  }
+  return null;
+}
+
 // ---------- public API -------------------------------------------------
 
 export function scoreCompany(
@@ -286,6 +393,7 @@ export function scoreCompany(
   const reden = override?.reden ?? derived.reden;
 
   const diensten = matchDiensten(signals);
+  const archetype = inferArchetype(profile, clusters.categorieen);
   const samenvatting = buildSamenvatting(profile, warmte, reden, diensten);
 
   return {
@@ -295,5 +403,6 @@ export function scoreCompany(
     diensten_match: diensten,
     totale_score: totale,
     samenvatting,
+    archetype,
   };
 }

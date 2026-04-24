@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "motion/react";
 import FilterBar from "@/components/FilterBar";
@@ -37,6 +37,9 @@ type ViewState =
       leads: Lead[];
       relaxation: Relaxation;
       streamingDone: boolean;
+      // Live = echte voortgang via SSE (prod-mode); animated = demo-mode
+      // met fake delays.
+      live: boolean;
     };
 
 export default function DashboardPage() {
@@ -44,9 +47,31 @@ export default function DashboardPage() {
   const [view, setView] = useState<ViewState>({ kind: "empty" });
   const [loading, setLoading] = useState(false);
   const [resultsView, setResultsView] = useState<ResultsView>("lijst");
+  const [mode, setMode] = useState<"demo" | "prod">("demo");
+
+  // We cachen de mode één keer op mount; dit beïnvloedt alleen welk
+  // API-pad we kiezen, niet de UI zelf.
+  useEffect(() => {
+    fetch("/api/mode")
+      .then((r) => (r.ok ? (r.json() as Promise<{ mode: "demo" | "prod" }>) : null))
+      .then((data) => {
+        if (data?.mode) setMode(data.mode);
+      })
+      .catch(() => {
+        // silent — default "demo" is veilig
+      });
+  }, []);
 
   async function handleSearch() {
     setLoading(true);
+    if (mode === "prod") {
+      await runProdSearch();
+    } else {
+      await runDemoSearch();
+    }
+  }
+
+  async function runDemoSearch() {
     try {
       const res = await fetch("/api/search", {
         method: "POST",
@@ -64,9 +89,100 @@ export default function DashboardPage() {
         leads: data.leads,
         relaxation: data.relaxation ?? { regio: false, fte: false },
         streamingDone: false,
+        live: false,
       });
     } catch (err) {
       console.error(err);
+      setLoading(false);
+    }
+  }
+
+  async function runProdSearch() {
+    const liveSteps: StreamStep[] = [];
+    setView({
+      kind: "active",
+      steps: liveSteps,
+      leads: [],
+      relaxation: { regio: false, fte: false },
+      streamingDone: false,
+      live: true,
+    });
+    try {
+      const res = await fetch("/api/search/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(filters),
+      });
+      if (!res.body) throw new Error("Geen SSE-body ontvangen");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\n\n/);
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const line = frame.split("\n").find((l) => l.startsWith("data: "));
+          if (!line) continue;
+          try {
+            const payload = JSON.parse(line.slice(6));
+            handleSseFrame(payload, liveSteps);
+          } catch {
+            // malformed frame — skip
+          }
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      setLoading(false);
+    }
+  }
+
+  function handleSseFrame(
+    payload: { type: string } & Record<string, unknown>,
+    steps: StreamStep[],
+  ) {
+    const append = (text: string) => {
+      steps.push({ text, delay: 0 });
+      setView((curr) =>
+        curr.kind === "active"
+          ? { ...curr, steps: [...steps] }
+          : curr,
+      );
+    };
+    if (payload.type === "stage") {
+      append(String(payload.message ?? payload.stage));
+    } else if (payload.type === "kvk") {
+      append(`${payload.totalCandidates} bedrijven gevonden in KvK`);
+    } else if (payload.type === "geo") {
+      append(`${payload.remaining} bedrijven na regio-filter`);
+    } else if (payload.type === "scrape") {
+      append(`Scrape ${payload.scraped}/${payload.total}: ${payload.naam}`);
+    } else if (payload.type === "score") {
+      append(`Scoren ${payload.scored}/${payload.total}`);
+    } else if (payload.type === "done") {
+      append(
+        `Klaar · ${payload.totalLeadsReturned} leads · $${Number(payload.totalCostUsd).toFixed(3)}`,
+      );
+    } else if (payload.type === "error") {
+      append(`Fout: ${payload.message}`);
+    } else if (payload.type === "result") {
+      const result = payload.result as {
+        leads: Lead[];
+        relaxation?: Relaxation;
+      };
+      setView((curr) =>
+        curr.kind === "active"
+          ? {
+              ...curr,
+              leads: result.leads,
+              relaxation: result.relaxation ?? { regio: false, fte: false },
+              streamingDone: true,
+            }
+          : curr,
+      );
       setLoading(false);
     }
   }
@@ -121,11 +237,15 @@ export default function DashboardPage() {
 
         {view.kind === "active" && (
           <>
-            {/* key = steps array => resets cleanly bij een nieuwe zoekopdracht */}
+            {/* key moet stabiel blijven binnen één zoekopdracht (anders
+                remount de component en reset de ticker); voor prod-mode
+                is de key gewoon "live" want live-steps groeien dynamisch. */}
             <StreamingStatus
-              key={view.steps.length + "-" + view.steps[0]?.text}
+              key={view.live ? "live" : view.steps[0]?.text ?? "demo"}
               steps={view.steps}
               onComplete={handleStreamingComplete}
+              live={view.live}
+              liveDone={view.live ? view.streamingDone : undefined}
             />
 
             <AnimatePresence>
