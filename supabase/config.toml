@@ -1,0 +1,30 @@
+# Supabase lokale ontwikkel-config. Draait een lokale Postgres + Studio
+# als je `supabase start` aanroept. Voor prod hoef je dit bestand niet
+# aan te passen — Supabase detecteert de migraties via de `migrations/`
+# folder bij `supabase db push`.
+
+project_id = "pavo-leadscanner"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = false
+
+[storage]
+enabled = false
+
+[auth]
+enabled = false
