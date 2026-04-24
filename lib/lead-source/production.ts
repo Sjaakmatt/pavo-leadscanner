@@ -444,7 +444,7 @@ function scoreToLead(
     sector: profile.sbiCodes[0] ?? "",
     fte_klasse: fteKlasse,
     warmte: score.warmte,
-    archetype: null,
+    archetype: score.archetype,
     signalen: dedupedSignalen,
     // Scoring engine werkt met string-codes; we casten terug naar
     // DienstCode omdat de matrix alleen D1-D8 (de huidige UI-set)
