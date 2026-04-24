@@ -12,6 +12,8 @@ const HARD_BRONNEN: Bron[] = [
   "KvK-historie",
   "KvK-deponering",
   "Rechtspraak.nl",
+  "NLA",
+  "Insolventieregister",
   "CBS",
   "Jobdigger",
 ];

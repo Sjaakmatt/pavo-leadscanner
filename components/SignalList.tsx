@@ -11,6 +11,8 @@ const BRON_DESCRIPTIE: Record<Bron, string> = {
   Jobdigger: "vacature-aggregator",
   bedrijfswebsite: "eigen bedrijfssite (gescand)",
   "Rechtspraak.nl": "gepubliceerde uitspraken",
+  NLA: "Nederlandse Arbeidsinspectie",
+  Insolventieregister: "Centraal Insolventieregister",
   Nieuws: "lokale/vakmedia",
   CBS: "Centraal Bureau voor de Statistiek",
   "LinkedIn-bedrijfspagina": "publieke LinkedIn-pagina",
