@@ -17,6 +17,7 @@ const SCRAPER_IDS = [
   "04-insolventie",
   "05-indeed",
   "06-google-news",
+  "07-vacatures",
 ] as const;
 
 type ScraperId = (typeof SCRAPER_IDS)[number];
@@ -89,6 +90,7 @@ async function main() {
     "04-insolventie": null,
     "05-indeed": null,
     "06-google-news": null,
+    "07-vacatures": null,
   };
   for (const id of SCRAPER_IDS) reports[id] = await latestReportFor(id);
 

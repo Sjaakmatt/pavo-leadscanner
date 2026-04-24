@@ -35,6 +35,7 @@ Outputs landen in `output/` als JSON-rapport per scraper; debug-dumps in `output
 | 4 | `04-insolventie` | web_fetch + Playwright fallback | insolventieregister | 0-2% hits | werkt_met_aanpassing |
 | 5 | `05-indeed` | Playwright stress-test | indeed.nl | n.v.t. — doel = breken | niet_werkbaar |
 | 6 | `06-google-news` | RSS + fast-xml-parser + Claude | news.google.com | 30-60% bedrijven met hit | productie_klaar |
+| 7 | `07-vacatures` | aggregate (eigen site + werk.nl + NVB + SerpAPI) | multi-source | 60-90% met ≥1 vacature | productie_klaar (met SerpAPI) / werkt_met_aanpassing (zonder) |
 
 Elke scraper:
 - Checkt `DRY_RUN=true` en verwerkt dan alleen de eerste 3 bedrijven.
@@ -72,8 +73,9 @@ Elk gegenereerd bedrijf wordt gevalideerd op URL-formaat, 8-cijferig KvK-nummer,
 | Scraper 4 (insolventie) | verwaarloosbaar |
 | Scraper 5 (indeed) | €0 |
 | Scraper 6 (news) | €0,50 |
+| Scraper 7 (vacatures) | €1,50 (+ SerpAPI ~€0,50 indien geconfigureerd) |
 | Test-bedrijven generator | €0,50 |
-| **Totaal** | **< €2,50** |
+| **Totaal** | **< €4,50** |
 
 `DRY_RUN=true npm run scrape:all` blijft onder €0,20.
 
@@ -91,3 +93,17 @@ Elk gegenereerd bedrijf wordt gevalideerd op URL-formaat, 8-cijferig KvK-nummer,
 - **Playwright fails to launch**: run `npm run install:browsers` eenmalig.
 - **Scraper 5 lijkt te "falen"**: dat is de bedoeling. Het verdict `niet_werkbaar` met blokkade-telling is het resultaat.
 - **Scraper 2 geeft geen hits**: normaal — arbeidsrechtzaken zijn zeldzaam en BV-namen worden soms gepseudonimiseerd. De scraper skipt VOF/maatschap en "voornaam + achternaam + BV"-patronen automatisch.
+- **Scraper 7 zonder SerpAPI**: draait volledig — alleen de Google-Jobs-aggregate ontbreekt. Vul `SERPAPI_KEY` in `.env` om die bron aan te zetten. Gratis tier = 100 searches/mnd.
+
+## Scraper 7 — hoe het werkt
+
+Combineert vier bronnen per bedrijf:
+
+1. **Eigen site** — JSON-LD `JobPosting` blocks op homepage + `/vacatures`/`/werken-bij`/`/jobs`/`/careers` + sitemap.xml entries die als vacature-URL eruit zien. Gratis, structureel.
+2. **werk.nl** — UWV-search via web_fetch. Overheids-werkgever, scrape-vriendelijk.
+3. **Nationale Vacaturebank** — zoek-pagina via web_fetch. DOM wijzigt regelmatig; web_fetch hanteert dat stabieler dan hand-coded parsers.
+4. **SerpAPI / Google for Jobs** — optioneel, vereist `SERPAPI_KEY`. Premium-pad: volledige aggregate dekking via Google's eigen job-index.
+
+Na het ophalen wordt gededupliceerd op (genormaliseerde titel + bedrijfsnaam-prefix) en een `sources: string[]` toegevoegd als dezelfde vacature op meer bronnen voorkomt. Claude produceert dan signalen voor `veel_open_vacatures`, `langlopende_vacatures`, `herposte_vacatures` (cross-source of repost-patroon), `hiring_manager_actief`, `recruiter_overload` en `seizoenspieken`.
+
+Elke bron graceful-degradeert: fouten of ontbrekende keys worden gelogd en de scraper draait door met wat hij wél heeft.
