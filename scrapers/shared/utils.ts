@@ -1,3 +1,11 @@
+// Side-effect import: loads variables from .env in CWD so every scraper
+// that imports anything from this module gets ANTHROPIC_API_KEY /
+// SERPAPI_KEY / CLAUDE_MODEL / DRY_RUN populated automatically. Because
+// this runs at top-level, it executes before any caller reads
+// process.env — as long as the scripts run from within scrapers/ (which
+// the npm scripts do) the local .env is picked up.
+import "dotenv/config";
+
 import Anthropic from "@anthropic-ai/sdk";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -132,6 +140,41 @@ export async function httpGet(
   } finally {
     clearTimeout(t);
   }
+}
+
+// ---------- search-name helpers -------------------------------------------
+
+// Returns the primary search term to use for text-based searches. We use
+// the canonical `naam` first; scrapers can fall back to `allSearchNames`
+// if the primary returns zero hits.
+export function primarySearchName(company: TestCompany): string {
+  return company.naam.trim();
+}
+
+// All search variants to try for a company, deduped while keeping the
+// canonical `naam` first. Use this when looping through names until you
+// get a hit, or when a source supports an OR-query across terms.
+export function allSearchNames(company: TestCompany): string[] {
+  const names = [company.naam, ...(company.zoeknamen ?? [])]
+    .map((n) => n?.trim())
+    .filter((n): n is string => !!n && n.length > 1);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of names) {
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
+}
+
+// Label for prompts / debug output. KvK is optional, so we never render
+// "KvK undefined" — we omit the KvK clause when we don't have it.
+export function companyLabel(company: TestCompany): string {
+  return company.kvk
+    ? `${company.naam} (KvK ${company.kvk})`
+    : company.naam;
 }
 
 // ---------- signal helpers ------------------------------------------------

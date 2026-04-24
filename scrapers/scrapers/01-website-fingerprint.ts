@@ -1,14 +1,16 @@
 // Scraper 1 — HR fingerprint of the company's own website.
 //
 // Strategy (pattern B from the briefing):
-//   1. Primary: Anthropic `web_fetch` tool pulls the site in one Claude turn
-//      and immediately classifies it against the PAVO signal vocabulary.
-//   2. Fallback: Playwright (Chromium, headless) if web_fetch returns <500
-//      meaningful characters or errors out. The HTML is then handed to a
-//      plain Claude call for classification.
-//
-// We deliberately keep the prompt identical across both paths so signals
-// stay comparable.
+//   1. Before any LLM work, enrich with a cheap pre-scan:
+//        - JSON-LD JobPosting blocks on the homepage + common vacancy paths
+//        - sitemap.xml entries that look like vacancy URLs (with <lastmod>)
+//      These give us structured, quantitative signals for veel_open_vacatures
+//      and langlopende_vacatures without spending Claude tokens on extraction.
+//   2. Primary path: Anthropic `web_fetch` tool pulls the site in one Claude
+//      turn and immediately classifies it against the PAVO signal vocabulary,
+//      with the pre-scan results handed in as "extra structured hints".
+//   3. Fallback: Playwright (Chromium, headless) if web_fetch returns <500
+//      meaningful characters or errors out.
 
 import { chromium } from "playwright";
 import {
@@ -24,6 +26,11 @@ import {
   withTimeout,
   writeDebug,
 } from "../shared/utils.ts";
+import {
+  enrichWithJobPostings,
+  daysSince,
+  type JobEnrichment,
+} from "../shared/jobpostings.ts";
 import type {
   CompanyResult,
   Signaal,
@@ -57,9 +64,40 @@ Voor ELKE gedetecteerde categorie geef je één signaal-object:
 
 Signaleer ALLEEN wat je echt in de content ziet. Verzin niets. Geef een lege lijst [] als je niets kunt vaststellen.
 
+Als de gebruiker "Structurele hints" aanlevert (JSON-LD JobPostings en sitemap-URLs die wij zelf al hebben geparsed), mag je die gebruiken als hard bewijs voor veel_open_vacatures en langlopende_vacatures — citeer het aantal en de oudste datePosted als "bewijs".
+
 Antwoord als JSON-array (geen prose errom, geen markdown-fences).`;
 
-async function tryWebFetch(company: TestCompany): Promise<{
+function formatEnrichmentHint(e: JobEnrichment): string {
+  if (e.jobPostings.length === 0 && e.vacancyUrls.length === 0) {
+    return "Structurele hints: geen JSON-LD JobPostings of vacature-URLs in sitemap aangetroffen.";
+  }
+  const postingLines = e.jobPostings.slice(0, 20).map((jp) => {
+    const age = daysSince(jp.datePosted);
+    const parts = [`- "${jp.title}"`];
+    if (jp.datePosted) parts.push(`gepost ${jp.datePosted}${age !== null ? ` (${age}d geleden)` : ""}`);
+    if (jp.validThrough) parts.push(`geldig tot ${jp.validThrough}`);
+    if (jp.employmentType) parts.push(jp.employmentType);
+    if (jp.jobLocation) parts.push(jp.jobLocation);
+    return parts.join(" · ");
+  });
+  const sitemapLines = e.vacancyUrls.slice(0, 15).map((u) => {
+    const age = daysSince(u.lastmod);
+    return `- ${u.url}${u.lastmod ? ` (lastmod ${u.lastmod}${age !== null ? `, ${age}d geleden` : ""})` : ""}`;
+  });
+  return [
+    "Structurele hints (door ons al geparsed, dit zijn harde feiten):",
+    `JSON-LD JobPostings: ${e.jobPostings.length}`,
+    ...postingLines,
+    `Sitemap vacancy-URLs: ${e.vacancyUrls.length}`,
+    ...sitemapLines,
+  ].join("\n");
+}
+
+async function tryWebFetch(
+  company: TestCompany,
+  enrichment: JobEnrichment,
+): Promise<{
   text: string;
   inputTokens: number;
   outputTokens: number;
@@ -84,7 +122,7 @@ async function tryWebFetch(company: TestCompany): Promise<{
             messages: [
               {
                 role: "user",
-                content: `Haal de homepage én de team/over-ons pagina op van ${company.url} en classificeer volgens de instructies. Focus op HR-signalen.`,
+                content: `Haal de homepage én de team/over-ons pagina op van ${company.url} en classificeer volgens de instructies. Focus op HR-signalen.\n\n${formatEnrichmentHint(enrichment)}`,
               },
             ],
           }),
@@ -162,6 +200,7 @@ async function tryPlaywright(company: TestCompany): Promise<string> {
 async function classifyText(
   company: TestCompany,
   text: string,
+  enrichment: JobEnrichment,
 ): Promise<{ signals: Signaal[]; inputTokens: number; outputTokens: number }> {
   const client = getAnthropic();
   const response = await withRetry(
@@ -174,7 +213,7 @@ async function classifyText(
           messages: [
             {
               role: "user",
-              content: `Bedrijf: ${company.naam}\nURL: ${company.url}\n\nWebsite-content:\n---\n${text.slice(0, 14_000)}\n---`,
+              content: `Bedrijf: ${company.naam}\nURL: ${company.url}\n\n${formatEnrichmentHint(enrichment)}\n\nWebsite-content:\n---\n${text.slice(0, 14_000)}\n---`,
             },
           ],
         }),
@@ -230,8 +269,19 @@ async function handle(
   let success = false;
   let pathTaken: "web_fetch" | "playwright" | "none" = "none";
 
+  // Cheap structured enrichment before any LLM call — gives us exact counts
+  // and timestamps that we can feed as hints to both paths.
+  const enrichment = await enrichWithJobPostings(company.url).catch(
+    (err): JobEnrichment => ({
+      jobPostings: [],
+      vacancyUrls: [],
+      errors: [`enrichment faalde: ${errMessage(err)}`],
+      pagesProbed: [],
+    }),
+  );
+
   // Primary path — web_fetch (Claude does both the fetch and classification).
-  const wf = await tryWebFetch(company);
+  const wf = await tryWebFetch(company, enrichment);
   if (wf) {
     inputTokens += wf.inputTokens;
     outputTokens += wf.outputTokens;
@@ -257,7 +307,7 @@ async function handle(
     try {
       const html = await tryPlaywright(company);
       if (html.length > 500) {
-        const cls = await classifyText(company, html);
+        const cls = await classifyText(company, html, enrichment);
         inputTokens += cls.inputTokens;
         outputTokens += cls.outputTokens;
         signals = cls.signals;
@@ -281,7 +331,15 @@ async function handle(
       outputTokens,
       estimatedUsd: estimateCostUsd(inputTokens, outputTokens),
     },
-    debug: { pathTaken },
+    debug: {
+      pathTaken,
+      enrichment: {
+        jobPostings: enrichment.jobPostings.length,
+        vacancyUrls: enrichment.vacancyUrls.length,
+        pagesProbed: enrichment.pagesProbed.length,
+        errors: enrichment.errors.length,
+      },
+    },
   };
 }
 

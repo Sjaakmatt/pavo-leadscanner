@@ -12,6 +12,8 @@
 
 import { XMLParser } from "fast-xml-parser";
 import {
+  allSearchNames,
+  companyLabel,
   errMessage,
   estimateCostUsd,
   extractJson,
@@ -35,8 +37,15 @@ import { TEST_COMPANIES } from "../shared/test-companies.ts";
 
 const SCRAPER_NAME = "06-google-news";
 
-const RSS_URL = (naam: string) =>
-  `https://news.google.com/rss/search?q=${encodeURIComponent(`"${naam}"`)}&hl=nl&gl=NL&ceid=NL:nl`;
+const RSS_URL = (query: string) =>
+  `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=nl&gl=NL&ceid=NL:nl`;
+
+// Google News RSS supports quoted OR — join all aliases in one query so
+// we keep it to a single request per company but still catch hits that
+// only appear under an alternate bedrijfsnaam.
+function buildQuery(names: string[]): string {
+  return names.map((n) => `"${n}"`).join(" OR ");
+}
 
 type RssItem = {
   title: string;
@@ -158,7 +167,7 @@ async function classifyItems(
           messages: [
             {
               role: "user",
-              content: `Bedrijf: ${company.naam} (KvK ${company.kvk})\nAantal nieuwsitems: ${items.length}\n\n${body}`,
+              content: `Bedrijf: ${companyLabel(company)}\nBekende naam-varianten: ${allSearchNames(company).join(", ")}\nAantal nieuwsitems: ${items.length}\n\n${body}`,
             },
           ],
         }),
@@ -176,7 +185,7 @@ async function classifyItems(
         confidence: p.confidence,
         observatie: p.observatie,
         bewijs: p.bewijs,
-        bron_url: RSS_URL(company.naam),
+        bron_url: RSS_URL(buildQuery(allSearchNames(company))),
       }),
     ),
     inputTokens: response.usage.input_tokens,
@@ -188,10 +197,12 @@ async function handle(
   company: TestCompany,
 ): Promise<Omit<CompanyResult, "company">> {
   const t0 = Date.now();
+  const names = allSearchNames(company);
+  const query = buildQuery(names);
   let res;
   try {
     res = await withRetry(
-      () => httpGet(RSS_URL(company.naam), { timeoutMs: 20_000 }),
+      () => httpGet(RSS_URL(query), { timeoutMs: 20_000 }),
       { maxAttempts: 3, label: "news-rss" },
     );
   } catch (err) {
