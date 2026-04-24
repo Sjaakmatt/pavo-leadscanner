@@ -1,4 +1,5 @@
 import Link from "next/link";
+import ModeBadge from "./ModeBadge";
 
 export default function Header() {
   return (
@@ -10,9 +11,10 @@ export default function Header() {
         >
           PAVO Research Agent
         </Link>
-        <span className="text-xs text-pavo-gray-600">
-          Powered by FactumAI
-        </span>
+        <div className="flex items-center gap-3">
+          <ModeBadge />
+          <span className="text-xs text-pavo-gray-600">Powered by FactumAI</span>
+        </div>
       </div>
     </header>
   );
