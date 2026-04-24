@@ -14,6 +14,8 @@
 
 import { chromium } from "playwright";
 import {
+  allSearchNames,
+  companyLabel,
   errMessage,
   estimateCostUsd,
   extractJson,
@@ -70,11 +72,13 @@ async function tryWebFetch(company: TestCompany): Promise<{
 } | null> {
   const client = getAnthropic();
   try {
-    const urls = [
-      PORTALS.main(company.naam),
-      PORTALS.asbest(company.naam),
-      PORTALS.seveso(company.naam),
-    ];
+    // Try the main portal for every search-name variant — the other two
+    // registers are opened with the primary name (they cover zeldzame
+    // gevallen die zelden op naam-varianten verschillen). Max-uses budget
+    // schaalt mee.
+    const names = allSearchNames(company);
+    const mainUrls = names.map((n) => PORTALS.main(n));
+    const allUrls = [...mainUrls, PORTALS.asbest(company.naam), PORTALS.seveso(company.naam)];
     const response = await withRetry(
       () =>
         withTimeout(
@@ -83,13 +87,17 @@ async function tryWebFetch(company: TestCompany): Promise<{
             max_tokens: 2048,
             betas: ["web-fetch-2025-09-10"],
             tools: [
-              { type: "web_fetch_20250910", name: "web_fetch", max_uses: 4 } as never,
+              {
+                type: "web_fetch_20250910",
+                name: "web_fetch",
+                max_uses: Math.min(8, allUrls.length + 1),
+              } as never,
             ],
             system: CLASSIFY_SYSTEM,
             messages: [
               {
                 role: "user",
-                content: `Zoek naar "${company.naam}" (KvK ${company.kvk}) op deze drie NLA-registers:\n${urls.map((u) => `- ${u}`).join("\n")}\n\nClassificeer volgens de instructies.`,
+                content: `Zoek naar ${companyLabel(company)} op deze NLA-registers. Als de primaire naam niets oplevert, probeer de alternatieven:\n${allUrls.map((u) => `- ${u}`).join("\n")}\n\nClassificeer volgens de instructies.`,
               },
             ],
           }),
@@ -120,17 +128,25 @@ async function tryPlaywright(company: TestCompany): Promise<string> {
     });
     const page = await ctx.newPage();
     const chunks: string[] = [];
-    for (const [label, builder] of Object.entries(PORTALS)) {
-      try {
-        await page.goto(builder(company.naam), {
-          waitUntil: "domcontentloaded",
-          timeout: 25_000,
-        });
-        await page.waitForTimeout(2_000);
-        const text = await page.innerText("body").catch(() => "");
-        chunks.push(`# portal:${label}\n${text.slice(0, 6_000)}`);
-      } catch (err) {
-        chunks.push(`# portal:${label}\n(fout: ${errMessage(err)})`);
+    for (const term of allSearchNames(company)) {
+      for (const [label, builder] of Object.entries(PORTALS)) {
+        // The secundaire portals (asbest, seveso) we query only once on
+        // the canonical name — they're low-hit sources and we'd triple
+        // the browser-load budget for marginal gain.
+        if (label !== "main" && term !== company.naam) continue;
+        try {
+          await page.goto(builder(term), {
+            waitUntil: "domcontentloaded",
+            timeout: 25_000,
+          });
+          await page.waitForTimeout(2_000);
+          const text = await page.innerText("body").catch(() => "");
+          chunks.push(`# portal:${label} zoekterm:"${term}"\n${text.slice(0, 6_000)}`);
+        } catch (err) {
+          chunks.push(
+            `# portal:${label} zoekterm:"${term}"\n(fout: ${errMessage(err)})`,
+          );
+        }
       }
     }
     return chunks.join("\n\n");
@@ -173,7 +189,7 @@ async function classifyText(
           messages: [
             {
               role: "user",
-              content: `Bedrijf: ${company.naam} (KvK ${company.kvk})\n\nInhoud NLA-portals:\n---\n${text.slice(0, 12_000)}\n---`,
+              content: `Bedrijf: ${companyLabel(company)}\n\nInhoud NLA-portals:\n---\n${text.slice(0, 12_000)}\n---`,
             },
           ],
         }),

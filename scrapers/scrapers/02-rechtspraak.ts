@@ -17,6 +17,8 @@
 import { XMLParser } from "fast-xml-parser";
 import { chromium } from "playwright";
 import {
+  allSearchNames,
+  companyLabel,
   errMessage,
   estimateCostUsd,
   extractJson,
@@ -216,7 +218,7 @@ async function classifyCases(
           messages: [
             {
               role: "user",
-              content: `Bedrijf: ${company.naam} (KvK ${company.kvk})\nAantal gevonden uitspraken: ${cases.length}\n\n${summary}`,
+              content: `Bedrijf: ${companyLabel(company)}\nAantal gevonden uitspraken: ${cases.length}\n\n${summary}`,
             },
           ],
         }),
@@ -270,38 +272,60 @@ async function handle(
     };
   }
 
-  let html = "";
-  try {
-    const r = await withRetry(
-      () => httpGet(SEARCH_URL(company.naam), { timeoutMs: 25_000 }),
-      { maxAttempts: 3, label: "rechtspraak-search" },
-    );
-    html = r.body;
-  } catch (err) {
+  // Try every search name in turn until we find ECLIs. Rechtspraak's search
+  // requires a single term per query, so looping is the only option.
+  const namesTried: string[] = [];
+  let eclis: string[] = [];
+  let lastError: string | undefined;
+
+  for (const term of allSearchNames(company)) {
+    namesTried.push(term);
+    try {
+      const r = await withRetry(
+        () => httpGet(SEARCH_URL(term), { timeoutMs: 25_000 }),
+        { maxAttempts: 3, label: "rechtspraak-search" },
+      );
+      eclis = parseEclisFromHtml(r.body, 10);
+      if (eclis.length === 0) {
+        // SPA fallback — wait for the client renderer.
+        const rendered = await renderSearchViaPlaywright(term).catch(
+          async (err) => {
+            await writeDebug(`02-playwright-error-${company.id}`, {
+              term,
+              error: errMessage(err),
+            });
+            return "";
+          },
+        );
+        eclis = parseEclisFromHtml(rendered, 10);
+      }
+      if (eclis.length > 0) break;
+    } catch (err) {
+      lastError = errMessage(err);
+    }
+  }
+
+  if (namesTried.length === 0) {
     return {
       success: false,
       durationMs: Date.now() - t0,
       hitCount: 0,
       signals: [],
       cost: { inputTokens: 0, outputTokens: 0, estimatedUsd: 0 },
-      error: `zoek-request faalde: ${errMessage(err)}`,
+      error: "geen zoeknamen beschikbaar",
     };
   }
 
-  let eclis = parseEclisFromHtml(html, 10);
-
-  // The legacy search page is increasingly a SPA — when the static HTML
-  // carries no ECLIs, fall back to Playwright and wait for the client
-  // renderer to populate the result list.
-  if (eclis.length === 0) {
-    try {
-      const rendered = await renderSearchViaPlaywright(company.naam);
-      eclis = parseEclisFromHtml(rendered, 10);
-    } catch (err) {
-      await writeDebug(`02-playwright-error-${company.id}`, {
-        error: errMessage(err),
-      });
-    }
+  if (eclis.length === 0 && lastError) {
+    return {
+      success: false,
+      durationMs: Date.now() - t0,
+      hitCount: 0,
+      signals: [],
+      cost: { inputTokens: 0, outputTokens: 0, estimatedUsd: 0 },
+      error: `zoek-request faalde: ${lastError}`,
+      debug: { namesTried },
+    };
   }
 
   if (eclis.length === 0) {
@@ -311,7 +335,7 @@ async function handle(
       hitCount: 0,
       signals: [],
       cost: { inputTokens: 0, outputTokens: 0, estimatedUsd: 0 },
-      debug: { reason: "geen treffers in arbeidsrecht" },
+      debug: { reason: "geen treffers in arbeidsrecht", namesTried },
     };
   }
 
@@ -348,12 +372,12 @@ async function handle(
     durationMs: Date.now() - t0,
     hitCount: cases.length,
     signals,
+    debug: { eclis, namesTried },
     cost: {
       inputTokens,
       outputTokens,
       estimatedUsd: estimateCostUsd(inputTokens, outputTokens),
     },
-    debug: { eclis },
   };
 }
 

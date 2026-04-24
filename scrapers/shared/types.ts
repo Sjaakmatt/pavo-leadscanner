@@ -9,10 +9,21 @@
 export type TestCompany = {
   id: string;
   naam: string;
+  // Aliases to try when the primary `naam` doesn't surface hits. Scrapers
+  // that do text-search over a source first try `naam`, then walk through
+  // this list until a hit is found or the list is exhausted.
+  zoeknamen: string[];
   url: string;
-  kvk: string;
+  // KvK-nummer is optioneel — niet elk publiek bedrijfsprofiel vermeldt
+  // deze prominent; we dwingen het niet af in de scrapers.
+  kvk?: string;
   verwachteFte: number;
   sector: string;
+  // Verwachte PAVO-cluster vooraf — handig als smoketest: als het bedrijf
+  // na scrapen in een heel ander cluster scoort weten we dat óf de data
+  // verrassingen bevat óf onze verwachting niet klopte.
+  cluster: 1 | 2 | 3;
+  notitie: string;
 };
 
 // Cluster 1: HR-structuur signals
