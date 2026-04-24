@@ -12,6 +12,8 @@
 
 import { chromium } from "playwright";
 import {
+  allSearchNames,
+  companyLabel,
   errMessage,
   estimateCostUsd,
   extractJson,
@@ -71,7 +73,7 @@ async function tryWebFetch(company: TestCompany): Promise<{
             messages: [
               {
                 role: "user",
-                content: `Zoek "${company.naam}" (KvK ${company.kvk}) in het Centraal Insolventieregister: ${SEARCH_URL(company.naam)}\n\nControleer of er een actieve faillissement of surseance staat.`,
+                content: `Zoek ${companyLabel(company)} in het Centraal Insolventieregister. Probeer alle zoeknaam-varianten tot je zeker weet of er een actieve registratie is:\n${allSearchNames(company).map((n) => `- ${SEARCH_URL(n)}`).join("\n")}\n\nControleer of er een actieve faillissement of surseance staat.`,
               },
             ],
           }),
@@ -101,19 +103,33 @@ async function tryPlaywright(company: TestCompany): Promise<string> {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
     });
     const page = await ctx.newPage();
-    await page.goto(SEARCH_URL(company.naam), {
-      waitUntil: "networkidle",
-      timeout: 30_000,
-    });
-    // SPA: wait for the results list container to appear.
-    await page
-      .waitForSelector(".resultaten, .no-results, [data-result]", {
-        timeout: 15_000,
-      })
-      .catch(() => {});
-    await page.waitForTimeout(1_500);
-    const body = await page.innerText("body").catch(() => "");
-    return body.slice(0, 10_000);
+    const chunks: string[] = [];
+    for (const term of allSearchNames(company)) {
+      try {
+        await page.goto(SEARCH_URL(term), {
+          waitUntil: "networkidle",
+          timeout: 30_000,
+        });
+        await page
+          .waitForSelector(".resultaten, .no-results, [data-result]", {
+            timeout: 15_000,
+          })
+          .catch(() => {});
+        await page.waitForTimeout(1_500);
+        const body = await page.innerText("body").catch(() => "");
+        const slice = body.slice(0, 6_000);
+        chunks.push(`# zoekterm:"${term}"\n${slice}`);
+        // Cheap early-exit: if this slice clearly carries hit-markers,
+        // we don't need to loop further. "geen resultaten" is the
+        // negative pattern the site shows when zero hits.
+        if (/faillissement|surseance|WHOA/i.test(slice) && !/geen.*resultaten/i.test(slice)) {
+          break;
+        }
+      } catch (err) {
+        chunks.push(`# zoekterm:"${term}"\n(fout: ${errMessage(err)})`);
+      }
+    }
+    return chunks.join("\n\n");
   } finally {
     await browser.close();
   }
@@ -153,7 +169,7 @@ async function classifyText(
           messages: [
             {
               role: "user",
-              content: `Bedrijf: ${company.naam}\nKvK: ${company.kvk}\n\nZoekresultaat-pagina:\n---\n${text}\n---`,
+              content: `Bedrijf: ${companyLabel(company)}\n\nZoekresultaat-pagina (per zoekterm):\n---\n${text}\n---`,
             },
           ],
         }),

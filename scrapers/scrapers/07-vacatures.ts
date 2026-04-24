@@ -23,6 +23,8 @@
 // timeout) logs a debug entry and the scraper continues with what it has.
 
 import {
+  allSearchNames,
+  companyLabel,
   errMessage,
   estimateCostUsd,
   extractJson,
@@ -134,10 +136,12 @@ Regels:
 async function fetchViaWebFetch(
   company: TestCompany,
   source: VacancySource,
-  url: string,
+  buildUrl: (naam: string) => string,
 ): Promise<SourceResult> {
   const client = getAnthropic();
   try {
+    const names = allSearchNames(company);
+    const urls = names.map((n) => buildUrl(n));
     const response = await withRetry(
       () =>
         withTimeout(
@@ -146,13 +150,17 @@ async function fetchViaWebFetch(
             max_tokens: 2048,
             betas: ["web-fetch-2025-09-10"],
             tools: [
-              { type: "web_fetch_20250910", name: "web_fetch", max_uses: 2 } as never,
+              {
+                type: "web_fetch_20250910",
+                name: "web_fetch",
+                max_uses: Math.min(6, urls.length + 1),
+              } as never,
             ],
             system: EXTRACT_SYSTEM,
             messages: [
               {
                 role: "user",
-                content: `Zoek alle vacatures voor "${company.naam}" (KvK ${company.kvk}) op ${url}. Haal de pagina op en extraheer de vacature-lijst.`,
+                content: `Zoek alle vacatures voor ${companyLabel(company)} op de onderstaande zoek-URLs. Probeer de varianten tot je vacatures vindt:\n${urls.map((u) => `- ${u}`).join("\n")}\n\nExtraheer de vacature-lijst. Bekende naam-varianten: ${names.join(", ")}.`,
               },
             ],
           }),
@@ -435,7 +443,7 @@ async function classifyVacancies(
           messages: [
             {
               role: "user",
-              content: `Bedrijf: ${company.naam} (KvK ${company.kvk})\nTotaal vacatures (na dedup): ${postings.length}\n\n${formatted}`,
+              content: `Bedrijf: ${companyLabel(company)}\nTotaal vacatures (na dedup): ${postings.length}\n\n${formatted}`,
             },
           ],
         }),
@@ -470,12 +478,8 @@ async function handle(
 
   const [eigen, werkNl, nvb, serp] = await Promise.all([
     fetchEigenSite(company),
-    fetchViaWebFetch(company, "werk.nl", WERK_NL_SEARCH(company.naam)),
-    fetchViaWebFetch(
-      company,
-      "nationale-vacaturebank",
-      NVB_SEARCH(company.naam),
-    ),
+    fetchViaWebFetch(company, "werk.nl", WERK_NL_SEARCH),
+    fetchViaWebFetch(company, "nationale-vacaturebank", NVB_SEARCH),
     fetchSerpApi(company),
   ]);
 
