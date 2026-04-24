@@ -16,7 +16,7 @@ export default function ServiceMatchBar({
       <div className="flex items-center gap-2">
         <BadgeIcon className="h-4 w-4 text-pavo-teal" />
         <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
-          Waar PAVO kan helpen
+          Relevante PAVO-diensten
         </h2>
       </div>
 
@@ -26,29 +26,16 @@ export default function ServiceMatchBar({
         </p>
       ) : (
         <>
-          <p className="mt-2 text-sm text-pavo-gray-900">
-            Op basis van de gedetecteerde signalen matchen{" "}
-            {primair.length > 0 ? (
-              <>
-                <strong className="font-semibold text-pavo-navy">
-                  {primair.length} primaire
-                </strong>{" "}
-                {primair.length === 1 ? "dienst" : "diensten"}
-              </>
-            ) : (
-              "geen primaire diensten"
-            )}
-            {secundair.length > 0 &&
-              ` en ${secundair.length} secundaire ${secundair.length === 1 ? "dienst" : "diensten"}`}{" "}
-            uit het PAVO-portfolio.
+          <p className="mt-2 text-sm text-pavo-gray-600">
+            De agent heeft de signalen gematcht tegen het PAVO-portfolio. De
+            score geeft aan hoe sterk het patroon aansluit — niet hoe kansrijk
+            een verkoopgesprek is.
           </p>
 
           <div className="mt-5 space-y-6">
-            {primair.length > 0 && (
-              <Group title="Primair — hier zou PAVO als eerste insteken" items={primair} />
-            )}
+            {primair.length > 0 && <Group title="Primair" items={primair} />}
             {secundair.length > 0 && (
-              <Group title="Secundair — ondersteunende diensten" items={secundair} />
+              <Group title="Secundair" items={secundair} />
             )}
           </div>
         </>
