@@ -12,11 +12,35 @@ export default function LeadGrid({ leads }: { leads: Lead[] }) {
     );
   }
 
+  const actionable = leads.filter((l) => l.warmte !== "COLD");
+  const cold = leads.filter((l) => l.warmte === "COLD");
+
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-      {leads.map((lead, i) => (
-        <LeadCard key={lead.id} lead={lead} index={i} />
-      ))}
+    <div className="space-y-8">
+      {actionable.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {actionable.map((lead, i) => (
+            <LeadCard key={lead.id} lead={lead} index={i} />
+          ))}
+        </div>
+      )}
+
+      {cold.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
+            Ook onderzocht — geen relevante HR-signalen ({cold.length})
+          </h2>
+          <div className="space-y-2">
+            {cold.map((lead, i) => (
+              <LeadCard
+                key={lead.id}
+                lead={lead}
+                index={actionable.length + i}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -20,20 +20,22 @@ export const BRIEFING_MAX_TOKENS = 700;
 // (persona + portfolio + lead data) so the briefing and the chat share
 // the same cached prefix. First call: full cost. Every chat question
 // about the same lead after: cache HIT.
-export const BRIEFING_USER_PROMPT = `Schrijf een briefing voor de PAVO-consultant die dit dossier zo meteen opent.
+export const BRIEFING_USER_PROMPT = `Schrijf een beknopte toelichting voor de PAVO-consultant die dit dossier opent. Je beantwoordt één vraag: "waarom staat dit bedrijf op mijn lijst en hoe zeker weten we dat het klopt?"
+
+Dit is GEEN gespreksvoorbereiding. Geen openingszinnen, geen verkoopaanpak, geen "ik zou zus-of-zo beginnen". Alleen de relevantie-uiteenzetting — waarom deze lead door de agent is geselecteerd en hoe betrouwbaar het signaal is.
 
 Structuur (exact deze koppen, geen andere markdown):
 
-## Situatie
-3-4 zinnen die de lead-data interpreteren — niet herhalen. Leg verbanden tussen signalen. Noem waar het knelt en waarom dit bedrijf nu relevant is voor PAVO.
+## Waarom deze lead
+2-3 zinnen. Specifiek uitleggen waarom dit bedrijf volgens de agent relevant is voor PAVO — vanuit de gedetecteerde signalen gecombineerd met het archetype. Niet generiek ("klassieke scale-up"), wel specifiek ("groei van 12 naar 41 FTE in 20 maanden zonder interne HR-functie wijst op..."). Noem kerncijfers waar beschikbaar.
 
-## Wat me opvalt
-2-3 genummerde observaties die de consultant niet direct uit de signalen-lijst leest. Wees specifiek en onderbouwd. Citeer kerngetallen of bronnen waar relevant.
+## Wat de agent zag
+2-3 genummerde observaties die verbanden leggen tussen signalen onderling of tussen signalen en het archetype. Geen herhaling van de signalen-lijst — interpretatie. Verklaar WAAROM de combinatie van signalen betekenisvol is.
 
-## Zo zou ik het eerste gesprek openen
-2-3 concrete aanpak-suggesties. Korte zinnen. Gesprekshoek, niet verkooppraatje.
+## Betrouwbaarheid
+1-2 zinnen. Hoe zeker is de agent? Welke bronnen zijn sterk (Jobdigger, KvK-historie = feitelijk), welke zwakker (bedrijfswebsite, LinkedIn = interpretatief)? Eerlijk over beperkingen — als een signaal een aanname bevat, zeg dat. Als de agent iets niet kan verifiëren, benoem dat expliciet.
 
-Toon: zakelijk, analytisch, Nederlands. Geen opsommingstekens anders dan in 'Wat me opvalt'. Totaal maximaal 300 woorden.`;
+Toon: zakelijk, analytisch, Nederlands. Totaal max 220 woorden.`;
 
 export function getClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
