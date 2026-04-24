@@ -7,6 +7,8 @@ export type Bron =
   | "Jobdigger"
   | "bedrijfswebsite"
   | "Rechtspraak.nl"
+  | "NLA"
+  | "Insolventieregister"
   | "Nieuws"
   | "CBS"
   | "LinkedIn-bedrijfspagina"
@@ -85,7 +87,29 @@ export type SearchResult = {
   };
 };
 
+// Voortgangs-events die de productie-pijplijn uitzendt tijdens een
+// runSearch. De demo-bron emit geen events — SSE-route valt dan stil,
+// wat prima is.
+export type SearchProgressEvent =
+  | { type: "stage"; stage: string; message: string }
+  | { type: "kvk"; totalCandidates: number }
+  | { type: "geo"; remaining: number }
+  | { type: "scrape"; kvk: string; naam: string; scraped: number; total: number; costUsd: number }
+  | { type: "score"; scored: number; total: number }
+  | { type: "done"; totalLeadsReturned: number; totalCostUsd: number; durationMs: number }
+  | { type: "error"; message: string };
+
+export type RunSearchOptions = {
+  onEvent?: (event: SearchProgressEvent) => void;
+  // Negeert de 30-dagen cache en forceert herscrapen van alle kandidaten.
+  refresh?: boolean;
+};
+
+export type GetLeadOptions = {
+  refresh?: boolean;
+};
+
 export interface LeadSource {
-  runSearch(filters: SearchFilters): Promise<SearchResult>;
-  getLead(kvk: string): Promise<Lead | null>;
+  runSearch(filters: SearchFilters, opts?: RunSearchOptions): Promise<SearchResult>;
+  getLead(kvk: string, opts?: GetLeadOptions): Promise<Lead | null>;
 }

@@ -5,9 +5,11 @@ import { buildSearchSteps } from "@/lib/filter";
 
 export async function POST(req: Request) {
   try {
+    const url = new URL(req.url);
+    const refresh = url.searchParams.get("refresh") === "true";
     const filters = (await req.json()) as SearchFilters;
     const source = getLeadSource();
-    const result = await source.runSearch(filters);
+    const result = await source.runSearch(filters, { refresh });
     const steps = buildSearchSteps(
       filters,
       result.leads.length,

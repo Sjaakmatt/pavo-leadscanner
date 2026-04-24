@@ -11,14 +11,19 @@
 // Budget-limiet: MAX_COST_PER_SEARCH_USD stopt de run bij overschrijding.
 
 import type {
+  Bron,
   DienstCode,
   FteKlasse,
+  GetLeadOptions,
   Lead,
   LeadSource,
+  RunSearchOptions,
   SearchFilters,
+  SearchProgressEvent,
   SearchResult,
+  Signaal,
 } from "@/lib/adapters/types";
-import { kvkGetBasisprofiel, kvkZoekBedrijven } from "@/lib/kvk/client";
+import { kvkGetBasisprofiel, kvkSnapshotAndStore, kvkZoekBedrijven } from "@/lib/kvk/client";
 import { mapBrancheToSbi } from "@/lib/kvk/sbi-mapping";
 import { bucketFte, type KvkBasisprofiel } from "@/lib/kvk/types";
 import {
@@ -34,17 +39,27 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const DEFAULT_BUDGET_USD = 5;
 const CACHE_TTL_DAYS = 30;
+const LEAD_DETAIL_TTL_DAYS = 7;
+const SNAPSHOT_TTL_DAYS = 7;
 const MAX_PARALLEL_SCRAPES = 5;
 
+function noopEmit(_event: SearchProgressEvent): void {
+  // default no-op; callers that don't care get zero overhead.
+}
+
 export class ProductionLeadSource implements LeadSource {
-  async runSearch(filters: SearchFilters): Promise<SearchResult> {
+  async runSearch(
+    filters: SearchFilters,
+    opts: RunSearchOptions = {},
+  ): Promise<SearchResult> {
+    const emit = opts.onEvent ?? noopEmit;
     const startedAt = Date.now();
     const supabase = supabaseServer();
     const budgetUsd = Number(
       process.env.MAX_COST_PER_SEARCH_USD ?? DEFAULT_BUDGET_USD,
     );
 
-    // ---- Stap 1: KvK-afbakening ------------------------------------
+    emit({ type: "stage", stage: "kvk", message: "Kamer van Koophandel doorzoeken…" });
     const sbiCodes = mapBrancheToSbi(filters.branche);
     const provincies = filters.regio_center
       ? provincesWithinRadius(filters.regio_center, filters.regio_straal_km)
@@ -54,39 +69,63 @@ export class ProductionLeadSource implements LeadSource {
       provincies,
       limit: 200,
     });
+    emit({ type: "kvk", totalCandidates: candidates.length });
 
-    // ---- Stap 2: per bedrijf basisprofiel ophalen (FTE + coords) ---
+    emit({
+      type: "stage",
+      stage: "basisprofielen",
+      message: `Basisprofielen ophalen (${candidates.length})…`,
+    });
     const profiles = await Promise.all(
       candidates.map((c) => kvkGetBasisprofiel(c.kvkNummer).catch(() => null)),
     );
     const enriched = candidates
       .map((c, i) => ({ candidate: c, profile: profiles[i] }))
-      .filter((x): x is { candidate: typeof candidates[0]; profile: KvkBasisprofiel } => !!x.profile);
+      .filter(
+        (x): x is { candidate: typeof candidates[0]; profile: KvkBasisprofiel } =>
+          !!x.profile,
+      );
 
-    // FTE post-filter — KvK's zoeken biedt geen directe filter hierop.
     const fteFiltered = enriched.filter(({ profile }) => {
       if (!filters.fte_klassen.length) return true;
-      return profile.fteKlasse && filters.fte_klassen.includes(profile.fteKlasse as FteKlasse);
+      return (
+        profile.fteKlasse &&
+        filters.fte_klassen.includes(profile.fteKlasse as FteKlasse)
+      );
     });
 
-    // ---- Stap 3: geo-filter op haversine-afstand --------------------
+    emit({
+      type: "stage",
+      stage: "geo",
+      message: "Regio-filter toepassen…",
+    });
     const geoFiltered = await applyGeoFilter(
       fteFiltered,
       filters.regio_center,
       filters.regio_straal_km,
     );
+    emit({ type: "geo", remaining: geoFiltered.length });
 
-    // ---- Stap 4: upsert companies + trigger snapshot ----------------
     await upsertCompanies(supabase, geoFiltered);
+    // Snapshot nieuwe / stale bedrijven in kvk_snapshots — doen we na de
+    // upsert zodat de FK naar companies vastligt. Fouten logt de helper
+    // zelf; we stoppen de flow niet.
+    await snapshotNewOrStale(supabase, geoFiltered);
 
-    // ---- Stap 5: decide who to (re-)scrape + budget-check -----------
-    const toScrape = await determineScrapeTargets(
-      supabase,
-      geoFiltered.map((x) => x.profile.kvkNummer),
-    );
+    const toScrape = opts.refresh
+      ? geoFiltered.map((x) => x.profile.kvkNummer)
+      : await determineScrapeTargets(
+          supabase,
+          geoFiltered.map((x) => x.profile.kvkNummer),
+        );
     let totalCostUsd = 0;
 
-    // ---- Stap 6: parallel scrapen met concurrency-limiet -----------
+    emit({
+      type: "stage",
+      stage: "scrape",
+      message: `Bedrijfssignalen ophalen (${toScrape.length} nieuw/stale)…`,
+    });
+    let scraped = 0;
     await runInBatches(toScrape, MAX_PARALLEL_SCRAPES, async (kvk) => {
       if (totalCostUsd >= budgetUsd) return;
       const prof = geoFiltered.find((x) => x.profile.kvkNummer === kvk)?.profile;
@@ -103,24 +142,36 @@ export class ProductionLeadSource implements LeadSource {
         supabase,
       );
       totalCostUsd += cost;
+      scraped += 1;
+      emit({
+        type: "scrape",
+        kvk: prof.kvkNummer,
+        naam: prof.naam,
+        scraped,
+        total: toScrape.length,
+        costUsd: totalCostUsd,
+      });
     });
 
-    // ---- Stap 7: scoren per bedrijf ---------------------------------
+    emit({
+      type: "stage",
+      stage: "score",
+      message: "Scoren + warmte bepalen…",
+    });
     const leads: Lead[] = [];
+    let scored = 0;
     for (const { profile } of geoFiltered) {
-      const { data: signals } = await supabase
-        .from("signals")
-        .select("*")
-        .eq("kvk", profile.kvkNummer)
-        .gte(
-          "detected_at",
-          new Date(Date.now() - CACHE_TTL_DAYS * 86_400_000).toISOString(),
-        );
-      const score = scoreCompany(profile, signals ?? []);
-      leads.push(scoreToLead(profile, score));
+      const signals = await fetchRecentSignals(
+        supabase,
+        profile.kvkNummer,
+        CACHE_TTL_DAYS,
+      );
+      const score = scoreCompany(profile, signals.map(toScoringSignal));
+      leads.push(scoreToLead(profile, score, signals));
+      scored += 1;
+      emit({ type: "score", scored, total: geoFiltered.length });
     }
 
-    // ---- Stap 8: log search_query + return --------------------------
     await supabase.from("search_queries").insert({
       filters: filters as unknown as object,
       total_candidates: candidates.length,
@@ -131,6 +182,13 @@ export class ProductionLeadSource implements LeadSource {
     });
 
     const sorted = sortLeadsByWarmte(leads);
+    const durationMs = Date.now() - startedAt;
+    emit({
+      type: "done",
+      totalLeadsReturned: sorted.length,
+      totalCostUsd,
+      durationMs,
+    });
     return {
       search_id: `prod-${Date.now()}`,
       titel: `Live resultaten · ${filters.branche}`,
@@ -139,27 +197,57 @@ export class ProductionLeadSource implements LeadSource {
     };
   }
 
-  async getLead(kvk: string): Promise<Lead | null> {
+  async getLead(kvk: string, opts: GetLeadOptions = {}): Promise<Lead | null> {
     const supabase = supabaseServer();
     const { data: company } = await supabase
       .from("companies")
-      .select("*")
+      .select("kvk")
       .eq("kvk", kvk)
       .maybeSingle();
     if (!company) return null;
-    const { data: signals } = await supabase
-      .from("signals")
-      .select("*")
-      .eq("kvk", kvk)
-      .gte(
-        "detected_at",
-        new Date(Date.now() - CACHE_TTL_DAYS * 86_400_000).toISOString(),
-      );
-    const profile = await kvkGetBasisprofiel(kvk).catch(() => null);
+
+    // Detail-TTL (7 dagen) is korter dan search-TTL (30 dagen) — als een
+    // consultant inzoomt op een lead willen we relatief verse data.
+    const profile = await kvkGetBasisprofiel(kvk, {
+      bypassCache: opts.refresh === true,
+    }).catch(() => null);
     if (!profile) return null;
-    const score = scoreCompany(profile, signals ?? []);
-    return scoreToLead(profile, score);
+
+    const needsRefresh =
+      opts.refresh || (await isScrapeStale(supabase, kvk, LEAD_DETAIL_TTL_DAYS));
+    if (needsRefresh) {
+      await runScrapersForCompany(
+        {
+          kvk: profile.kvkNummer,
+          naam: profile.naam,
+          websiteUrl: profile.websiteUrl,
+          zoeknamen: [profile.naam, profile.handelsnaam].filter(
+            (s): s is string => !!s,
+          ),
+        },
+        supabase,
+      );
+    }
+
+    const signals = await fetchRecentSignals(supabase, kvk, CACHE_TTL_DAYS);
+    const score = scoreCompany(profile, signals.map(toScoringSignal));
+    return scoreToLead(profile, score, signals);
   }
+}
+
+// De rows uit Supabase kunnen NULL-velden hebben die scoring niet kent.
+// We mappen hier naar de smallere shape die scoreCompany verwacht.
+function toScoringSignal(row: StoredSignalRow) {
+  return {
+    categorie: row.categorie,
+    cluster: row.cluster,
+    sterkte: row.sterkte,
+    confidence: row.confidence,
+    observatie: row.observatie,
+    bron_type: row.bron_type ?? undefined,
+    bron_url: row.bron_url ?? undefined,
+    bewijs: row.bewijs ?? undefined,
+  };
 }
 
 // ---------- helpers -------------------------------------------------------
@@ -233,6 +321,60 @@ async function determineScrapeTargets(
   return kvks.filter((k) => !recentlyScraped.has(k));
 }
 
+async function isScrapeStale(
+  supabase: SupabaseClient,
+  kvk: string,
+  ttlDays: number,
+): Promise<boolean> {
+  const cutoff = new Date(Date.now() - ttlDays * 86_400_000).toISOString();
+  const { count } = await supabase
+    .from("scrape_runs")
+    .select("id", { count: "exact", head: true })
+    .eq("kvk", kvk)
+    .eq("success", true)
+    .gte("completed_at", cutoff);
+  return (count ?? 0) === 0;
+}
+
+async function fetchRecentSignals(
+  supabase: SupabaseClient,
+  kvk: string,
+  ttlDays: number,
+): Promise<StoredSignalRow[]> {
+  const cutoff = new Date(Date.now() - ttlDays * 86_400_000).toISOString();
+  const { data } = await supabase
+    .from("signals")
+    .select("categorie, cluster, sterkte, confidence, observatie, bron_type, bron_url, bewijs")
+    .eq("kvk", kvk)
+    .gte("detected_at", cutoff);
+  return (data ?? []) as StoredSignalRow[];
+}
+
+async function snapshotNewOrStale<T extends { profile: KvkBasisprofiel }>(
+  supabase: SupabaseClient,
+  enriched: T[],
+): Promise<void> {
+  if (enriched.length === 0) return;
+  const kvks = enriched.map((x) => x.profile.kvkNummer);
+  const cutoff = new Date(Date.now() - SNAPSHOT_TTL_DAYS * 86_400_000).toISOString();
+  const { data } = await supabase
+    .from("kvk_snapshots")
+    .select("kvk, snapshot_at")
+    .in("kvk", kvks)
+    .gte("snapshot_at", cutoff);
+  const hasRecent = new Set((data ?? []).map((r) => r.kvk as string));
+  const needed = enriched.filter((x) => !hasRecent.has(x.profile.kvkNummer));
+  // Niet parallel — KvK-rate-limiter cap't 'em al en we willen snapshots
+  // niet tegen elkaar laten uitvechten.
+  for (const { profile } of needed) {
+    try {
+      await kvkSnapshotAndStore(profile.kvkNummer, supabase);
+    } catch (err) {
+      console.warn(`snapshot faalde voor ${profile.kvkNummer}: ${String(err)}`);
+    }
+  }
+}
+
 async function runInBatches<T>(
   items: T[],
   concurrency: number,
@@ -249,11 +391,50 @@ async function runInBatches<T>(
   await Promise.all(workers);
 }
 
+// Scraper-`bron_type` strings → de vaste Bron-union die de UI kent. Signalen
+// die van een onbekende bron komen vallen terug op "Nieuws" (zachte bron)
+// zodat de bronSterkte-helper ze als interpretatief behandelt.
+const BRON_TYPE_TO_BRON: Record<string, Bron> = {
+  website: "bedrijfswebsite",
+  rechtspraak: "Rechtspraak.nl",
+  nla: "NLA",
+  insolventie: "Insolventieregister",
+  news: "Nieuws",
+  vacatures: "Jobdigger",
+};
+
+function toLeadSignaal(row: StoredSignalRow): Signaal {
+  const bron = BRON_TYPE_TO_BRON[row.bron_type ?? ""] ?? "Nieuws";
+  return { tekst: row.observatie, bron };
+}
+
+type StoredSignalRow = {
+  categorie: string;
+  cluster: number | null;
+  sterkte: number;
+  confidence: number;
+  observatie: string;
+  bron_type?: string | null;
+  bron_url?: string | null;
+  bewijs?: string[] | null;
+};
+
 function scoreToLead(
   profile: KvkBasisprofiel,
   score: ReturnType<typeof scoreCompany>,
+  signals: StoredSignalRow[],
 ): Lead {
   const fteKlasse = (profile.fteKlasse ?? bucketFte(undefined) ?? "10-19") as FteKlasse;
+  // Dedupe signalen op (categorie, bron_type) — meerdere scrape-runs
+  // kunnen dezelfde categorie oppikken; we tonen 'm één keer aan Roy.
+  const seen = new Set<string>();
+  const dedupedSignalen: Signaal[] = [];
+  for (const s of signals) {
+    const k = `${s.categorie}|${s.bron_type ?? ""}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    dedupedSignalen.push(toLeadSignaal(s));
+  }
   return {
     id: profile.kvkNummer,
     naam: profile.naam,
@@ -264,7 +445,7 @@ function scoreToLead(
     fte_klasse: fteKlasse,
     warmte: score.warmte,
     archetype: null,
-    signalen: [],
+    signalen: dedupedSignalen,
     // Scoring engine werkt met string-codes; we casten terug naar
     // DienstCode omdat de matrix alleen D1-D8 (de huidige UI-set)
     // produceert. Als we D9-D13 toevoegen, update ook de type-union.
