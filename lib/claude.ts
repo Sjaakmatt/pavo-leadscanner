@@ -1,6 +1,24 @@
 import Anthropic from "@anthropic-ai/sdk";
 import leadsData from "@/data/leads.json";
-import type { Lead } from "./adapters/types";
+import type { Bron, Lead } from "./adapters/types";
+
+// Classificatie van bron-sterkte. Feitelijk = verifieerbare registers
+// en externe databanken; Interpretatief = gepubliceerde content waar
+// de agent iets uit afleidt (kan achterhaald of incompleet zijn).
+export type BronSterkte = "Feitelijk" | "Interpretatief";
+
+const HARD_BRONNEN: Bron[] = [
+  "KvK",
+  "KvK-historie",
+  "KvK-deponering",
+  "Rechtspraak.nl",
+  "CBS",
+  "Jobdigger",
+];
+
+export function bronSterkte(bron: Bron): BronSterkte {
+  return HARD_BRONNEN.includes(bron) ? "Feitelijk" : "Interpretatief";
+}
 
 // The dienstenportfolio lives in the dataset meta — reuse it so the
 // agent's explanation of D-codes stays in sync with what the UI shows.
@@ -15,6 +33,7 @@ const meta = (leadsData as unknown as { meta: Meta }).meta;
 export const CHAT_MODEL = "claude-sonnet-4-6";
 export const CHAT_MAX_TOKENS = 1024;
 export const BRIEFING_MAX_TOKENS = 700;
+export const SUMMARY_MAX_TOKENS = 250;
 
 // Identical shape to a user turn — we reuse the full chat system prompt
 // (persona + portfolio + lead data) so the briefing and the chat share
@@ -24,16 +43,19 @@ export const BRIEFING_USER_PROMPT = `Schrijf een beknopte toelichting voor de PA
 
 Dit is GEEN gespreksvoorbereiding. Geen openingszinnen, geen verkoopaanpak, geen "ik zou zus-of-zo beginnen". Alleen de relevantie-uiteenzetting — waarom deze lead door de agent is geselecteerd en hoe betrouwbaar het signaal is.
 
-Structuur (exact deze koppen, geen andere markdown):
+### Citaties zijn VERPLICHT
+Elk signaal in de lead-data heeft een nummer tussen blokhaken (bijv. [1], [2]). Wanneer je een bewering doet die op een signaal is gebaseerd, MOET je het relevante signaal-nummer direct achter die bewering plaatsen, in exact het formaat [N] of [N,M]. Geen "(zie signaal 1)" of "volgens signaal 1", alleen [1]. Combinaties van meerdere signalen citeer je als [1,3]. Beweringen zonder citatie zijn niet toegestaan tenzij ze expliciet over het archetype of de bron-sterkte gaan.
+
+### Structuur (exact deze koppen, geen andere markdown)
 
 ## Waarom deze lead
-2-3 zinnen. Specifiek uitleggen waarom dit bedrijf volgens de agent relevant is voor PAVO — vanuit de gedetecteerde signalen gecombineerd met het archetype. Niet generiek ("klassieke scale-up"), wel specifiek ("groei van 12 naar 41 FTE in 20 maanden zonder interne HR-functie wijst op..."). Noem kerncijfers waar beschikbaar.
+2-3 zinnen met inline [N]-citaties. Specifiek uitleggen waarom dit bedrijf volgens de agent relevant is — vanuit de gedetecteerde signalen gecombineerd met het archetype. Niet generiek. Citeer kerncijfers ("groei van 12→41 FTE in 20 mnd [3]") waar beschikbaar.
 
 ## Wat de agent zag
-2-3 genummerde observaties die verbanden leggen tussen signalen onderling of tussen signalen en het archetype. Geen herhaling van de signalen-lijst — interpretatie. Verklaar WAAROM de combinatie van signalen betekenisvol is.
+2-3 genummerde observaties die verbanden leggen tussen signalen onderling of tussen signalen en het archetype. Ook hier inline [N]-citaties die tonen welke signalen je combineert. Interpretatie, geen herhaling.
 
 ## Betrouwbaarheid
-1-2 zinnen. Hoe zeker is de agent? Welke bronnen zijn sterk (Jobdigger, KvK-historie = feitelijk), welke zwakker (bedrijfswebsite, LinkedIn = interpretatief)? Eerlijk over beperkingen — als een signaal een aanname bevat, zeg dat. Als de agent iets niet kan verifiëren, benoem dat expliciet.
+1-2 zinnen. Noem expliciet welke van de gebruikte signalen Feitelijk zijn (KvK-historie, Jobdigger, Rechtspraak.nl) en welke Interpretatief (bedrijfswebsite, LinkedIn). Eerlijk over beperkingen — als een signaal een aanname bevat of niet gevalideerd is, zeg dat. Benoem ook wat de agent NIET kon verifiëren.
 
 Toon: zakelijk, analytisch, Nederlands. Totaal max 220 woorden.`;
 
@@ -63,7 +85,10 @@ export function buildSystemPrompt(lead: Lead): string {
     .join("\n");
 
   const signalen = lead.signalen
-    .map((s, i) => `${i + 1}. [${s.bron}] ${s.tekst}`)
+    .map(
+      (s, i) =>
+        `[${i + 1}] (${s.bron} — ${bronSterkte(s.bron)}) ${s.tekst}`,
+    )
     .join("\n");
 
   const dienstMatch = lead.diensten
@@ -112,4 +137,78 @@ ${dienstMatch || "Geen dienst-matches."}
 
 ## Observatie van de agent
 ${lead.observatie}`;
+}
+
+export type SummaryLead = {
+  naam: string;
+  plaats: string;
+  warmte: Lead["warmte"];
+  fte_klasse: Lead["fte_klasse"];
+  archetype: string | null;
+  top_signaal: string | null;
+  dienst_codes: string[];
+};
+
+// Compact projection of a lead — only the fields the summary prompt
+// needs. Keeps the user-prompt short (and the total context modest).
+export function projectLeadForSummary(lead: Lead): SummaryLead {
+  return {
+    naam: lead.naam,
+    plaats: lead.plaats,
+    warmte: lead.warmte,
+    fte_klasse: lead.fte_klasse,
+    archetype: lead.archetype?.naam ?? null,
+    top_signaal: lead.signalen[0]?.tekst ?? null,
+    dienst_codes: lead.diensten
+      .filter((d) => d.prioriteit === "primair")
+      .map((d) => d.code),
+  };
+}
+
+export function buildSummarySystemPrompt(): string {
+  return `Je bent de PAVO Research Agent. Je hebt zojuist een zoekopdracht afgerond en presenteert een korte samenvatting over het hele resultaat-set aan de PAVO-consultant.
+
+Stijl: Nederlands, zakelijk, bondig. Geen verkooppraatje. Geen opsommingstekens.
+
+Regels voor de samenvatting:
+- 2 of 3 zinnen. Maximum 80 woorden totaal.
+- Zin 1: welk patroon de leads delen (sector, groeifase, archetype-cluster, of "geen duidelijk patroon").
+- Zin 2: welke lead het meest opvalt en waarom (noem het bedrijf bij naam).
+- Zin 3 (optioneel): een lead die zwakker onderbouwd is of waarbij de agent voorzichtig zou zijn, of een zinvolle nuance.
+- Citeer specifieke feiten (groeicijfers, archetype-labels) waar mogelijk — niet generiek.
+
+Geen verkooppraatje. Geen "je kunt het beste X bellen". Dit is een analyse, geen actie-advies.`;
+}
+
+export function buildSummaryUserPrompt(
+  filters: {
+    branche: string;
+    fte_klassen: readonly string[];
+    regio_center: { lat: number; lng: number } | null;
+    regio_straal_km: number;
+  },
+  leads: SummaryLead[],
+): string {
+  const filterSummary = `Branche: ${filters.branche} · FTE: ${filters.fte_klassen.join(", ") || "alle"} · Regio: ${filters.regio_center ? `${filters.regio_straal_km} km rond [${filters.regio_center.lat.toFixed(2)}, ${filters.regio_center.lng.toFixed(2)}]` : "heel Nederland"}`;
+
+  const leadRows = leads
+    .map((l, i) => {
+      const parts = [
+        `${i + 1}. ${l.naam} (${l.plaats}, ${l.fte_klasse} FTE, ${l.warmte})`,
+      ];
+      if (l.archetype) parts.push(`   archetype: ${l.archetype}`);
+      if (l.top_signaal) parts.push(`   top-signaal: ${l.top_signaal}`);
+      if (l.dienst_codes.length > 0)
+        parts.push(`   primaire diensten: ${l.dienst_codes.join(", ")}`);
+      return parts.join("\n");
+    })
+    .join("\n");
+
+  return `Filters: ${filterSummary}
+
+${leads.length} ${leads.length === 1 ? "lead" : "leads"} gevonden:
+
+${leadRows}
+
+Schrijf de samenvatting volgens de instructies.`;
 }

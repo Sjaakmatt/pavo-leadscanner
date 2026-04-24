@@ -1,12 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "motion/react";
 import FilterBar from "@/components/FilterBar";
 import LeadGrid from "@/components/LeadGrid";
+import SearchSummary from "@/components/SearchSummary";
 import StreamingStatus, { type StreamStep } from "@/components/StreamingStatus";
 import type { Lead, SearchFilters } from "@/lib/adapters/types";
 import { DEFAULT_FILTERS } from "@/lib/filter";
+
+// Leaflet touches window at import time — must be client-only.
+const ResultsMap = dynamic(() => import("@/components/ResultsMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-[520px] items-center justify-center rounded-lg border border-pavo-gray-100 bg-pavo-gray-50 text-sm text-pavo-gray-600">
+      Kaart laden…
+    </div>
+  ),
+});
+
+type ResultsView = "lijst" | "kaart";
 
 type Relaxation = { regio: boolean; fte: boolean };
 
@@ -29,6 +43,7 @@ export default function DashboardPage() {
   const [filters, setFilters] = useState<SearchFilters>(DEFAULT_FILTERS);
   const [view, setView] = useState<ViewState>({ kind: "empty" });
   const [loading, setLoading] = useState(false);
+  const [resultsView, setResultsView] = useState<ResultsView>("lijst");
 
   async function handleSearch() {
     setLoading(true);
@@ -127,12 +142,30 @@ export default function DashboardPage() {
                     view.leads.length > 0 && (
                       <RelaxationNotice relaxation={view.relaxation} />
                     )}
+
+                  {view.leads.length > 0 && (
+                    <SearchSummary filters={filters} leads={view.leads} />
+                  )}
+
                   <div>
-                    <div className="mb-3 text-sm text-pavo-gray-600">
-                      {view.leads.length}{" "}
-                      {view.leads.length === 1 ? "lead" : "leads"} gevonden
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                      <div className="text-sm text-pavo-gray-600">
+                        {view.leads.length}{" "}
+                        {view.leads.length === 1 ? "lead" : "leads"} gevonden
+                      </div>
+                      {view.leads.length > 0 && (
+                        <ResultsTabs
+                          value={resultsView}
+                          onChange={setResultsView}
+                        />
+                      )}
                     </div>
-                    <LeadGrid leads={view.leads} />
+
+                    {resultsView === "lijst" ? (
+                      <LeadGrid leads={view.leads} />
+                    ) : (
+                      <ResultsMap leads={view.leads} />
+                    )}
                   </div>
                 </motion.div>
               )}
@@ -159,6 +192,80 @@ function RelaxationNotice({ relaxation }: { relaxation: Relaxation }) {
       geen bedrijven voldeden aan de oorspronkelijke filters, daarom heeft de
       agent {joined} verruimd om je toch relevante leads te tonen.
     </div>
+  );
+}
+
+function ResultsTabs({
+  value,
+  onChange,
+}: {
+  value: ResultsView;
+  onChange: (v: ResultsView) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-pavo-gray-100 bg-white p-0.5 shadow-sm">
+      {(
+        [
+          { id: "lijst" as const, label: "Lijst", icon: ListIcon },
+          { id: "kaart" as const, label: "Kaart", icon: MapIcon },
+        ] as const
+      ).map((tab) => {
+        const active = value === tab.id;
+        const Icon = tab.icon;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onChange(tab.id)}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+              active
+                ? "bg-pavo-teal text-white"
+                : "text-pavo-gray-600 hover:text-pavo-teal"
+            }`}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ListIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M5 6h11M5 10h11M5 14h11" />
+      <circle cx="2.5" cy="6" r="0.8" fill="currentColor" />
+      <circle cx="2.5" cy="10" r="0.8" fill="currentColor" />
+      <circle cx="2.5" cy="14" r="0.8" fill="currentColor" />
+    </svg>
+  );
+}
+
+function MapIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M7 4 2 6v11l5-2 6 2 5-2V4l-5 2z" />
+      <path d="M7 4v11M13 6v11" />
+    </svg>
   );
 }
 

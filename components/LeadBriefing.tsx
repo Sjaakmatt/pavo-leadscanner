@@ -10,7 +10,9 @@ type Props = {
 
 type Status = "loading" | "streaming" | "done" | "fallback";
 
-const CACHE_PREFIX = "pavo:brief:";
+// Bump deze suffix als de briefing-prompt verandert — oude cached
+// briefings missen dan de nieuwste structuur (bijv. [N]-citaties).
+const CACHE_PREFIX = "pavo:brief:v2:";
 
 // Richer synthesis streamed from Claude. We cache per kvk in
 // sessionStorage so flipping between leads feels instant and a demo
@@ -151,8 +153,10 @@ export default function LeadBriefing({ kvk, fallbackObservatie }: Props) {
 }
 
 // Rendert onze minimale markdown-subset: `## kop`, genummerde lijsten
-// (`1. …`) en paragrafen. Geen algemene markdown-parser nodig — Claude
-// krijgt een strakke template dus we weten wat we tegenkomen.
+// (`1. …`) en paragrafen. Inline [N] en [N,M]-patronen worden gerenderd
+// als klikbare citatie-pills die naar #signaal-N scrollen. Geen
+// algemene markdown-parser nodig — Claude krijgt een strakke template
+// dus we weten wat we tegenkomen.
 function BriefingMarkdown({
   text,
   streaming,
@@ -173,7 +177,7 @@ function BriefingMarkdown({
         key={`p-${key++}`}
         className="text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]"
       >
-        {paragraphBuffer.join(" ")}
+        {renderInlineWithCitations(paragraphBuffer.join(" "))}
       </p>,
     );
     paragraphBuffer = [];
@@ -187,7 +191,7 @@ function BriefingMarkdown({
         className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]"
       >
         {listBuffer.map((item, i) => (
-          <li key={i}>{item}</li>
+          <li key={i}>{renderInlineWithCitations(item)}</li>
         ))}
       </ol>,
     );
@@ -237,6 +241,59 @@ function BriefingMarkdown({
   }
 
   return <div className="space-y-3">{nodes}</div>;
+}
+
+// Vervangt [N] en [N,M,...] patronen in een tekst door klikbare pills
+// die naar #signaal-N scrollen. Rest van de tekst blijft platte string.
+function renderInlineWithCitations(raw: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const re = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = re.exec(raw)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push(raw.slice(lastIdx, match.index));
+    }
+    const nums = match[1].split(/\s*,\s*/).map((n) => parseInt(n, 10));
+    parts.push(
+      <CitationPill key={`c-${key++}`} nums={nums} />,
+    );
+    lastIdx = match.index + match[0].length;
+  }
+  if (lastIdx < raw.length) parts.push(raw.slice(lastIdx));
+  return parts;
+}
+
+function CitationPill({ nums }: { nums: number[] }) {
+  const handleClick = (e: React.MouseEvent, n: number) => {
+    e.preventDefault();
+    if (typeof window === "undefined") return;
+    const el = document.getElementById(`signaal-${n}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Korte highlight-flash
+    el.classList.add("ring-2", "ring-pavo-teal", "rounded-lg");
+    setTimeout(() => {
+      el.classList.remove("ring-2", "ring-pavo-teal", "rounded-lg");
+    }, 1200);
+  };
+
+  return (
+    <span className="mx-0.5 inline-flex items-center gap-0.5 align-baseline">
+      {nums.map((n, i) => (
+        <a
+          key={i}
+          href={`#signaal-${n}`}
+          onClick={(e) => handleClick(e, n)}
+          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded bg-pavo-teal/10 px-1 text-[10px] font-semibold text-pavo-teal transition-colors hover:bg-pavo-teal hover:text-white"
+          title={`Spring naar signaal ${n}`}
+        >
+          {n}
+        </a>
+      ))}
+    </span>
+  );
 }
 
 function LightbulbIcon({ className = "" }: { className?: string }) {
