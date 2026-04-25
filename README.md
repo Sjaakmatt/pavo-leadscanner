@@ -3,9 +3,9 @@
 Next.js app die HR-signalen oplevert per MKB-lead. Draait in twee modes:
 
 - **`demo`** — 44 leads uit `data/leads.json`. Zero config, identiek aan de huidige sales-demo.
-- **`prod`** — live pipeline: KvK-afbakening → PDOK geocoding → 6 scrapers parallel → Supabase opslag → scoring engine → dezelfde UI.
+- **`prod`** — live pipeline: KvK-afbakening + 6 scrapers via twee externe FactumAI MCPs, classificatie naar PAVO-signalen, scoring + Supabase opslag, dezelfde UI.
 
-De mode-switch zit in `lib/lead-source/index.ts::getLeadSource()` en kijkt naar `process.env.MODE`.
+Mode-switch zit in `lib/lead-source/index.ts::getLeadSource()` op basis van `process.env.MODE`.
 
 ## Snel starten — demo
 
@@ -17,19 +17,31 @@ npm run dev
 
 ## Snel starten — prod
 
+Prod-mode vereist drie externe systemen:
+
+1. **`@factumai/mcp-bedrijven`** op `http://localhost:8110/mcp` — KvK + PDOK
+2. **`@factumai/mcp-webscraper`** op `http://localhost:8111/mcp` — 6 scrapers
+3. **Supabase** project met de migraties uit `supabase/migrations/`
+
 ```bash
+# 1. MCPs starten in factumai-mcps repo
+cd ../factumai-mcps
+pnpm install
+pnpm --filter @factumai/mcp-bedrijven dev:http   # 8110
+pnpm --filter @factumai/mcp-webscraper dev:http  # 8111
+
+# 2. PAVO-app config
+cd ../pavo-leadscanner
 cp .env.example .env.local
-# vul in: ANTHROPIC_API_KEY, KVK_API_KEY, NEXT_PUBLIC_SUPABASE_URL,
-# NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+# vul in: ANTHROPIC_API_KEY, FACTUMAI_MCP_*_URL, FACTUMAI_ORGANIZATION_ID,
+# FACTUMAI_AGENT_ID, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+# SUPABASE_SERVICE_ROLE_KEY
 # zet MODE=prod
 
 npm install
-npx playwright install chromium   # alleen lokaal nodig
 supabase db push                  # applies supabase/migrations/
 MODE=prod npm run dev
 ```
-
-Zonder `KVK_API_KEY` (of met `KVK_API_KEY=placeholder`) draait de KvK-client automatisch in mock-mode — de prod-flow werkt dan end-to-end met deterministische dummy-bedrijven. Handig om te testen voor het abonnement geregeld is.
 
 ## Architectuur
 
@@ -37,20 +49,25 @@ Zonder `KVK_API_KEY` (of met `KVK_API_KEY=placeholder`) draait de KvK-client aut
 UI → /api/search → getLeadSource()
                    ├── demo → MockLeadSource (data/leads.json)
                    └── prod → ProductionLeadSource
-                               ├── KvK zoeken (SBI + provincies, mock-fallback)
-                               ├── KvK basisprofiel (24u cache)
-                               ├── PDOK geocoding + haversine filter
-                               ├── Supabase upsert companies + snapshot
-                               ├── Orchestrator (6 scrapers parallel, max 5 concurrent)
-                               │     ├── 01 website      Playwright-first, web_fetch fallback
-                               │     ├── 02 rechtspraak  HTTP + XML parsing
-                               │     ├── 03 nla          Playwright-first, web_fetch fallback
-                               │     ├── 04 insolventie  Playwright-first (SPA), web_fetch fallback
-                               │     ├── 06 news         Google News RSS + Claude classificatie
-                               │     └── 07 vacatures    Eigen site JSON-LD + werk.nl + NVB + SerpAPI
-                               ├── Scoring engine (cluster rules + combinatie-bonussen + diensten-matrix)
-                               └── search_queries log
+                               ├── BedrijvenMcp (HTTP → :8110)
+                               │    ├── kvk_zoeken          (SBI + provincies)
+                               │    ├── kvk_basisprofiel    (parallel per kandidaat)
+                               │    └── pdok_geocode        (per unieke plaats)
+                               ├── Supabase upsert companies
+                               ├── Orchestrator (max 5 bedrijven parallel)
+                               │    ├── WebscraperMcp (HTTP → :8111)
+                               │    │    ├── scrape_website     (Playwright + web_fetch fallback)
+                               │    │    ├── scrape_rechtspraak (XML)
+                               │    │    ├── scrape_nla         (Playwright + fallback)
+                               │    │    ├── scrape_insolventie (Playwright SPA)
+                               │    │    ├── scrape_vacatures   (sitemap + JSON-LD)
+                               │    │    └── scrape_news        (Google News RSS)
+                               │    └── lib/classification (raw → PAVO-Signaal[] via Claude Haiku)
+                               ├── Scoring engine (cluster-rules + combinatie-bonussen + diensten-matrix)
+                               └── Persist scored_leads + search_queries afronden
 ```
+
+**Belangrijk**: de MCPs bevatten geen LLM-redenering — ze leveren ruwe HTML/tekst. Classificatie naar PAVO-Signalen leeft uitsluitend in `lib/classification/`. Scoring is pure TS, geen LLM.
 
 ## Mappen
 
@@ -62,53 +79,65 @@ app/
     lead/[kvk]/route.ts    # MODE-switch per-lead
 lib/
   adapters/                # bestaande demo-types + MockLeadSource
+  factum/                  # FactumAI dashboard client (heartbeat + events + metrics)
   lead-source/             # adapter + ProductionLeadSource
-  kvk/                     # KvK client (real + mock) + rate limiter + SBI mapping
-  geo/                     # PDOK geocoding + haversine + provincie-centroids
-  supabase/                # server + browser client factories
-  orchestrator/            # parallel scraper-runner met timeout + persist
-  scrapers/                # 6 productie-scrapers (Playwright-first where mogelijk)
+  mcp/                     # Streamable-HTTP-client + zod-schemas + typed wrappers
+  classification/          # PAVO 3-cluster prompt + per-bron classifiers
+  orchestrator/            # MCP scrape+classify per bedrijf, batch-runner
   scoring/                 # cluster-regels + combinatie-bonussen + diensten-matrix
+  kvk/                     # KvK type-definities + branche→SBI mapping (consumer-side)
+  geo/                     # haversine + provincie-centroids (consumer-side)
+  supabase/                # server + browser client factories
 components/
   Header.tsx + ModeBadge.tsx  # [DEMO]/[PROD] badge (alleen dev)
+instrumentation.ts            # Next.js startup hook → factum.connect()
 supabase/
   migrations/
-    001_initial_schema.sql  # companies, kvk_snapshots, scrape_runs, signals, search_queries
-    002_scores_view.sql     # company_scores aggregate view
-scrapers/                  # bestaande CLI-scrapers (sanity-checks, niet productie)
+    001_initial_schema.sql       # companies, signals, search_queries, scrape_runs (legacy)
+    002_scores_view.sql          # company_scores aggregate view
+    003_pavo_mcp_schema.sql      # MCP-only flow: signals.scrape_run_id nullable, scored_leads, status
 ```
 
-## Kosten-model (productie-run, 50 bedrijven)
+## Tenant-identiteit
 
-Gebaseerd op Haiku 4.5 list-prijzen en Playwright-first architectuur:
+`FACTUMAI_ORGANIZATION_ID` + `FACTUMAI_AGENT_ID` worden in iedere MCP tool-call meegestuurd. Het FactumAI-dashboard toont alle PAVO-runs gefilterd op deze IDs — inclusief tokens, kosten en latency per call. Deze metadata staat NIET in `signals` of `scored_leads` (zie MCP_PLATFORM.md §6 over scheiding).
 
-| Post | Geschat |
-|------|---------|
-| KvK (50 × €0,02) | €1,00 |
-| Scrapers via Playwright-pad (~$0,005/bedrijf × 4 scrapers) | $1,00 |
-| Rechtspraak + News (API + RSS + cls) | $0,25 |
-| SerpAPI (optional, 50 queries) | $0,25 |
-| Budget-guard cap | $5 |
+## Dashboard logging (FactumAI)
 
-`MAX_COST_PER_SEARCH_USD` stopt een run zodra het cumulatieve scraper-budget die limiet raakt.
+Naast de tool-call logs vanuit de MCPs streamt de leadscanner zelf óók
+agent-status, search-events en daily ROI-metrics naar het FactumAI-
+dashboard. Daardoor verschijnen runs live in de event-feed met de
+agent als "online", inclusief duur, aantal opgeleverde leads en
+geschatte tijdsbesparing.
 
-## Productie-scrapers vs CLI-scrapers
+**Wat wordt gelogd:**
 
-- `lib/scrapers/` — productie-library, functie-based, Playwright-first (via `@sparticuz/chromium` op Vercel). Draait vanuit de orchestrator, persist naar Supabase.
-- `scrapers/` — standalone CLI-scripts, web_fetch-first, schrijven JSON-rapporten naar `scrapers/output/`. Gebruikt voor dry-run validatie per bron, niet in productie.
+| Trigger                            | Endpoint                       | Type                           |
+|------------------------------------|--------------------------------|--------------------------------|
+| App start                          | `/api/v1/agent/connect`        | online + heartbeat-loop start  |
+| Iedere 60s                         | `/api/v1/ingest/heartbeat`     | online ping                    |
+| `POST /api/search` slaagt          | `/api/v1/ingest/event`         | `task_completed`               |
+| `POST /api/search` faalt           | `/api/v1/ingest/event`         | `task_failed`                  |
+| `POST /api/search` (na succes)     | `/api/v1/ingest/metrics`       | tasksCompleted + tijd-bespaard |
+| `GET /api/lead/[kvk]` (hit)        | `/api/v1/ingest/event`         | `info`                         |
+| `GET /api/lead/[kvk]` (404)        | `/api/v1/ingest/event`         | `warning`                      |
+| `GET /api/lead/[kvk]` (exception)  | `/api/v1/ingest/event`         | `error`                        |
+| SIGTERM / SIGINT                   | `/api/v1/agent/disconnect`     | offline                        |
 
-## Migratie-workflow
+**Configureren:**
 
-```bash
-supabase login
-supabase link --project-ref <jouw-project-ref>
-supabase db push          # applies de .sql files uit supabase/migrations/
-```
+1. Maak een API key aan via Agency Dashboard → Clients → [Client] → Agent → Integrate.
+2. Vul `FACTUM_DASHBOARD_URL` en `FACTUM_API_KEY` in `.env.local`.
+3. Klaar — `instrumentation.ts` registreert de agent automatisch bij de
+   eerste request, daarna stuurt iedere search een event.
 
-Roll-back doe je met `supabase db reset` (lokale dev) of handmatig via SQL editor.
+Beide env-vars leeg = logging staat uit en de leadscanner draait
+stand-alone (dus demo blijft echt zero-config). Implementatie zit in
+`lib/factum/client.ts`; spec staat in `factumai-dashboard/docs/AGENT-INTEGRATION.md`.
 
 ## Bekende gaps / TODOs
 
-- **Diensten D9-D13**: de scoring engine dekt nu D1-D8. Zodra Roy de aanvullende vier dienstdefinities aanlevert: uitbreiden in `lib/scoring/diensten-matrix.ts` (zie de commented-out `DIENSTEN_MATRIX_EXT` block) én de `DienstCode` union in `lib/adapters/types.ts`.
-- **Streaming voortgang in prod-mode**: de `/api/search` route retourneert nu nog sync. Voor een echte voortgangsstream moet de orchestrator per-scraper events pushen via SSE. Zie `StreamingStatus.tsx` als interface.
-- **Indeed**: scraper 05 draait bewust niet in productie (bewezen niet-werkbaar via Cloudflare/captcha). Houden we als stress-test in `scrapers/`.
+- **MCP-contract**: `KvkBasisprofiel.fteKlasse` is optioneel. Wanneer de MCP geen FTE-bucket meegeeft slaat de FTE-filter over. Volg-issue in `factumai-mcps`.
+- **Streaming**: `/api/search` retourneert sync. SSE op basis van `search_queries.current_step` staat klaar maar is nog niet bedraad in de UI.
+- **Diensten D9-D13**: scoring engine dekt nu D1-D8. PAVO_DIENSTEN in `lib/scoring/types.ts` heeft alle 13 — uitbreiden in `lib/scoring/diensten-matrix.ts` zodra Roy de aanvullende dienstdefinities aanlevert.
+- **Daily metrics overschrijven**: het ingest endpoint `pushMetrics` upsert per datum. Iedere search overschrijft nu de teller — voor accurate dag-aggregatie willen we dit op termijn vervangen door een cron-route die uit `search_queries` aggregateert.
