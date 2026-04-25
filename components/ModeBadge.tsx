@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 
-type ModeInfo = { mode: "demo" | "prod"; kvkMock: boolean };
+type ModeInfo = { mode: "demo" | "prod"; mcpConfigured: boolean };
 
 // Kleine badge rechtsboven die toont of de app in demo of prod draait.
 // Alleen zichtbaar in NODE_ENV=development — op prod willen we Roy
-// niet lastigvallen met dev-diagnostics. In prod-mode + mock-KvK tonen
-// we een extra hint zodat we niet per ongeluk mock-data aanzien voor
-// echte data.
+// niet lastigvallen met dev-diagnostics. In prod-mode zonder MCP-config
+// tonen we een waarschuwing zodat duidelijk is dat de pijplijn nog
+// geen externe data trekt.
 export default function ModeBadge() {
   const [info, setInfo] = useState<ModeInfo | null>(null);
 
@@ -25,13 +25,11 @@ export default function ModeBadge() {
   }, []);
 
   if (!info) return null;
-  const label =
-    info.mode === "prod" && info.kvkMock
-      ? "PROD · KVK-MOCK"
-      : info.mode.toUpperCase();
+  const missingMcp = info.mode === "prod" && !info.mcpConfigured;
+  const label = missingMcp ? "PROD · MCP-MISSING" : info.mode.toUpperCase();
   const color =
     info.mode === "prod"
-      ? info.kvkMock
+      ? missingMcp
         ? "bg-amber-100 text-amber-900"
         : "bg-emerald-100 text-emerald-900"
       : "bg-slate-100 text-slate-700";

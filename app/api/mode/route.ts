@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { currentMode } from "@/lib/lead-source";
 
-// Readonly endpoint zodat de UI kan tonen welke mode actief is. We
-// exposen geen andere env-waarden — alleen "demo" of "prod" + een vlag
-// dat de KvK-client in mock-modus draait (voor prod-mode zonder key).
+// Readonly endpoint voor de UI — toont welke mode actief is + of de
+// FactumAI MCP-endpoints geconfigureerd zijn. Geen andere env-waarden
+// expose'n; dit is alleen dev-diagnostiek voor de mode-badge.
 export async function GET() {
   const mode = currentMode();
-  const kvkMock = !process.env.KVK_API_KEY || /placeholder/i.test(process.env.KVK_API_KEY);
-  return NextResponse.json({ mode, kvkMock });
+  const mcpConfigured =
+    !!process.env.FACTUMAI_MCP_BEDRIJVEN_URL &&
+    !!process.env.FACTUMAI_MCP_WEBSCRAPER_URL;
+  return NextResponse.json({ mode, mcpConfigured });
 }
