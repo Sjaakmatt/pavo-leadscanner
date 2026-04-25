@@ -171,9 +171,12 @@ async function classify(
     ],
   });
 
+  // flatMap i.p.v. een type-predicate: de SDK's TextBlock heeft een
+  // verplichte `citations`-prop, dus het inline-predicate
+  // `{ type: "text"; text: string }` smalt ContentBlock niet meer
+  // correct af (TS error). Hier hebben we alleen `.text` nodig.
   const text = response.content
-    .filter((b): b is { type: "text"; text: string } => b.type === "text")
-    .map((b) => b.text)
+    .flatMap((b) => (b.type === "text" ? [b.text] : []))
     .join("\n");
 
   const json = extractJson(text);
