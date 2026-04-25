@@ -1,14 +1,17 @@
-// Productie-implementatie van LeadSource. Volgt de flow uit de briefing:
+// MCP-based ProductionLeadSource. Praat uitsluitend met de twee externe
+// FactumAI MCPs — geen in-process scrapers, geen directe KvK-client.
 //
-//   1. KvK-afbakening (SBI + provincies + FTE) via lib/kvk
-//   2. Geo-filter via PDOK + haversine
-//   3. Upsert naar companies + kvk_snapshots
-//   4. Bepaal welke bedrijven herscrapet moeten worden (cache > 30 dagen)
-//   5. Parallel scrape via orchestrator (max 5 tegelijk)
-//   6. Score via scoring-engine
-//   7. Log search_query, return in LeadSource-formaat
+//   1. mcp-bedrijven.kvk_zoeken         (SBI + provincies)
+//   2. mcp-bedrijven.kvk_basisprofiel   (parallel per kandidaat)
+//   3. mcp-bedrijven.pdok_geocode       (per unieke plaats voor geo-filter)
+//   4. Upsert companies-row             (Supabase)
+//   5. mcp-webscraper * 6 + classificatie  (orchestrator)
+//   6. scoring engine → LeadScore
+//   7. scored_leads + search_queries afronden
 //
-// Budget-limiet: MAX_COST_PER_SEARCH_USD stopt de run bij overschrijding.
+// Budget-guard via MAX_COST_PER_SEARCH_USD; we kunnen kosten alleen
+// schatten (dashboard heeft de echte cijfers per tool-call), dus de
+// guard is conservatief.
 
 import type {
   Bron,
@@ -21,33 +24,41 @@ import type {
   SearchFilters,
   SearchProgressEvent,
   SearchResult,
-  Signaal,
+  Signaal as UiSignaal,
 } from "@/lib/adapters/types";
-import { kvkGetBasisprofiel, kvkSnapshotAndStore, kvkZoekBedrijven } from "@/lib/kvk/client";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { McpHttpClient, type TenantContext } from "@/lib/mcp/client";
+import { BedrijvenMcp, requireBedrijvenUrl } from "@/lib/mcp/bedrijven";
+import { WebscraperMcp, requireWebscraperUrl } from "@/lib/mcp/webscraper";
+import { buildTenantContext } from "@/lib/mcp/tenant";
+import type { KvkZoekHit, KvkBasisprofiel as McpKvkBasisprofiel } from "@/lib/mcp/schemas";
+import type { KvkBasisprofiel as LocalKvkBasisprofiel } from "@/lib/kvk/types";
 import { mapBrancheToSbi } from "@/lib/kvk/sbi-mapping";
-import { bucketFte, type KvkBasisprofiel } from "@/lib/kvk/types";
 import {
   haversineKm,
-  pdokGeocodePlaats,
   provincesWithinRadius,
   type LatLng,
 } from "@/lib/geo/pdok";
 import { supabaseServer } from "@/lib/supabase/client";
-import { runScrapersForCompany } from "@/lib/orchestrator";
-import { scoreCompany } from "@/lib/scoring";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { runScrapeBatch } from "@/lib/orchestrator";
+import { scoreCompany, type StoredSignal } from "@/lib/scoring";
 
-const DEFAULT_BUDGET_USD = 5;
 const CACHE_TTL_DAYS = 30;
 const LEAD_DETAIL_TTL_DAYS = 7;
-const SNAPSHOT_TTL_DAYS = 7;
 const MAX_PARALLEL_SCRAPES = 5;
+const KVK_BASISPROFIEL_CONCURRENCY = 8;
 
-function noopEmit(_event: SearchProgressEvent): void {
-  // default no-op; callers that don't care get zero overhead.
-}
+function noopEmit(_event: SearchProgressEvent): void {}
 
 export class ProductionLeadSource implements LeadSource {
+  private readonly bedrijven: BedrijvenMcp;
+  private readonly webscraper: WebscraperMcp;
+
+  constructor() {
+    this.bedrijven = new BedrijvenMcp(new McpHttpClient(requireBedrijvenUrl()));
+    this.webscraper = new WebscraperMcp(new McpHttpClient(requireWebscraperUrl()));
+  }
+
   async runSearch(
     filters: SearchFilters,
     opts: RunSearchOptions = {},
@@ -55,232 +66,284 @@ export class ProductionLeadSource implements LeadSource {
     const emit = opts.onEvent ?? noopEmit;
     const startedAt = Date.now();
     const supabase = supabaseServer();
-    const budgetUsd = Number(
-      process.env.MAX_COST_PER_SEARCH_USD ?? DEFAULT_BUDGET_USD,
-    );
+    const searchCtx = buildTenantContext();
+    const searchQueryId = await logSearchStart(supabase, filters);
 
-    emit({ type: "stage", stage: "kvk", message: "Kamer van Koophandel doorzoeken…" });
-    const sbiCodes = mapBrancheToSbi(filters.branche);
-    const provincies = filters.regio_center
-      ? provincesWithinRadius(filters.regio_center, filters.regio_straal_km)
-      : undefined;
-    const candidates = await kvkZoekBedrijven({
-      sbiCodes,
-      provincies,
-      limit: 200,
-    });
-    emit({ type: "kvk", totalCandidates: candidates.length });
+    try {
+      // 1) KvK afbakening
+      await updateStep(supabase, searchQueryId, "Kamer van Koophandel doorzoeken");
+      emit({ type: "stage", stage: "kvk", message: "Kamer van Koophandel doorzoeken…" });
 
-    emit({
-      type: "stage",
-      stage: "basisprofielen",
-      message: `Basisprofielen ophalen (${candidates.length})…`,
-    });
-    const profiles = await Promise.all(
-      candidates.map((c) => kvkGetBasisprofiel(c.kvkNummer).catch(() => null)),
-    );
-    const enriched = candidates
-      .map((c, i) => ({ candidate: c, profile: profiles[i] }))
-      .filter(
-        (x): x is { candidate: typeof candidates[0]; profile: KvkBasisprofiel } =>
-          !!x.profile,
-      );
+      const sbiCodes = mapBrancheToSbi(filters.branche);
+      const provincies = filters.regio_center
+        ? provincesWithinRadius(filters.regio_center, filters.regio_straal_km)
+        : undefined;
 
-    const fteFiltered = enriched.filter(({ profile }) => {
-      if (!filters.fte_klassen.length) return true;
-      return (
-        profile.fteKlasse &&
-        filters.fte_klassen.includes(profile.fteKlasse as FteKlasse)
-      );
-    });
-
-    emit({
-      type: "stage",
-      stage: "geo",
-      message: "Regio-filter toepassen…",
-    });
-    const geoFiltered = await applyGeoFilter(
-      fteFiltered,
-      filters.regio_center,
-      filters.regio_straal_km,
-    );
-    emit({ type: "geo", remaining: geoFiltered.length });
-
-    await upsertCompanies(supabase, geoFiltered);
-    // Snapshot nieuwe / stale bedrijven in kvk_snapshots — doen we na de
-    // upsert zodat de FK naar companies vastligt. Fouten logt de helper
-    // zelf; we stoppen de flow niet.
-    await snapshotNewOrStale(supabase, geoFiltered);
-
-    const toScrape = opts.refresh
-      ? geoFiltered.map((x) => x.profile.kvkNummer)
-      : await determineScrapeTargets(
-          supabase,
-          geoFiltered.map((x) => x.profile.kvkNummer),
-        );
-    let totalCostUsd = 0;
-
-    emit({
-      type: "stage",
-      stage: "scrape",
-      message: `Bedrijfssignalen ophalen (${toScrape.length} nieuw/stale)…`,
-    });
-    let scraped = 0;
-    await runInBatches(toScrape, MAX_PARALLEL_SCRAPES, async (kvk) => {
-      if (totalCostUsd >= budgetUsd) return;
-      const prof = geoFiltered.find((x) => x.profile.kvkNummer === kvk)?.profile;
-      if (!prof) return;
-      const cost = await runScrapersForCompany(
-        {
-          kvk: prof.kvkNummer,
-          naam: prof.naam,
-          websiteUrl: prof.websiteUrl,
-          zoeknamen: [prof.naam, prof.handelsnaam].filter(
-            (s): s is string => !!s,
-          ),
-        },
-        supabase,
-      );
-      totalCostUsd += cost;
-      scraped += 1;
-      emit({
-        type: "scrape",
-        kvk: prof.kvkNummer,
-        naam: prof.naam,
-        scraped,
-        total: toScrape.length,
-        costUsd: totalCostUsd,
+      const hits = await this.bedrijven.kvkZoeken(searchCtx, {
+        sbiCodes,
+        provincies,
+        limit: 200,
       });
-    });
+      emit({ type: "kvk", totalCandidates: hits.length });
 
-    emit({
-      type: "stage",
-      stage: "score",
-      message: "Scoren + warmte bepalen…",
-    });
-    const leads: Lead[] = [];
-    let scored = 0;
-    for (const { profile } of geoFiltered) {
-      const signals = await fetchRecentSignals(
+      // 2) Basisprofielen ophalen (parallel, throttled)
+      await updateStep(
         supabase,
-        profile.kvkNummer,
-        CACHE_TTL_DAYS,
+        searchQueryId,
+        `Basisprofielen ophalen (${hits.length})`,
       );
-      const score = scoreCompany(profile, signals.map(toScoringSignal));
-      leads.push(scoreToLead(profile, score, signals));
-      scored += 1;
-      emit({ type: "score", scored, total: geoFiltered.length });
+      emit({
+        type: "stage",
+        stage: "basisprofielen",
+        message: `Basisprofielen ophalen (${hits.length})…`,
+      });
+      const profiles = await fetchBasisprofielen(
+        this.bedrijven,
+        searchCtx,
+        hits.map((h) => h.kvkNummer),
+      );
+      const enriched = hits
+        .map((h) => {
+          const profile = profiles.get(h.kvkNummer);
+          if (!profile) return null;
+          return { hit: h, profile: toLocalProfile(profile, h) };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      // 3) FTE-filter — best-effort (alleen als MCP fteKlasse meegeeft)
+      const fteFiltered = enriched.filter(({ profile }) => {
+        if (!filters.fte_klassen.length) return true;
+        if (!profile.fteKlasse) return true;
+        return filters.fte_klassen.includes(profile.fteKlasse as FteKlasse);
+      });
+
+      // 4) Geo-filter via mcp-bedrijven.pdok_geocode
+      await updateStep(supabase, searchQueryId, "Regio-filter toepassen");
+      emit({ type: "stage", stage: "geo", message: "Regio-filter toepassen…" });
+      const geoFiltered = await applyGeoFilter(
+        this.bedrijven,
+        searchCtx,
+        fteFiltered,
+        filters.regio_center,
+        filters.regio_straal_km,
+      );
+      emit({ type: "geo", remaining: geoFiltered.length });
+
+      // 5) Companies upserten
+      await upsertCompanies(supabase, geoFiltered);
+
+      // 6) Scrape-targets bepalen (cache-respect, tenzij refresh)
+      const candidateKvks = geoFiltered.map((x) => x.profile.kvkNummer);
+      const toScrape = opts.refresh
+        ? candidateKvks
+        : await determineScrapeTargets(supabase, candidateKvks);
+
+      await updateStep(
+        supabase,
+        searchQueryId,
+        `Scrapen en analyseren van ${toScrape.length} bedrijven`,
+      );
+      emit({
+        type: "stage",
+        stage: "scrape",
+        message: `Scrapen + classificeren (${toScrape.length} nieuw/stale)…`,
+      });
+
+      const handles = toScrape
+        .map((kvk) => geoFiltered.find((x) => x.profile.kvkNummer === kvk)?.profile)
+        .filter((p): p is LocalKvkBasisprofiel => !!p)
+        .map((p) => ({
+          kvk: p.kvkNummer,
+          naam: p.naam,
+          websiteUrl: p.websiteUrl,
+          zoeknamen: [p.naam, p.handelsnaam].filter((s): s is string => !!s),
+        }));
+
+      let scraped = 0;
+      await runScrapeBatch(handles, searchCtx, this.webscraper, supabase, {
+        concurrency: MAX_PARALLEL_SCRAPES,
+        onProgress: (e) => {
+          scraped = e.done;
+          emit({
+            type: "scrape",
+            kvk: e.kvk,
+            naam: handles.find((h) => h.kvk === e.kvk)?.naam ?? e.kvk,
+            scraped: e.done,
+            total: e.total,
+            costUsd: 0,
+          });
+        },
+      });
+
+      // 7) Scoring per bedrijf
+      await updateStep(supabase, searchQueryId, "Scoring en rangschikking");
+      emit({ type: "stage", stage: "score", message: "Scoren + warmte bepalen…" });
+      const leads: Lead[] = [];
+      let scoredCount = 0;
+      for (const { profile } of geoFiltered) {
+        const stored = await fetchRecentSignals(supabase, profile.kvkNummer, CACHE_TTL_DAYS);
+        const score = scoreCompany(profile, stored);
+        leads.push(scoreToLead(profile, score, stored));
+        scoredCount += 1;
+        emit({ type: "score", scored: scoredCount, total: geoFiltered.length });
+      }
+
+      // 8) Persist scored_leads
+      await persistScoredLeads(supabase, searchQueryId, leads);
+
+      const sorted = sortLeadsByWarmte(leads);
+      const durationMs = Date.now() - startedAt;
+
+      await logSearchComplete(supabase, searchQueryId, {
+        totalCandidates: hits.length,
+        totalScraped: toScrape.length,
+        totalLeadsReturned: sorted.length,
+        durationMs,
+      });
+
+      emit({
+        type: "done",
+        totalLeadsReturned: sorted.length,
+        totalCostUsd: 0,
+        durationMs,
+      });
+
+      return {
+        search_id: searchQueryId,
+        titel: `Live resultaten · ${filters.branche}`,
+        leads: sorted,
+        relaxation: { regio: false, fte: false },
+      };
+    } catch (err) {
+      await logSearchFailed(supabase, searchQueryId, err);
+      emit({ type: "error", message: String(err) });
+      throw err;
     }
-
-    await supabase.from("search_queries").insert({
-      filters: filters as unknown as object,
-      total_candidates: candidates.length,
-      total_scraped: toScrape.length,
-      total_leads_returned: leads.length,
-      total_cost_usd: totalCostUsd,
-      duration_ms: Date.now() - startedAt,
-    });
-
-    const sorted = sortLeadsByWarmte(leads);
-    const durationMs = Date.now() - startedAt;
-    emit({
-      type: "done",
-      totalLeadsReturned: sorted.length,
-      totalCostUsd,
-      durationMs,
-    });
-    return {
-      search_id: `prod-${Date.now()}`,
-      titel: `Live resultaten · ${filters.branche}`,
-      leads: sorted,
-      relaxation: { regio: false, fte: false },
-    };
   }
 
   async getLead(kvk: string, opts: GetLeadOptions = {}): Promise<Lead | null> {
     const supabase = supabaseServer();
-    const { data: company } = await supabase
-      .from("companies")
-      .select("kvk")
-      .eq("kvk", kvk)
-      .maybeSingle();
-    if (!company) return null;
+    const ctx = buildTenantContext();
 
-    // Detail-TTL (7 dagen) is korter dan search-TTL (30 dagen) — als een
-    // consultant inzoomt op een lead willen we relatief verse data.
-    const profile = await kvkGetBasisprofiel(kvk, {
-      bypassCache: opts.refresh === true,
-    }).catch(() => null);
+    const profile = await this.bedrijven.kvkBasisprofiel(ctx, kvk);
     if (!profile) return null;
+    const local = toLocalProfile(profile, null);
 
-    const needsRefresh =
-      opts.refresh || (await isScrapeStale(supabase, kvk, LEAD_DETAIL_TTL_DAYS));
-    if (needsRefresh) {
-      await runScrapersForCompany(
-        {
-          kvk: profile.kvkNummer,
-          naam: profile.naam,
-          websiteUrl: profile.websiteUrl,
-          zoeknamen: [profile.naam, profile.handelsnaam].filter(
-            (s): s is string => !!s,
-          ),
-        },
-        supabase,
-      );
+    const stale =
+      opts.refresh === true ||
+      (await isScrapeStale(supabase, kvk, LEAD_DETAIL_TTL_DAYS));
+    if (stale) {
+      const handle = {
+        kvk: local.kvkNummer,
+        naam: local.naam,
+        websiteUrl: local.websiteUrl,
+        zoeknamen: [local.naam, local.handelsnaam].filter(
+          (s): s is string => !!s,
+        ),
+      };
+      await runScrapeBatch([handle], ctx, this.webscraper, supabase, {
+        concurrency: 1,
+      });
     }
 
-    const signals = await fetchRecentSignals(supabase, kvk, CACHE_TTL_DAYS);
-    const score = scoreCompany(profile, signals.map(toScoringSignal));
-    return scoreToLead(profile, score, signals);
+    const stored = await fetchRecentSignals(supabase, kvk, CACHE_TTL_DAYS);
+    const score = scoreCompany(local, stored);
+    return scoreToLead(local, score, stored);
   }
-}
-
-// De rows uit Supabase kunnen NULL-velden hebben die scoring niet kent.
-// We mappen hier naar de smallere shape die scoreCompany verwacht.
-function toScoringSignal(row: StoredSignalRow) {
-  return {
-    categorie: row.categorie,
-    cluster: row.cluster,
-    sterkte: row.sterkte,
-    confidence: row.confidence,
-    observatie: row.observatie,
-    bron_type: row.bron_type ?? undefined,
-    bron_url: row.bron_url ?? undefined,
-    bewijs: row.bewijs ?? undefined,
-  };
 }
 
 // ---------- helpers -------------------------------------------------------
 
-async function applyGeoFilter<T extends { profile: KvkBasisprofiel }>(
+async function fetchBasisprofielen(
+  bedrijven: BedrijvenMcp,
+  ctx: TenantContext,
+  kvks: string[],
+): Promise<Map<string, McpKvkBasisprofiel>> {
+  const out = new Map<string, McpKvkBasisprofiel>();
+  const queue = [...kvks];
+  const workers = Array.from(
+    { length: Math.min(KVK_BASISPROFIEL_CONCURRENCY, queue.length) },
+    async () => {
+      while (queue.length > 0) {
+        const kvk = queue.shift();
+        if (!kvk) return;
+        try {
+          const profile = await bedrijven.kvkBasisprofiel(ctx, kvk);
+          if (profile) out.set(kvk, profile);
+        } catch (err) {
+          console.warn(`kvk_basisprofiel ${kvk} faalde: ${String(err)}`);
+        }
+      }
+    },
+  );
+  await Promise.all(workers);
+  return out;
+}
+
+// MCP basisprofiel (camelCase + arrays) → lokale shape die scoring leest.
+function toLocalProfile(
+  mcp: McpKvkBasisprofiel,
+  hit: KvkZoekHit | null,
+): LocalKvkBasisprofiel {
+  const hoofd = mcp.vestigingen.find((v) => v.isHoofdvestiging);
+  const plaats = hoofd?.adres.plaats ?? hit?.adres.plaats;
+  const provincie = hoofd?.adres.provincie ?? hit?.adres.provincie;
+  return {
+    kvkNummer: mcp.kvkNummer,
+    naam: mcp.naam,
+    handelsnaam: mcp.handelsnamen[0],
+    websiteUrl: mcp.websiteUrls[0],
+    sbiCodes: mcp.sbiCodes,
+    fteKlasse: mcp.fteKlasse as LocalKvkBasisprofiel["fteKlasse"],
+    bestuursvorm: mcp.bestuursvorm,
+    oprichtingsdatum: mcp.oprichtingsdatum,
+    actief: mcp.actief,
+    bestuurders: mcp.bestuurders,
+    vestigingen: mcp.vestigingen.map((v) => ({
+      vestigingsnummer: v.vestigingsnummer,
+      isHoofdvestiging: v.isHoofdvestiging,
+      handelsnaam: mcp.handelsnamen[0] ?? mcp.naam,
+      adres: `${v.adres.plaats}${v.adres.provincie ? `, ${v.adres.provincie}` : ""}`,
+      plaats: v.adres.plaats,
+      provincie: v.adres.provincie,
+    })),
+    plaats,
+    provincie,
+    raw: mcp,
+  };
+}
+
+async function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
+  bedrijven: BedrijvenMcp,
+  ctx: TenantContext,
   enriched: T[],
   center: LatLng | null,
   radiusKm: number,
 ): Promise<T[]> {
   if (!center) return enriched;
-  // Geocode elke unieke plaats in de result-set één keer.
   const uniquePlaatsen = [
-    ...new Set(
-      enriched
-        .map((x) => x.profile.plaats)
-        .filter((p): p is string => !!p),
-    ),
+    ...new Set(enriched.map((x) => x.profile.plaats).filter((p): p is string => !!p)),
   ];
   const coordsMap = new Map<string, LatLng | null>();
   await Promise.all(
     uniquePlaatsen.map(async (p) => {
-      coordsMap.set(p, await pdokGeocodePlaats(p));
+      try {
+        const geo = await bedrijven.pdokGeocode(ctx, p);
+        coordsMap.set(p, geo ? { lat: geo.lat, lng: geo.lng } : null);
+      } catch {
+        coordsMap.set(p, null);
+      }
     }),
   );
   return enriched.filter(({ profile }) => {
-    if (!profile.plaats) return true; // niet filteren als we geen plaats weten
+    if (!profile.plaats) return true;
     const coords = coordsMap.get(profile.plaats);
     if (!coords) return true;
     return haversineKm(center, coords) <= radiusKm;
   });
 }
 
-async function upsertCompanies<T extends { profile: KvkBasisprofiel }>(
+async function upsertCompanies<T extends { profile: LocalKvkBasisprofiel }>(
   supabase: SupabaseClient,
   enriched: T[],
 ): Promise<void> {
@@ -312,13 +375,12 @@ async function determineScrapeTargets(
   if (kvks.length === 0) return [];
   const cutoff = new Date(Date.now() - CACHE_TTL_DAYS * 86_400_000).toISOString();
   const { data } = await supabase
-    .from("scrape_runs")
-    .select("kvk, completed_at, success")
+    .from("signals")
+    .select("kvk, detected_at")
     .in("kvk", kvks)
-    .eq("success", true)
-    .gte("completed_at", cutoff);
-  const recentlyScraped = new Set((data ?? []).map((r) => r.kvk as string));
-  return kvks.filter((k) => !recentlyScraped.has(k));
+    .gte("detected_at", cutoff);
+  const recent = new Set((data ?? []).map((r) => r.kvk as string));
+  return kvks.filter((k) => !recent.has(k));
 }
 
 async function isScrapeStale(
@@ -328,11 +390,10 @@ async function isScrapeStale(
 ): Promise<boolean> {
   const cutoff = new Date(Date.now() - ttlDays * 86_400_000).toISOString();
   const { count } = await supabase
-    .from("scrape_runs")
+    .from("signals")
     .select("id", { count: "exact", head: true })
     .eq("kvk", kvk)
-    .eq("success", true)
-    .gte("completed_at", cutoff);
+    .gte("detected_at", cutoff);
   return (count ?? 0) === 0;
 }
 
@@ -340,60 +401,129 @@ async function fetchRecentSignals(
   supabase: SupabaseClient,
   kvk: string,
   ttlDays: number,
-): Promise<StoredSignalRow[]> {
+): Promise<StoredSignal[]> {
   const cutoff = new Date(Date.now() - ttlDays * 86_400_000).toISOString();
   const { data } = await supabase
     .from("signals")
     .select("categorie, cluster, sterkte, confidence, observatie, bron_type, bron_url, bewijs")
     .eq("kvk", kvk)
     .gte("detected_at", cutoff);
-  return (data ?? []) as StoredSignalRow[];
+  return ((data ?? []) as Array<{
+    categorie: string;
+    cluster: number | null;
+    sterkte: number;
+    confidence: number;
+    observatie: string;
+    bron_type?: string | null;
+    bron_url?: string | null;
+    bewijs?: string[] | null;
+  }>).map((r) => ({
+    categorie: r.categorie,
+    cluster: r.cluster,
+    sterkte: r.sterkte,
+    confidence: r.confidence,
+    observatie: r.observatie,
+    bron_type: r.bron_type ?? undefined,
+    bron_url: r.bron_url ?? undefined,
+    bewijs: r.bewijs ?? undefined,
+  }));
 }
 
-async function snapshotNewOrStale<T extends { profile: KvkBasisprofiel }>(
+async function logSearchStart(
   supabase: SupabaseClient,
-  enriched: T[],
-): Promise<void> {
-  if (enriched.length === 0) return;
-  const kvks = enriched.map((x) => x.profile.kvkNummer);
-  const cutoff = new Date(Date.now() - SNAPSHOT_TTL_DAYS * 86_400_000).toISOString();
-  const { data } = await supabase
-    .from("kvk_snapshots")
-    .select("kvk, snapshot_at")
-    .in("kvk", kvks)
-    .gte("snapshot_at", cutoff);
-  const hasRecent = new Set((data ?? []).map((r) => r.kvk as string));
-  const needed = enriched.filter((x) => !hasRecent.has(x.profile.kvkNummer));
-  // Niet parallel — KvK-rate-limiter cap't 'em al en we willen snapshots
-  // niet tegen elkaar laten uitvechten.
-  for (const { profile } of needed) {
-    try {
-      await kvkSnapshotAndStore(profile.kvkNummer, supabase);
-    } catch (err) {
-      console.warn(`snapshot faalde voor ${profile.kvkNummer}: ${String(err)}`);
-    }
+  filters: SearchFilters,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from("search_queries")
+    .insert({
+      filters: filters as unknown as object,
+      status: "running",
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    // Fallback — we kunnen niet loggen; gebruik in-memory id zodat de
+    // run niet hangt op observability-failures.
+    return `local-${Date.now()}`;
   }
+  return data.id as string;
 }
 
-async function runInBatches<T>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
+async function updateStep(
+  supabase: SupabaseClient,
+  searchQueryId: string,
+  step: string,
 ): Promise<void> {
-  const queue = [...items];
-  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
-    while (queue.length > 0) {
-      const item = queue.shift();
-      if (item === undefined) break;
-      await worker(item);
-    }
-  });
-  await Promise.all(workers);
+  if (searchQueryId.startsWith("local-")) return;
+  await supabase
+    .from("search_queries")
+    .update({ current_step: step })
+    .eq("id", searchQueryId);
 }
 
-// Scraper-`bron_type` strings → de vaste Bron-union die de UI kent. Signalen
-// die van een onbekende bron komen vallen terug op "Nieuws" (zachte bron)
-// zodat de bronSterkte-helper ze als interpretatief behandelt.
+async function logSearchComplete(
+  supabase: SupabaseClient,
+  searchQueryId: string,
+  meta: {
+    totalCandidates: number;
+    totalScraped: number;
+    totalLeadsReturned: number;
+    durationMs: number;
+  },
+): Promise<void> {
+  if (searchQueryId.startsWith("local-")) return;
+  await supabase
+    .from("search_queries")
+    .update({
+      status: "completed",
+      total_candidates: meta.totalCandidates,
+      total_scraped: meta.totalScraped,
+      total_leads_returned: meta.totalLeadsReturned,
+      duration_ms: meta.durationMs,
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", searchQueryId);
+}
+
+async function logSearchFailed(
+  supabase: SupabaseClient,
+  searchQueryId: string,
+  err: unknown,
+): Promise<void> {
+  if (searchQueryId.startsWith("local-")) return;
+  await supabase
+    .from("search_queries")
+    .update({
+      status: "failed",
+      error_message: String(err),
+      completed_at: new Date().toISOString(),
+    })
+    .eq("id", searchQueryId);
+}
+
+async function persistScoredLeads(
+  supabase: SupabaseClient,
+  searchQueryId: string,
+  leads: Lead[],
+): Promise<void> {
+  if (searchQueryId.startsWith("local-") || leads.length === 0) return;
+  const rows = leads.map((l) => ({
+    search_query_id: searchQueryId,
+    kvk: l.kvk,
+    warmte: l.warmte,
+    totale_score: scoreFromObservatie(l) ?? 0,
+    diensten_match: l.diensten as unknown as object,
+    samenvatting: l.observatie,
+  }));
+  const { error } = await supabase.from("scored_leads").insert(rows);
+  if (error) console.warn(`scored_leads insert: ${error.message}`);
+}
+
+function scoreFromObservatie(l: Lead): number | null {
+  const top = l.diensten[0]?.score;
+  return typeof top === "number" ? top : null;
+}
+
 const BRON_TYPE_TO_BRON: Record<string, Bron> = {
   website: "bedrijfswebsite",
   rechtspraak: "Rechtspraak.nl",
@@ -403,32 +533,19 @@ const BRON_TYPE_TO_BRON: Record<string, Bron> = {
   vacatures: "Jobdigger",
 };
 
-function toLeadSignaal(row: StoredSignalRow): Signaal {
+function toLeadSignaal(row: StoredSignal): UiSignaal {
   const bron = BRON_TYPE_TO_BRON[row.bron_type ?? ""] ?? "Nieuws";
   return { tekst: row.observatie, bron };
 }
 
-type StoredSignalRow = {
-  categorie: string;
-  cluster: number | null;
-  sterkte: number;
-  confidence: number;
-  observatie: string;
-  bron_type?: string | null;
-  bron_url?: string | null;
-  bewijs?: string[] | null;
-};
-
 function scoreToLead(
-  profile: KvkBasisprofiel,
+  profile: LocalKvkBasisprofiel,
   score: ReturnType<typeof scoreCompany>,
-  signals: StoredSignalRow[],
+  signals: StoredSignal[],
 ): Lead {
-  const fteKlasse = (profile.fteKlasse ?? bucketFte(undefined) ?? "10-19") as FteKlasse;
-  // Dedupe signalen op (categorie, bron_type) — meerdere scrape-runs
-  // kunnen dezelfde categorie oppikken; we tonen 'm één keer aan Roy.
+  const fteKlasse = (profile.fteKlasse ?? "10-19") as FteKlasse;
   const seen = new Set<string>();
-  const dedupedSignalen: Signaal[] = [];
+  const dedupedSignalen: UiSignaal[] = [];
   for (const s of signals) {
     const k = `${s.categorie}|${s.bron_type ?? ""}`;
     if (seen.has(k)) continue;
@@ -446,9 +563,6 @@ function scoreToLead(
     warmte: score.warmte,
     archetype: score.archetype,
     signalen: dedupedSignalen,
-    // Scoring engine werkt met string-codes; we casten terug naar
-    // DienstCode omdat de matrix alleen D1-D8 (de huidige UI-set)
-    // produceert. Als we D9-D13 toevoegen, update ook de type-union.
     diensten: score.diensten_match.map((d) => ({
       code: d.code as DienstCode,
       naam: d.naam,
