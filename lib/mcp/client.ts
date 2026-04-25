@@ -22,6 +22,14 @@ export class McpCallError extends Error {
   }
 }
 
+type McpTextBlock = { type: "text"; text: string };
+
+function isTextBlock(b: unknown): b is McpTextBlock {
+  if (typeof b !== "object" || b === null) return false;
+  const obj = b as { type?: unknown; text?: unknown };
+  return obj.type === "text" && typeof obj.text === "string";
+}
+
 export class McpHttpClient {
   private sessionId: string | null = null;
   private initPromise: Promise<string> | null = null;
@@ -72,10 +80,10 @@ export class McpHttpClient {
     if (!Array.isArray(blocks) || blocks.length === 0) {
       throw new McpCallError("Geen content in MCP-response", toolName);
     }
-    const textBlock = blocks.find(
-      (b: { type: string; text?: string }) =>
-        b.type === "text" && typeof b.text === "string",
-    ) as { text: string } | undefined;
+    // `blocks` is unknown[] — de predicate moet tegen `unknown` smallen,
+    // anders weigert tsc 'm te koppelen aan Array.find. isTextBlock
+    // doet de runtime-check + de typing.
+    const textBlock = blocks.find(isTextBlock);
     if (!textBlock) {
       throw new McpCallError("Geen text-block in MCP-response", toolName);
     }
