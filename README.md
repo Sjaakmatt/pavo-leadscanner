@@ -115,7 +115,8 @@ geschatte tijdsbesparing.
 | Trigger                            | Endpoint                       | Type                           |
 |------------------------------------|--------------------------------|--------------------------------|
 | App start                          | `/api/v1/agent/connect`        | online + heartbeat-loop start  |
-| Iedere 60s                         | `/api/v1/ingest/heartbeat`     | online ping                    |
+| Iedere 60s (long-running runtime)  | `/api/v1/ingest/heartbeat`     | online ping                    |
+| Iedere 5 min (Vercel cron)         | `/api/v1/ingest/batch`         | heartbeat + dagcijfers         |
 | `POST /api/search` slaagt          | `/api/v1/ingest/event`         | `task_completed`               |
 | `POST /api/search` faalt           | `/api/v1/ingest/event`         | `task_failed`                  |
 | `POST /api/search` (na succes)     | `/api/v1/ingest/metrics`       | tasksCompleted + tijd-bespaard |
@@ -123,6 +124,17 @@ geschatte tijdsbesparing.
 | `GET /api/lead/[kvk]` (404)        | `/api/v1/ingest/event`         | `warning`                      |
 | `GET /api/lead/[kvk]` (exception)  | `/api/v1/ingest/event`         | `error`                        |
 | SIGTERM / SIGINT                   | `/api/v1/agent/disconnect`     | offline                        |
+
+**Vercel cron — heartbeat + dagcijfers (elke 5 min):** op Vercel-serverless
+overleeft de 60s setInterval-heartbeat geen lambda-cycle. `vercel.json`
+schedulet daarom `/api/cron/factum-sync` op `*/5 * * * *`. De route
+aggregateert vandaag's `search_queries`-totalen (completed/failed,
+gem. duur, opgeleverde leads → tijdsbesparing) en stuurt die in één
+batch-POST naar `/api/v1/ingest/batch` samen met een `online` heartbeat.
+Zo blijft de agent in het dashboard "online" én up-to-date ook tussen
+searches door. Implementatie staat in `app/api/cron/factum-sync/route.ts`
++ `lib/factum/metrics-aggregator.ts`. Bescherm de route in productie
+met `CRON_SECRET` (Vercel zet de header automatisch).
 
 **Configureren:**
 
