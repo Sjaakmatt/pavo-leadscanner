@@ -37,6 +37,25 @@ export type FactumMetrics = {
   humanEscalations?: number;
 };
 
+export type FactumHeartbeat = {
+  status?: "online" | "offline" | "degraded";
+  responseTimeMs?: number;
+  message?: string;
+};
+
+export type FactumBatchEvent = {
+  type: FactumEventType;
+  message: string;
+  metadata?: Record<string, unknown>;
+  timestamp?: string;
+};
+
+export type FactumBatch = {
+  heartbeat?: FactumHeartbeat;
+  events?: FactumBatchEvent[];
+  metrics?: FactumMetrics;
+};
+
 const REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_HEARTBEAT_MS = 60_000;
 
@@ -106,6 +125,20 @@ class FactumClient {
   async pushMetrics(metrics: FactumMetrics): Promise<void> {
     const date = metrics.date ?? new Date().toISOString().slice(0, 10);
     await this.request("/api/v1/ingest/metrics", { ...metrics, date });
+  }
+
+  // Combineert heartbeat + events + metrics in één POST. Gebruikt door
+  // de Vercel-cron (zie app/api/cron/factum-sync) zodat we per tick één
+  // outbound call hebben in plaats van drie.
+  async sendBatch(batch: FactumBatch): Promise<void> {
+    const payload: FactumBatch = { ...batch };
+    if (payload.metrics && !payload.metrics.date) {
+      payload.metrics = {
+        ...payload.metrics,
+        date: new Date().toISOString().slice(0, 10),
+      };
+    }
+    await this.request("/api/v1/ingest/batch", payload);
   }
 
   async disconnect(reason?: string): Promise<void> {
