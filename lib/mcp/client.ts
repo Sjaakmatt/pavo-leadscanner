@@ -3,6 +3,10 @@
 //
 // Eén instance per MCP-server. ProductionLeadSource heeft er twee:
 // bedrijvenClient (8110) en webscraperClient (8111).
+//
+// Stateless servers: de MCP Streamable HTTP-spec staat servers toe om
+// GEEN Mcp-Session-Id terug te geven op initialize. Dan draaien we
+// gewoon zonder session-id en sturen we 'm niet mee in tools/call.
 
 import type { ZodSchema } from "zod";
 
@@ -22,9 +26,18 @@ export class McpCallError extends Error {
   }
 }
 
+type McpTextBlock = { type: "text"; text: string };
+
+function isTextBlock(b: unknown): b is McpTextBlock {
+  if (typeof b !== "object" || b === null) return false;
+  const obj = b as { type?: unknown; text?: unknown };
+  return obj.type === "text" && typeof obj.text === "string";
+}
+
 export class McpHttpClient {
   private sessionId: string | null = null;
-  private initPromise: Promise<string> | null = null;
+  private initialized = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor(
     private readonly baseUrl: string,
@@ -37,14 +50,10 @@ export class McpHttpClient {
     args: Record<string, unknown>,
     responseSchema: ZodSchema<T>,
   ): Promise<T> {
-    const sessionId = await this.ensureSession();
+    await this.ensureInitialized();
     const response = await fetch(this.baseUrl, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        "mcp-session-id": sessionId,
-      },
+      headers: this.buildHeaders(),
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: randomId(),
@@ -72,10 +81,10 @@ export class McpHttpClient {
     if (!Array.isArray(blocks) || blocks.length === 0) {
       throw new McpCallError("Geen content in MCP-response", toolName);
     }
-    const textBlock = blocks.find(
-      (b: { type: string; text?: string }) =>
-        b.type === "text" && typeof b.text === "string",
-    ) as { text: string } | undefined;
+    // `blocks` is unknown[] — de predicate moet tegen `unknown` smallen,
+    // anders weigert tsc 'm te koppelen aan Array.find. isTextBlock
+    // doet de runtime-check + de typing.
+    const textBlock = blocks.find(isTextBlock);
     if (!textBlock) {
       throw new McpCallError("Geen text-block in MCP-response", toolName);
     }
@@ -91,8 +100,19 @@ export class McpHttpClient {
     return responseSchema.parse(parsed);
   }
 
-  private ensureSession(): Promise<string> {
-    if (this.sessionId) return Promise.resolve(this.sessionId);
+  private buildHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    };
+    if (this.sessionId) {
+      headers["mcp-session-id"] = this.sessionId;
+    }
+    return headers;
+  }
+
+  private ensureInitialized(): Promise<void> {
+    if (this.initialized) return Promise.resolve();
     if (this.initPromise) return this.initPromise;
     this.initPromise = this.initialize().finally(() => {
       this.initPromise = null;
@@ -100,7 +120,7 @@ export class McpHttpClient {
     return this.initPromise;
   }
 
-  private async initialize(): Promise<string> {
+  private async initialize(): Promise<void> {
     const response = await fetch(this.baseUrl, {
       method: "POST",
       headers: {
@@ -124,29 +144,24 @@ export class McpHttpClient {
         `MCP initialize faalde: ${response.status} ${await safeText(response)}`,
       );
     }
-    const sessionId = response.headers.get("mcp-session-id");
-    if (!sessionId) {
-      throw new McpCallError("Geen mcp-session-id in initialize-response");
-    }
-    this.sessionId = sessionId;
+
+    // Session-id is OPTIONEEL in de Streamable HTTP-spec. Stateless
+    // servers (zoals de huidige FactumAI MCPs) geven 'm niet terug —
+    // we draaien dan zonder session-id en sturen 'm niet mee.
+    this.sessionId = response.headers.get("mcp-session-id");
+    this.initialized = true;
 
     // notifications/initialized — MCP-spec voorschrift; sommige servers
     // weigeren tools/call zonder deze notificatie. Best-effort.
     await fetch(this.baseUrl, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        "mcp-session-id": sessionId,
-      },
+      headers: this.buildHeaders(),
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "notifications/initialized",
         params: {},
       }),
     }).catch(() => undefined);
-
-    return sessionId;
   }
 }
 
