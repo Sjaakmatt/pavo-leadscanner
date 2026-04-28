@@ -20,7 +20,6 @@
 
 import type {
   Bron,
-  DienstCode,
   FteKlasse,
   GetLeadOptions,
   Lead,
@@ -49,6 +48,9 @@ import {
 import { supabaseServer } from "@/lib/supabase/client";
 import { runScrapeBatch, type ScrapeMcps } from "@/lib/orchestrator";
 import { scoreCompany, type StoredSignal } from "@/lib/scoring";
+import { matchesSignaalQuery } from "@/lib/adapters/mock";
+import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "@/lib/factum/roi";
+import { SCORING_VERSION } from "@/lib/scoring/version";
 
 const CACHE_TTL_DAYS = 30;
 const LEAD_DETAIL_TTL_DAYS = 7;
@@ -129,20 +131,21 @@ export class ProductionLeadSource implements LeadSource {
         return filters.fte_klassen.includes(profile.fteKlasse as FteKlasse);
       });
 
-      // 4) Geo-filter via mcp-bedrijven.pdok_geocode
+      // 4) Geo-filter via mcp-bedrijven.pdok_geocode (DB-cache eerst)
       await updateStep(supabase, searchQueryId, "Regio-filter toepassen");
       emit({ type: "stage", stage: "geo", message: "Regio-filter toepassen…" });
-      const geoFiltered = await applyGeoFilter(
+      const { kept: geoFiltered, coords: coordsByPlaats } = await applyGeoFilter(
         this.bedrijven,
         searchCtx,
         fteFiltered,
         filters.regio_center,
         filters.regio_straal_km,
+        supabase,
       );
       emit({ type: "geo", remaining: geoFiltered.length });
 
-      // 5) Companies upserten
-      await upsertCompanies(supabase, geoFiltered);
+      // 5) Companies upserten (incl. lat/lng zodat next-run skipt PDOK)
+      await upsertCompanies(supabase, geoFiltered, coordsByPlaats);
 
       // 6) Scrape-targets bepalen (cache-respect, tenzij refresh)
       const candidateKvks = geoFiltered.map((x) => x.profile.kvkNummer);
@@ -174,6 +177,7 @@ export class ProductionLeadSource implements LeadSource {
       let scraped = 0;
       await runScrapeBatch(handles, searchCtx, this.mcps, supabase, {
         concurrency: MAX_PARALLEL_SCRAPES,
+        refreshRaw: opts.refresh ?? false,
         onProgress: (e) => {
           scraped = e.done;
           emit({
@@ -200,10 +204,16 @@ export class ProductionLeadSource implements LeadSource {
         emit({ type: "score", scored: scoredCount, total: geoFiltered.length });
       }
 
-      // 8) Persist scored_leads
+      // 8) Persist scored_leads (alle gescoorde leads — query-filter
+      //    is een UI-presentation-laag, niet een data-uitsluiting).
       await persistScoredLeads(supabase, searchQueryId, leads);
 
-      const sorted = sortLeadsByWarmte(leads);
+      // 9) Free-text post-filter (signaal_query) — slaat op archetype-,
+      //    signaal- en dienst-tekst. Lege query → no-op.
+      const filteredByQuery = leads.filter((l) =>
+        matchesSignaalQuery(l, filters.signaal_query),
+      );
+      const sorted = sortLeadsByWarmte(filteredByQuery);
       const durationMs = Date.now() - startedAt;
 
       await logSearchComplete(supabase, searchQueryId, {
@@ -255,6 +265,7 @@ export class ProductionLeadSource implements LeadSource {
       };
       await runScrapeBatch([handle], ctx, this.mcps, supabase, {
         concurrency: 1,
+        refreshRaw: opts.refresh ?? false,
       });
     }
 
@@ -331,53 +342,110 @@ async function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
   enriched: T[],
   center: LatLng | null,
   radiusKm: number,
-): Promise<T[]> {
-  if (!center) return enriched;
+  supabase: SupabaseClient,
+): Promise<{ kept: T[]; coords: Map<string, LatLng> }> {
+  const coordsByPlaats = new Map<string, LatLng>();
+  if (enriched.length === 0) {
+    return { kept: enriched, coords: coordsByPlaats };
+  }
   const uniquePlaatsen = [
     ...new Set(enriched.map((x) => x.profile.plaats).filter((p): p is string => !!p)),
   ];
-  const coordsMap = new Map<string, LatLng | null>();
+
+  // 1) Lees gecachte coords uit companies — al lang bekende plaatsen
+  //    raken PDOK niet meer.
+  const { data: cached } = await supabase
+    .from("companies")
+    .select("plaats, lat, lng")
+    .in("plaats", uniquePlaatsen)
+    .not("lat", "is", null)
+    .not("lng", "is", null);
+  for (const row of (cached ?? []) as Array<{
+    plaats: string;
+    lat: number;
+    lng: number;
+  }>) {
+    if (!coordsByPlaats.has(row.plaats)) {
+      coordsByPlaats.set(row.plaats, { lat: row.lat, lng: row.lng });
+    }
+  }
+
+  // 2) Resterende plaatsen: PDOK via mcp-bedrijven.
+  const missing = uniquePlaatsen.filter((p) => !coordsByPlaats.has(p));
   await Promise.all(
-    uniquePlaatsen.map(async (p) => {
+    missing.map(async (p) => {
       try {
         const geo = await bedrijven.pdokGeocode(ctx, p);
-        coordsMap.set(p, geo ? { lat: geo.lat, lng: geo.lng } : null);
+        if (geo) coordsByPlaats.set(p, { lat: geo.lat, lng: geo.lng });
       } catch {
-        coordsMap.set(p, null);
+        // skip — bedrijf wordt straks geheel uit het filter weggelaten
+        // alleen als we WEL center hebben en geen coords.
       }
     }),
   );
-  return enriched.filter(({ profile }) => {
+
+  if (!center) {
+    return { kept: enriched, coords: coordsByPlaats };
+  }
+  const kept = enriched.filter(({ profile }) => {
     if (!profile.plaats) return true;
-    const coords = coordsMap.get(profile.plaats);
+    const coords = coordsByPlaats.get(profile.plaats);
     if (!coords) return true;
     return haversineKm(center, coords) <= radiusKm;
   });
+  return { kept, coords: coordsByPlaats };
 }
 
 async function upsertCompanies<T extends { profile: LocalKvkBasisprofiel }>(
   supabase: SupabaseClient,
   enriched: T[],
+  coordsByPlaats: Map<string, LatLng>,
 ): Promise<void> {
   if (enriched.length === 0) return;
-  const rows = enriched.map(({ profile }) => ({
-    kvk: profile.kvkNummer,
-    naam: profile.naam,
-    handelsnaam: profile.handelsnaam,
-    website_url: profile.websiteUrl,
-    sbi_codes: profile.sbiCodes,
-    fte_klasse: profile.fteKlasse,
-    plaats: profile.plaats,
-    provincie: profile.provincie,
-    bestuursvorm: profile.bestuursvorm,
-    oprichtingsdatum: profile.oprichtingsdatum,
-    actief: profile.actief,
-    last_updated_at: new Date().toISOString(),
-  }));
+  const now = new Date().toISOString();
+  const rows = enriched.map(({ profile }) => {
+    const coords = profile.plaats ? coordsByPlaats.get(profile.plaats) : undefined;
+    return {
+      kvk: profile.kvkNummer,
+      naam: profile.naam,
+      handelsnaam: profile.handelsnaam,
+      website_url: profile.websiteUrl,
+      sbi_codes: profile.sbiCodes,
+      fte_klasse: profile.fteKlasse,
+      plaats: profile.plaats,
+      provincie: profile.provincie,
+      bestuursvorm: profile.bestuursvorm,
+      oprichtingsdatum: profile.oprichtingsdatum,
+      actief: profile.actief,
+      lat: coords?.lat,
+      lng: coords?.lng,
+      geocoded_at: coords ? now : undefined,
+      last_updated_at: now,
+    };
+  });
   const { error } = await supabase
     .from("companies")
     .upsert(rows, { onConflict: "kvk" });
   if (error) console.warn(`companies upsert: ${error.message}`);
+
+  // Append KvK-snapshot — lichtgewicht historie zodat we later
+  // FTE-mutaties of bestuurders-veranderingen kunnen detecteren.
+  const snapshotRows = enriched.map(({ profile }) => ({
+    kvk: profile.kvkNummer,
+    raw_data: profile.raw as object,
+    fte_klasse: profile.fteKlasse,
+    bestuurders: profile.bestuurders as object,
+    vestigingen: profile.vestigingen as object,
+  }));
+  // We slaan max 1 snapshot per dag op (unique constraint op
+  // (kvk, snapshot_at) maakt dit best-effort). On-conflict do nothing
+  // wordt door supabase-js niet direct ondersteund; we slikken errors.
+  const { error: snapErr } = await supabase
+    .from("kvk_snapshots")
+    .insert(snapshotRows);
+  if (snapErr && !snapErr.message.includes("duplicate")) {
+    console.warn(`kvk_snapshots insert: ${snapErr.message}`);
+  }
 }
 
 async function determineScrapeTargets(
@@ -422,23 +490,37 @@ async function fetchRecentSignals(
     .gte("detected_at", cutoff);
   return ((data ?? []) as Array<{
     categorie: string;
-    cluster: number | null;
+    cluster: string | number | null;
     sterkte: number;
     confidence: number;
     observatie: string;
+    detected_at?: string | null;
     bron_type?: string | null;
     bron_url?: string | null;
     bewijs?: string[] | null;
   }>).map((r) => ({
     categorie: r.categorie,
-    cluster: r.cluster,
+    // Cluster is sinds migration 004 text. Cast "1"/"2"/"3" terug naar
+    // number; "context" blijft string en gaat de scoring-engine in
+    // als context-flag.
+    cluster: parseClusterColumn(r.cluster),
     sterkte: r.sterkte,
     confidence: r.confidence,
     observatie: r.observatie,
+    detected_at: r.detected_at ?? undefined,
     bron_type: r.bron_type ?? undefined,
     bron_url: r.bron_url ?? undefined,
     bewijs: r.bewijs ?? undefined,
   }));
+}
+
+function parseClusterColumn(
+  raw: string | number | null,
+): number | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "number") return raw;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 1 && n <= 3 ? n : null;
 }
 
 async function logSearchStart(
@@ -526,6 +608,7 @@ async function persistScoredLeads(
     totale_score: scoreFromObservatie(l) ?? 0,
     diensten_match: l.diensten as unknown as object,
     samenvatting: l.observatie,
+    scoring_version: SCORING_VERSION,
   }));
   const { error } = await supabase.from("scored_leads").insert(rows);
   if (error) console.warn(`scored_leads insert: ${error.message}`);
@@ -576,7 +659,7 @@ function scoreToLead(
     archetype: score.archetype,
     signalen: dedupedSignalen,
     diensten: score.diensten_match.map((d) => ({
-      code: d.code as DienstCode,
+      code: d.code,
       naam: d.naam,
       prioriteit: d.prioriteit,
       score: d.score,

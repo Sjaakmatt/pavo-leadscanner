@@ -1,4 +1,4 @@
-import { mockLeadSource } from "@/lib/adapters/mock";
+import { getLeadSource } from "@/lib/lead-source";
 import {
   BRIEFING_MAX_TOKENS,
   BRIEFING_USER_PROMPT,
@@ -15,7 +15,7 @@ export async function GET(
 ) {
   const { kvk } = await params;
 
-  const lead = await mockLeadSource.getLead(kvk);
+  const lead = await getLeadSource().getLead(kvk);
   if (!lead) {
     return new Response("Lead not found", { status: 404 });
   }

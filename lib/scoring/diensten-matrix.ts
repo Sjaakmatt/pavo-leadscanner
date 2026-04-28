@@ -96,16 +96,59 @@ export const DIENSTEN_MATRIX: DienstRegel[] = [
       verzuim_burnout_signalen: 20,
     },
   },
+  // D9-D13 — PAVO product-portfolio (HR-Quickscan, Functiehuis, etc.).
+  // Pain-point bewoording aangehouden in lijn met D1-D8 zodat de UI
+  // consistent blijft. Definitieve dienst-namen + zwaartes mogen
+  // bijgesteld worden zodra Roy de matrix afkust.
+  {
+    code: "D9",
+    naam: "Functie- en salarishuis op orde",
+    gewicht: {
+      veel_functies_geen_structuur: 35,
+      nieuwe_managementlaag: 25,
+      snelle_groei: 20,
+      internationale_uitbreiding: 15,
+    },
+  },
+  {
+    code: "D10",
+    naam: "Salarisadministratie uit handen",
+    gewicht: {
+      loonadministratie_klachten: 45,
+      founder_run: 25,
+      geen_hr_finance_roles: 25,
+      veel_freelancers: 15,
+    },
+  },
+  {
+    code: "D11",
+    naam: "Verzuimreglement en preventie",
+    gewicht: {
+      verzuim_burnout_signalen: 40,
+      arbo_boete_recent: 30,
+      arbeidsinspectie_stillegging: 30,
+      negatieve_reviews_chaos: 15,
+    },
+  },
+  {
+    code: "D12",
+    naam: "Risico-Inventarisatie & Evaluatie (RI&E)",
+    gewicht: {
+      arbeidsinspectie_stillegging: 45,
+      arbo_boete_recent: 40,
+      asbest_overtreding: 35,
+      verzuim_burnout_signalen: 15,
+    },
+  },
+  {
+    code: "D13",
+    naam: "Gesprekscyclus + personeelshandboek",
+    gewicht: {
+      veel_functies_geen_structuur: 30,
+      geen_hr_rol_zichtbaar: 25,
+      negatieve_reviews_chaos: 20,
+      arbeidsrechtzaak_recent: 20,
+      arbeidsrechtzaak_patroon: 20,
+    },
+  },
 ];
-
-// Placeholder-hooks voor D9-D13. Vul `naam` + `gewicht` in zodra Roy de
-// vier extra diensten aanlevert; voeg de codes daarna toe aan
-// DienstCode in lib/adapters/types.ts.
-//
-// export const DIENSTEN_MATRIX_EXT: DienstRegel[] = [
-//   { code: "D9" as DienstCode, naam: "TBD", gewicht: {} },
-//   { code: "D10" as DienstCode, naam: "TBD", gewicht: {} },
-//   { code: "D11" as DienstCode, naam: "TBD", gewicht: {} },
-//   { code: "D12" as DienstCode, naam: "TBD", gewicht: {} },
-//   { code: "D13" as DienstCode, naam: "TBD", gewicht: {} },
-// ];
