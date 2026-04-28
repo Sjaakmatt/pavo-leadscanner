@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/refresh-active-companies",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/search-jobs-runner",
+      "schedule": "*/2 * * * *"
     }
   ]
 }
