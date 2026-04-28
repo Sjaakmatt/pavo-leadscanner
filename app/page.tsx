@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion } from "motion/react";
 import FilterBar from "@/components/FilterBar";
 import LeadGrid from "@/components/LeadGrid";
 import SearchSummary from "@/components/SearchSummary";
 import StreamingStatus, { type StreamStep } from "@/components/StreamingStatus";
-import type { Lead, SearchFilters } from "@/lib/adapters/types";
+import SavedSearchControls from "@/components/SavedSearchControls";
+import ResultsToolbar, {
+  type ResultFilters,
+  type SortKey,
+} from "@/components/ResultsToolbar";
+import type { FteKlasse, Lead, SearchFilters } from "@/lib/adapters/types";
 import { DEFAULT_FILTERS } from "@/lib/filter";
 
 // Leaflet touches window at import time — must be client-only.
@@ -48,6 +53,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [resultsView, setResultsView] = useState<ResultsView>("lijst");
   const [mode, setMode] = useState<"demo" | "prod">("demo");
+  const [sort, setSort] = useState<SortKey>("warmte");
+  const [resultFilters, setResultFilters] = useState<ResultFilters>({
+    archetype: null,
+    dienst: null,
+  });
 
   // We cachen de mode één keer op mount; dit beïnvloedt alleen welk
   // API-pad we kiezen, niet de UI zelf.
@@ -162,6 +172,20 @@ export default function DashboardPage() {
       append(`Scrape ${payload.scraped}/${payload.total}: ${payload.naam}`);
     } else if (payload.type === "score") {
       append(`Scoren ${payload.scored}/${payload.total}`);
+    } else if (payload.type === "lead") {
+      // Incremental delivery — push lead direct naar de view zodat
+      // de gebruiker hem kan zien voordat de hele run klaar is.
+      const lead = payload.lead as Lead;
+      setView((curr) =>
+        curr.kind === "active"
+          ? {
+              ...curr,
+              leads: appendUnique(curr.leads, lead),
+              streamingDone: true,
+            }
+          : curr,
+      );
+      setLoading(false);
     } else if (payload.type === "done") {
       append(
         `Klaar · ${payload.totalLeadsReturned} leads · $${Number(payload.totalCostUsd).toFixed(3)}`,
@@ -203,6 +227,13 @@ export default function DashboardPage() {
         <p className="mt-2 text-sm text-pavo-gray-600">
           Stel filters in en laat de agent naar passende bedrijven zoeken
         </p>
+      </div>
+
+      <div className="mb-3 flex justify-end">
+        <SavedSearchControls
+          filters={filters}
+          onLoad={(f) => setFilters(f)}
+        />
       </div>
 
       <FilterBar
@@ -267,29 +298,16 @@ export default function DashboardPage() {
                     <SearchSummary filters={filters} leads={view.leads} />
                   )}
 
-                  <div>
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                      <div className="text-sm text-pavo-gray-600">
-                        {view.leads.length}{" "}
-                        {view.leads.length === 1 ? "lead" : "leads"} gevonden
-                      </div>
-                      {view.leads.length > 0 && (
-                        <div className="flex items-center gap-2">
-                          <ExportCsvButton filters={filters} />
-                          <ResultsTabs
-                            value={resultsView}
-                            onChange={setResultsView}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    {resultsView === "lijst" ? (
-                      <LeadGrid leads={view.leads} />
-                    ) : (
-                      <ResultsMap leads={view.leads} />
-                    )}
-                  </div>
+                  <FilteredResults
+                    leads={view.leads}
+                    sort={sort}
+                    filters={resultFilters}
+                    onSort={setSort}
+                    onFilters={setResultFilters}
+                    resultsView={resultsView}
+                    onResultsView={setResultsView}
+                    searchFilters={filters}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -298,6 +316,117 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+// Apply sort + filter on the lead-set, render either the grid or the
+// map. Houdt de UI van de hoofdpagina overzichtelijk.
+// Push een lead aan een bestaande lijst, of update als 'm al bestaat
+// (op kvk). Houdt de UI consistent als het backend een lead twee keer
+// emit (bij refresh).
+function appendUnique(leads: Lead[], lead: Lead): Lead[] {
+  const idx = leads.findIndex((l) => l.kvk === lead.kvk);
+  if (idx === -1) return [...leads, lead];
+  const next = [...leads];
+  next[idx] = lead;
+  return next;
+}
+
+function FilteredResults({
+  leads,
+  sort,
+  filters,
+  onSort,
+  onFilters,
+  resultsView,
+  onResultsView,
+  searchFilters,
+}: {
+  leads: Lead[];
+  sort: SortKey;
+  filters: ResultFilters;
+  onSort: (s: SortKey) => void;
+  onFilters: (f: ResultFilters) => void;
+  resultsView: ResultsView;
+  onResultsView: (v: ResultsView) => void;
+  searchFilters: SearchFilters;
+}) {
+  const visible = useMemo(() => {
+    const filtered = leads.filter((l) => {
+      if (filters.archetype && l.archetype?.naam !== filters.archetype) {
+        return false;
+      }
+      if (filters.dienst) {
+        const has = l.diensten.some(
+          (d) => d.code === filters.dienst && d.prioriteit === "primair",
+        );
+        if (!has) return false;
+      }
+      return true;
+    });
+    return sortLeads(filtered, sort);
+  }, [leads, filters, sort]);
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-pavo-gray-600">
+          {visible.length}{" "}
+          {visible.length === 1 ? "lead" : "leads"} weergegeven
+          {visible.length !== leads.length && (
+            <span className="ml-1 text-pavo-gray-600/70">
+              (van {leads.length})
+            </span>
+          )}
+        </div>
+        {leads.length > 0 && (
+          <div className="flex items-center gap-2">
+            <ResultsToolbar
+              leads={leads}
+              sort={sort}
+              filters={filters}
+              onSort={onSort}
+              onFilters={onFilters}
+            />
+            <ExportCsvButton filters={searchFilters} />
+            <ResultsTabs value={resultsView} onChange={onResultsView} />
+          </div>
+        )}
+      </div>
+
+      {resultsView === "lijst" ? (
+        <LeadGrid leads={visible} />
+      ) : (
+        <ResultsMap leads={visible} />
+      )}
+    </div>
+  );
+}
+
+function sortLeads(leads: Lead[], sort: SortKey): Lead[] {
+  const warmteRank: Record<Lead["warmte"], number> = {
+    HOT: 0,
+    WARM: 1,
+    COLD: 2,
+  };
+  const fteRank: Record<FteKlasse, number> = {
+    "10-19": 0,
+    "20-49": 1,
+    "50-99": 2,
+    "100-199": 3,
+  };
+  const topScore = (l: Lead) => l.diensten[0]?.score ?? 0;
+  return [...leads].sort((a, b) => {
+    switch (sort) {
+      case "warmte":
+        return warmteRank[a.warmte] - warmteRank[b.warmte];
+      case "score":
+        return topScore(b) - topScore(a);
+      case "fte":
+        return fteRank[b.fte_klasse] - fteRank[a.fte_klasse];
+      case "naam":
+        return a.naam.localeCompare(b.naam);
+    }
+  });
 }
 
 function ExportCsvButton({ filters }: { filters: SearchFilters }) {

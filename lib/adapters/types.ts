@@ -17,6 +17,12 @@ export type Bron =
 export type Signaal = {
   tekst: string;
   bron: Bron;
+  // Optioneel — wordt door de productie-laag aangeleverd uit
+  // signals.bewijs (letterlijke quote(s)) en signals.bron_url
+  // (klikbare link). Demo-data heeft deze velden meestal niet, dus
+  // zijn ze optioneel zodat de UI graceful degradeert.
+  bewijs?: string[];
+  bronUrl?: string;
 };
 
 export type DienstCode =
@@ -109,6 +115,9 @@ export type SearchProgressEvent =
   | { type: "geo"; remaining: number }
   | { type: "scrape"; kvk: string; naam: string; scraped: number; total: number; costUsd: number }
   | { type: "score"; scored: number; total: number }
+  // Incremental delivery — emit per lead zodra hij gescoord is, zodat
+  // de UI 'em direct kan tonen.
+  | { type: "lead"; lead: Lead }
   | { type: "done"; totalLeadsReturned: number; totalCostUsd: number; durationMs: number }
   | { type: "error"; message: string };
 
