@@ -8,6 +8,8 @@ import {
 } from "@/lib/lead-status/types";
 import { factum } from "@/lib/factum/client";
 import { authConfigured, getCurrentUser } from "@/lib/auth/server";
+import { email as emailLib } from "@/lib/email/client";
+import { leadStatusEmail } from "@/lib/email/templates";
 
 export const runtime = "nodejs";
 
@@ -182,9 +184,13 @@ async function notifyTeam(
 ): Promise<void> {
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("id")
+    .select("id, email, notif_email_team")
     .neq("id", args.ownerId);
-  const recipients = (profiles ?? []) as Array<{ id: string }>;
+  const recipients = (profiles ?? []) as Array<{
+    id: string;
+    email: string;
+    notif_email_team: boolean | null;
+  }>;
   if (recipients.length === 0) return;
 
   const verbs: Record<LeadStatus, string> = {
@@ -196,7 +202,6 @@ async function notifyTeam(
     verloren: "verloren",
   };
 
-  // Lead-naam mee in de title — als companies-row bestaat.
   const { data: company } = await supabase
     .from("companies")
     .select("naam")
@@ -207,10 +212,6 @@ async function notifyTeam(
   const title = `${args.ownerEmail} heeft ${naam} ${verbs[args.next]}`;
   const body = args.reden ? `Reden: ${args.reden}` : null;
 
-  // Note: notifications heeft een unique index op
-  // (user_id, kvk, saved_search_id). Voor team-events zetten we
-  // saved_search_id NULL, wat dubbele inserts toelaat — bewust, want
-  // iedere status-wijziging is een nieuw event.
   const inserts = recipients.map((r) => ({
     user_id: r.id,
     saved_search_id: null,
@@ -227,5 +228,37 @@ async function notifyTeam(
   const { error } = await supabase.from("notifications").insert(inserts);
   if (error) {
     console.warn(`[notify-team] insert: ${error.message}`);
+  }
+
+  // E-mail flow — alleen voor users die opt-in hebben.
+  if (emailLib.enabled) {
+    const base =
+      process.env.NEXT_PUBLIC_APP_URL ??
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    const url = base ? `${base}/lead/${args.kvk}` : `/lead/${args.kvk}`;
+    for (const r of recipients) {
+      if (!r.notif_email_team || !r.email) continue;
+      const tpl = leadStatusEmail({
+        changedBy: args.ownerEmail,
+        leadNaam: naam,
+        toStatus: args.next,
+        reden: args.reden,
+        dashboardUrl: url,
+      });
+      void emailLib
+        .send({
+          to: r.email,
+          subject: tpl.subject,
+          html: tpl.html,
+          text: tpl.text,
+        })
+        .then((res) => {
+          if (!res.ok) {
+            console.warn(
+              `[notify-team] email naar ${r.email} faalde: ${res.error}`,
+            );
+          }
+        });
+    }
   }
 }

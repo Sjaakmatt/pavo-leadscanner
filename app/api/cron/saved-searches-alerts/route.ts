@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { tryGetSupabase } from "@/lib/supabase/client";
 import { getLeadSource } from "@/lib/lead-source";
 import { factum } from "@/lib/factum/client";
-import type { SearchFilters } from "@/lib/adapters/types";
+import { email } from "@/lib/email/client";
+import { savedSearchEmail } from "@/lib/email/templates";
+import type { SearchFilters, Lead } from "@/lib/adapters/types";
 
 // Vercel cron — runt periodiek over alle saved-searches met
 // alert_enabled=true en dropt een notificatie voor iedere HOT lead die
@@ -91,13 +93,32 @@ export async function GET(req: NextRequest) {
             onConflict: "user_id,kvk,saved_search_id",
             ignoreDuplicates: true,
           })
-          .select("id");
+          .select("id, kvk");
         if (insertErr) {
           console.warn(
             `[alerts-cron] insert ${ss.naam}: ${insertErr.message}`,
           );
         }
         notified = data?.length ?? 0;
+
+        // Email-flow — alleen voor *nieuwe* notificaties (data bevat
+        // alleen rows die echt zijn ingevoegd dankzij ignoreDuplicates).
+        // Trigger ook alleen als de owner heeft opt-in voor
+        // saved-search e-mails. Best-effort fire-and-forget.
+        if (email.enabled && data && data.length > 0) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("email, notif_email_alerts")
+            .eq("id", ss.owner_id)
+            .maybeSingle();
+          if (profile?.notif_email_alerts && profile.email) {
+            const newKvks = new Set(data.map((d) => d.kvk as string));
+            const newLeads = hot.filter((l) => newKvks.has(l.kvk));
+            for (const lead of newLeads) {
+              void sendSavedSearchEmail(profile.email, ss.naam, lead);
+            }
+          }
+        }
       }
 
       await supabase
@@ -132,4 +153,33 @@ export async function GET(req: NextRequest) {
     durationMs,
     summary,
   });
+}
+
+async function sendSavedSearchEmail(
+  to: string,
+  searchNaam: string,
+  lead: Lead,
+): Promise<void> {
+  const base =
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+  const url = base ? `${base}/lead/${lead.kvk}` : `/lead/${lead.kvk}`;
+  const tpl = savedSearchEmail({
+    searchNaam,
+    leadNaam: lead.naam,
+    observatie: lead.observatie,
+    archetype: lead.archetype?.naam ?? null,
+    plaats: lead.plaats,
+    fteKlasse: lead.fte_klasse,
+    dashboardUrl: url,
+  });
+  const result = await email.send({
+    to,
+    subject: tpl.subject,
+    html: tpl.html,
+    text: tpl.text,
+  });
+  if (!result.ok) {
+    console.warn(`[alerts-cron] email naar ${to} faalde: ${result.error}`);
+  }
 }
