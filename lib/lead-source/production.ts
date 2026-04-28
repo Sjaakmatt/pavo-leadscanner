@@ -191,7 +191,8 @@ export class ProductionLeadSource implements LeadSource {
         },
       });
 
-      // 7) Scoring per bedrijf
+      // 7) Scoring per bedrijf — emit per lead zodra hij klaar is
+      //    zodat de UI niet hoeft te wachten op alles
       await updateStep(supabase, searchQueryId, "Scoring en rangschikking");
       emit({ type: "stage", stage: "score", message: "Scoren + warmte bepalen…" });
       const leads: Lead[] = [];
@@ -199,8 +200,10 @@ export class ProductionLeadSource implements LeadSource {
       for (const { profile } of geoFiltered) {
         const stored = await fetchRecentSignals(supabase, profile.kvkNummer, CACHE_TTL_DAYS);
         const score = scoreCompany(profile, stored);
-        leads.push(scoreToLead(profile, score, stored));
+        const lead = scoreToLead(profile, score, stored);
+        leads.push(lead);
         scoredCount += 1;
+        emit({ type: "lead", lead });
         emit({ type: "score", scored: scoredCount, total: geoFiltered.length });
       }
 
@@ -630,7 +633,12 @@ const BRON_TYPE_TO_BRON: Record<string, Bron> = {
 
 function toLeadSignaal(row: StoredSignal): UiSignaal {
   const bron = BRON_TYPE_TO_BRON[row.bron_type ?? ""] ?? "Nieuws";
-  return { tekst: row.observatie, bron };
+  return {
+    tekst: row.observatie,
+    bron,
+    bewijs: row.bewijs && row.bewijs.length > 0 ? row.bewijs : undefined,
+    bronUrl: row.bron_url || undefined,
+  };
 }
 
 function scoreToLead(

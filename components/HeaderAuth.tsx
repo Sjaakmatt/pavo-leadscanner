@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { AppUser } from "@/lib/auth/server";
+import NotificationBell from "./NotificationBell";
 
 type Props = {
   user: AppUser | null;
@@ -30,6 +31,7 @@ export default function HeaderAuth({ user }: Props) {
 
   return (
     <div className="flex items-center gap-3">
+      <NotificationBell enabled />
       <div className="hidden text-right md:block">
         <div className="text-xs font-medium text-pavo-gray-900">
           {user.fullName ?? user.email}
