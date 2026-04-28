@@ -3,7 +3,7 @@
 Next.js app die HR-signalen oplevert per MKB-lead. Draait in twee modes:
 
 - **`demo`** — 44 leads uit `data/leads.json`. Zero config, identiek aan de huidige sales-demo.
-- **`prod`** — live pipeline: KvK-afbakening + 6 scrapers via twee externe FactumAI MCPs, classificatie naar PAVO-signalen, scoring + Supabase opslag, dezelfde UI.
+- **`prod`** — live pipeline: KvK-afbakening + scrapers via vier externe FactumAI domein-MCPs (bedrijven + vacatures + juridisch + news), classificatie naar PAVO-signalen, scoring + Supabase opslag, dezelfde UI.
 
 Mode-switch zit in `lib/lead-source/index.ts::getLeadSource()` op basis van `process.env.MODE`.
 
@@ -17,25 +17,30 @@ npm run dev
 
 ## Snel starten — prod
 
-Prod-mode vereist drie externe systemen:
+Prod-mode vereist twee externe systemen:
 
-1. **`@factumai/mcp-bedrijven`** op `http://localhost:8110/mcp` — KvK + PDOK
-2. **`@factumai/mcp-webscraper`** op `http://localhost:8111/mcp` — 6 scrapers
-3. **Supabase** project met de migraties uit `supabase/migrations/`
+1. **Vier FactumAI domein-MCPs** (allemaal Streamable HTTP):
+   - `@factumai/mcp-bedrijven` op `http://localhost:8110/mcp` — KvK + PDOK + `get_company_website_content`
+   - `@factumai/mcp-vacatures` op `http://localhost:8120/mcp` — `extract_vacancies_from_company_site`
+   - `@factumai/mcp-news`      op `http://localhost:8121/mcp` — `search_company_news`
+   - `@factumai/mcp-juridisch` op `http://localhost:8122/mcp` — `search_court_cases` + NLA/insolventie stubs
+2. **Supabase** project met de migraties uit `supabase/migrations/`
 
 ```bash
 # 1. MCPs starten in factumai-mcps repo
 cd ../factumai-mcps
 pnpm install
 pnpm --filter @factumai/mcp-bedrijven dev:http   # 8110
-pnpm --filter @factumai/mcp-webscraper dev:http  # 8111
+pnpm --filter @factumai/mcp-vacatures dev:http   # 8120
+pnpm --filter @factumai/mcp-news      dev:http   # 8121
+pnpm --filter @factumai/mcp-juridisch dev:http   # 8122
 
 # 2. PAVO-app config
 cd ../pavo-leadscanner
 cp .env.example .env.local
-# vul in: ANTHROPIC_API_KEY, FACTUMAI_MCP_*_URL, FACTUMAI_ORGANIZATION_ID,
-# FACTUMAI_AGENT_ID, NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
-# SUPABASE_SERVICE_ROLE_KEY
+# vul in: ANTHROPIC_API_KEY, FACTUMAI_MCP_*_URL (4 stuks),
+# FACTUMAI_ORGANIZATION_ID, FACTUMAI_AGENT_ID, NEXT_PUBLIC_SUPABASE_URL,
+# NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
 # zet MODE=prod
 
 npm install
@@ -50,18 +55,21 @@ UI → /api/search → getLeadSource()
                    ├── demo → MockLeadSource (data/leads.json)
                    └── prod → ProductionLeadSource
                                ├── BedrijvenMcp (HTTP → :8110)
-                               │    ├── kvk_zoeken          (SBI + provincies)
-                               │    ├── kvk_basisprofiel    (parallel per kandidaat)
-                               │    └── pdok_geocode        (per unieke plaats)
+                               │    ├── kvk_zoeken                    (SBI + provincies)
+                               │    ├── kvk_basisprofiel              (parallel per kandidaat)
+                               │    ├── pdok_geocode                  (per unieke plaats)
+                               │    └── get_company_website_content   (Playwright + web_fetch)
                                ├── Supabase upsert companies
                                ├── Orchestrator (max 5 bedrijven parallel)
-                               │    ├── WebscraperMcp (HTTP → :8111)
-                               │    │    ├── scrape_website     (Playwright + web_fetch fallback)
-                               │    │    ├── scrape_rechtspraak (XML)
-                               │    │    ├── scrape_nla         (Playwright + fallback)
-                               │    │    ├── scrape_insolventie (Playwright SPA)
-                               │    │    ├── scrape_vacatures   (sitemap + JSON-LD)
-                               │    │    └── scrape_news        (Google News RSS)
+                               │    ├── BedrijvenMcp.get_company_website_content
+                               │    ├── VacaturesMcp (HTTP → :8120)
+                               │    │    └── extract_vacancies_from_company_site (sitemap + JSON-LD + ATS)
+                               │    ├── JuridischMcp (HTTP → :8122)
+                               │    │    ├── search_court_cases       (Rechtspraak XML)
+                               │    │    ├── search_labor_inspections (NLA — stub)
+                               │    │    └── search_insolvencies      (insolventieregister — stub)
+                               │    ├── NewsMcp (HTTP → :8121)
+                               │    │    └── search_company_news      (Google News RSS)
                                │    └── lib/classification (raw → PAVO-Signaal[] via Claude Haiku)
                                ├── Scoring engine (cluster-rules + combinatie-bonussen + diensten-matrix)
                                └── Persist scored_leads + search_queries afronden

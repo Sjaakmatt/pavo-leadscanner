@@ -1,11 +1,16 @@
-// MCP-based ProductionLeadSource. Praat uitsluitend met de twee externe
-// FactumAI MCPs — geen in-process scrapers, geen directe KvK-client.
+// MCP-based ProductionLeadSource. Praat uitsluitend met de vier externe
+// FactumAI domein-MCPs — geen in-process scrapers, geen directe KvK-client.
 //
-//   1. mcp-bedrijven.kvk_zoeken         (SBI + provincies)
-//   2. mcp-bedrijven.kvk_basisprofiel   (parallel per kandidaat)
-//   3. mcp-bedrijven.pdok_geocode       (per unieke plaats voor geo-filter)
-//   4. Upsert companies-row             (Supabase)
-//   5. mcp-webscraper * 6 + classificatie  (orchestrator)
+//   1. mcp-bedrijven.kvk_zoeken                    (SBI + provincies)
+//   2. mcp-bedrijven.kvk_basisprofiel              (parallel per kandidaat)
+//   3. mcp-bedrijven.pdok_geocode                  (per unieke plaats voor geo-filter)
+//   4. Upsert companies-row                        (Supabase)
+//   5. Per bedrijf parallel via orchestrator:
+//        mcp-bedrijven.get_company_website_content
+//        mcp-vacatures.extract_vacancies_from_company_site
+//        mcp-juridisch.search_court_cases / search_labor_inspections / search_insolvencies
+//        mcp-news.search_company_news
+//      → classificatie naar PAVO-Signaal[]
 //   6. scoring engine → LeadScore
 //   7. scored_leads + search_queries afronden
 //
@@ -29,7 +34,9 @@ import type {
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { McpHttpClient, type TenantContext } from "@/lib/mcp/client";
 import { BedrijvenMcp, requireBedrijvenUrl } from "@/lib/mcp/bedrijven";
-import { WebscraperMcp, requireWebscraperUrl } from "@/lib/mcp/webscraper";
+import { VacaturesMcp, requireVacaturesUrl } from "@/lib/mcp/vacatures";
+import { JuridischMcp, requireJuridischUrl } from "@/lib/mcp/juridisch";
+import { NewsMcp, requireNewsUrl } from "@/lib/mcp/news";
 import { buildTenantContext } from "@/lib/mcp/tenant";
 import type { KvkZoekHit, KvkBasisprofiel as McpKvkBasisprofiel } from "@/lib/mcp/schemas";
 import type { KvkBasisprofiel as LocalKvkBasisprofiel } from "@/lib/kvk/types";
@@ -40,7 +47,7 @@ import {
   type LatLng,
 } from "@/lib/geo/pdok";
 import { supabaseServer } from "@/lib/supabase/client";
-import { runScrapeBatch } from "@/lib/orchestrator";
+import { runScrapeBatch, type ScrapeMcps } from "@/lib/orchestrator";
 import { scoreCompany, type StoredSignal } from "@/lib/scoring";
 
 const CACHE_TTL_DAYS = 30;
@@ -52,11 +59,16 @@ function noopEmit(_event: SearchProgressEvent): void {}
 
 export class ProductionLeadSource implements LeadSource {
   private readonly bedrijven: BedrijvenMcp;
-  private readonly webscraper: WebscraperMcp;
+  private readonly mcps: ScrapeMcps;
 
   constructor() {
     this.bedrijven = new BedrijvenMcp(new McpHttpClient(requireBedrijvenUrl()));
-    this.webscraper = new WebscraperMcp(new McpHttpClient(requireWebscraperUrl()));
+    this.mcps = {
+      bedrijven: this.bedrijven,
+      vacatures: new VacaturesMcp(new McpHttpClient(requireVacaturesUrl())),
+      juridisch: new JuridischMcp(new McpHttpClient(requireJuridischUrl())),
+      news: new NewsMcp(new McpHttpClient(requireNewsUrl())),
+    };
   }
 
   async runSearch(
@@ -160,7 +172,7 @@ export class ProductionLeadSource implements LeadSource {
         }));
 
       let scraped = 0;
-      await runScrapeBatch(handles, searchCtx, this.webscraper, supabase, {
+      await runScrapeBatch(handles, searchCtx, this.mcps, supabase, {
         concurrency: MAX_PARALLEL_SCRAPES,
         onProgress: (e) => {
           scraped = e.done;
@@ -241,7 +253,7 @@ export class ProductionLeadSource implements LeadSource {
           (s): s is string => !!s,
         ),
       };
-      await runScrapeBatch([handle], ctx, this.webscraper, supabase, {
+      await runScrapeBatch([handle], ctx, this.mcps, supabase, {
         concurrency: 1,
       });
     }

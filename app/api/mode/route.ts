@@ -8,6 +8,8 @@ export async function GET() {
   const mode = currentMode();
   const mcpConfigured =
     !!process.env.FACTUMAI_MCP_BEDRIJVEN_URL &&
-    !!process.env.FACTUMAI_MCP_WEBSCRAPER_URL;
+    !!process.env.FACTUMAI_MCP_VACATURES_URL &&
+    !!process.env.FACTUMAI_MCP_JURIDISCH_URL &&
+    !!process.env.FACTUMAI_MCP_NEWS_URL;
   return NextResponse.json({ mode, mcpConfigured });
 }

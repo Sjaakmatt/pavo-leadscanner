@@ -1,5 +1,12 @@
-// Per bedrijf: 6 mcp-webscraper tools parallel → classificatie per bron →
+// Per bedrijf: domein-MCP-tools parallel → classificatie per bron →
 // persist naar Supabase signals-tabel.
+//
+// Sinds de mcp-webscraper-split (apr 2026) draaien de scrapers verspreid
+// over vier domein-MCPs:
+//   - mcp-bedrijven  → get_company_website_content
+//   - mcp-vacatures  → extract_vacancies_from_company_site
+//   - mcp-juridisch  → search_court_cases | search_labor_inspections | search_insolvencies
+//   - mcp-news       → search_company_news
 //
 // Iedere scrape krijgt zijn eigen toolCallId; parentCallId blijft
 // constant binnen één searchQueryId zodat het FactumAI-dashboard de
@@ -7,7 +14,10 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TenantContext } from "@/lib/mcp/client";
-import { WebscraperMcp } from "@/lib/mcp/webscraper";
+import { BedrijvenMcp } from "@/lib/mcp/bedrijven";
+import { VacaturesMcp } from "@/lib/mcp/vacatures";
+import { JuridischMcp } from "@/lib/mcp/juridisch";
+import { NewsMcp } from "@/lib/mcp/news";
 import {
   classifyWebsite,
   classifyRechtspraak,
@@ -17,6 +27,13 @@ import {
   classifyNews,
 } from "@/lib/classification";
 import type { Signaal } from "@/lib/scoring/types";
+
+export type ScrapeMcps = {
+  bedrijven: BedrijvenMcp;
+  vacatures: VacaturesMcp;
+  juridisch: JuridischMcp;
+  news: NewsMcp;
+};
 
 export type CompanyHandle = {
   kvk: string;
@@ -33,19 +50,18 @@ export type OrchestrationResult = {
 };
 
 const TOOL_TIMEOUT_MS = 60_000;
-const CLASSIFICATION_TIMEOUT_MS = 30_000;
 
 export async function scrapeAndClassifyCompany(
   company: CompanyHandle,
   parentCtx: TenantContext,
-  webscraper: WebscraperMcp,
+  mcps: ScrapeMcps,
   supabase: SupabaseClient,
 ): Promise<OrchestrationResult> {
   const start = Date.now();
   const failures: string[] = [];
 
   // Per call een eigen toolCallId; parentCallId is de search-run.
-  const ctxFor = (toolName: string): TenantContext => ({
+  const ctxFor = (_toolName: string): TenantContext => ({
     organizationId: parentCtx.organizationId,
     agentId: parentCtx.agentId,
     toolCallId: randomId(),
@@ -57,70 +73,78 @@ export async function scrapeAndClassifyCompany(
 
   if (company.websiteUrl) {
     tasks.push(
-      run("scrape_website", () =>
-        webscraper.scrapeWebsite(ctxFor("scrape_website"), {
-          url: company.websiteUrl!,
-          maxPages: 5,
-        }),
+      run("get_company_website_content", () =>
+        mcps.bedrijven.getCompanyWebsiteContent(
+          ctxFor("get_company_website_content"),
+          { url: company.websiteUrl!, maxPages: 5 },
+        ),
       ).then(async (r) =>
-        r ? { tool: "website", signals: await classifyWebsite(company, r) } : null,
-      ).then((x) => x ?? mark("scrape_website")),
+        r
+          ? { tool: "website", signals: await classifyWebsite(company, r) }
+          : mark("get_company_website_content"),
+      ),
     );
     tasks.push(
-      run("scrape_vacatures", () =>
-        webscraper.scrapeVacatures(ctxFor("scrape_vacatures"), {
-          url: company.websiteUrl!,
-        }),
+      run("extract_vacancies_from_company_site", () =>
+        mcps.vacatures.extractVacanciesFromCompanySite(
+          ctxFor("extract_vacancies_from_company_site"),
+          { url: company.websiteUrl! },
+        ),
       ).then((r) =>
         r
           ? { tool: "vacatures", signals: classifyVacatures(company, r) }
-          : mark("scrape_vacatures"),
+          : mark("extract_vacancies_from_company_site"),
       ),
     );
   }
 
   tasks.push(
-    run("scrape_rechtspraak", () =>
-      webscraper.scrapeRechtspraak(ctxFor("scrape_rechtspraak"), {
-        zoeknamen: company.zoeknamen,
+    run("search_court_cases", () =>
+      mcps.juridisch.searchCourtCases(ctxFor("search_court_cases"), {
+        company_names: company.zoeknamen,
       }),
     ).then(async (r) =>
       r
         ? { tool: "rechtspraak", signals: await classifyRechtspraak(company, r) }
-        : mark("scrape_rechtspraak"),
+        : mark("search_court_cases"),
     ),
   );
 
   tasks.push(
-    run("scrape_nla", () =>
-      webscraper.scrapeNla(ctxFor("scrape_nla"), { zoekterm: company.naam }),
+    run("search_labor_inspections", () =>
+      mcps.juridisch.searchLaborInspections(
+        ctxFor("search_labor_inspections"),
+        { search_term: company.naam },
+      ),
     ).then(async (r) =>
-      r ? { tool: "nla", signals: await classifyNla(company, r) } : mark("scrape_nla"),
+      r
+        ? { tool: "nla", signals: await classifyNla(company, r) }
+        : mark("search_labor_inspections"),
     ),
   );
 
   tasks.push(
-    run("scrape_insolventie", () =>
-      webscraper.scrapeInsolventie(ctxFor("scrape_insolventie"), {
-        zoeknamen: company.zoeknamen,
+    run("search_insolvencies", () =>
+      mcps.juridisch.searchInsolvencies(ctxFor("search_insolvencies"), {
+        company_names: company.zoeknamen,
       }),
     ).then((r) =>
       r
         ? { tool: "insolventie", signals: classifyInsolventie(company, r) }
-        : mark("scrape_insolventie"),
+        : mark("search_insolvencies"),
     ),
   );
 
   tasks.push(
-    run("scrape_news", () =>
-      webscraper.scrapeNews(ctxFor("scrape_news"), {
-        zoekterm: company.naam,
-        maxResults: 20,
+    run("search_company_news", () =>
+      mcps.news.searchCompanyNews(ctxFor("search_company_news"), {
+        company_name: company.naam,
+        max_results: 20,
       }),
     ).then(async (r) =>
       r
         ? { tool: "news", signals: await classifyNews(company, r) }
-        : mark("scrape_news"),
+        : mark("search_company_news"),
     ),
   );
 

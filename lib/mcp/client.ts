@@ -1,8 +1,9 @@
 // MCP Streamable HTTP client. Houdt session-id state per instance,
 // JSON-RPC POST + accept: application/json, text/event-stream.
 //
-// Eén instance per MCP-server. ProductionLeadSource heeft er twee:
-// bedrijvenClient (8110) en webscraperClient (8111).
+// Eén instance per MCP-server. ProductionLeadSource heeft er vier:
+// mcp-bedrijven (8110), mcp-vacatures (8120), mcp-news (8121),
+// mcp-juridisch (8122).
 //
 // Stateless servers: de MCP Streamable HTTP-spec staat servers toe om
 // GEEN Mcp-Session-Id terug te geven op initialize. Dan draaien we
