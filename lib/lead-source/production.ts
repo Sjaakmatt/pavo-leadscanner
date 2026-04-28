@@ -53,6 +53,7 @@ import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "@/lib/factum/roi";
 import { SCORING_VERSION } from "@/lib/scoring/version";
 import { CostTracker, withSearchScope } from "@/lib/classification/cost";
 import { upsertKvkBestuurders } from "@/lib/lead-source/contacts";
+import { getCurrentUser, authConfigured } from "@/lib/auth/server";
 
 const CACHE_TTL_DAYS = 30;
 const LEAD_DETAIL_TTL_DAYS = 7;
@@ -83,7 +84,17 @@ export class ProductionLeadSource implements LeadSource {
     const startedAt = Date.now();
     const supabase = supabaseServer();
     const searchCtx = buildTenantContext();
-    const searchQueryId = await logSearchStart(supabase, filters);
+
+    // Resolve org-scope: bij prod-mode trekken we 'm uit de session;
+    // bij cron/jobs zonder request-context kunnen opts.orgId / opts.ownerId
+    // overrules. Demo zonder auth → null (geen scoping).
+    const orgId = opts.orgId ?? (await tryGetOrgId());
+    const ownerId = opts.ownerId ?? null;
+
+    const searchQueryId = await logSearchStart(supabase, filters, {
+      orgId,
+      ownerId,
+    });
 
     const tracker = new CostTracker();
     return withSearchScope(
@@ -97,6 +108,7 @@ export class ProductionLeadSource implements LeadSource {
         searchCtx,
         searchQueryId,
         tracker,
+        orgId,
       ),
     );
   }
@@ -110,6 +122,7 @@ export class ProductionLeadSource implements LeadSource {
     searchCtx: TenantContext,
     searchQueryId: string,
     tracker: CostTracker,
+    orgId: string | null,
   ): Promise<SearchResult> {
     // Per-stage timings — geschreven naar search_queries aan het eind.
     const timing = {
@@ -260,7 +273,7 @@ export class ProductionLeadSource implements LeadSource {
 
       // 8) Persist scored_leads (alle gescoorde leads — query-filter
       //    is een UI-presentation-laag, niet een data-uitsluiting).
-      await persistScoredLeads(supabase, searchQueryId, leads);
+      await persistScoredLeads(supabase, searchQueryId, leads, orgId);
 
       // 9) Free-text post-filter (signaal_query) — slaat op archetype-,
       //    signaal- en dienst-tekst. Lege query → no-op.
@@ -603,12 +616,18 @@ function parseClusterColumn(
 async function logSearchStart(
   supabase: SupabaseClient,
   filters: SearchFilters,
+  scope: { orgId: string | null; ownerId: string | null } = {
+    orgId: null,
+    ownerId: null,
+  },
 ): Promise<string> {
   const { data, error } = await supabase
     .from("search_queries")
     .insert({
       filters: filters as unknown as object,
       status: "running",
+      org_id: scope.orgId,
+      created_by: scope.ownerId,
     })
     .select("id")
     .single();
@@ -618,6 +637,16 @@ async function logSearchStart(
     return `local-${Date.now()}`;
   }
   return data.id as string;
+}
+
+async function tryGetOrgId(): Promise<string | null> {
+  if (!authConfigured()) return null;
+  try {
+    const me = await getCurrentUser();
+    return me?.orgId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function updateStep(
@@ -700,10 +729,12 @@ async function persistScoredLeads(
   supabase: SupabaseClient,
   searchQueryId: string,
   leads: Lead[],
+  orgId: string | null,
 ): Promise<void> {
   if (searchQueryId.startsWith("local-") || leads.length === 0) return;
   const rows = leads.map((l) => ({
     search_query_id: searchQueryId,
+    org_id: orgId,
     kvk: l.kvk,
     warmte: l.warmte,
     totale_score: scoreFromObservatie(l) ?? 0,

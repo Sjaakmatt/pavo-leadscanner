@@ -29,6 +29,7 @@ export async function GET() {
     const { data, error } = await admin
       .from("profiles")
       .select("id, email, full_name, role, invited_by, created_at, updated_at")
+      .eq("org_id", user.orgId)
       .order("created_at", { ascending: true });
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -36,6 +37,7 @@ export async function GET() {
     return NextResponse.json({
       users: data ?? [],
       currentUser: user,
+      organization: { id: user.orgId, naam: user.orgNaam },
     });
   } catch (err) {
     if (err instanceof AuthError) {
@@ -72,6 +74,10 @@ export async function POST(req: Request) {
       data: {
         full_name: body.full_name?.trim() || email,
         invited_by: me.id,
+        // Cruciaal voor multi-tenant: nieuwe user erft de org van
+        // de inviter. handle_new_user trigger leest deze key uit
+        // raw_user_meta_data om de juiste org te koppelen.
+        invited_org_id: me.orgId,
       },
     });
     if (error || !data.user) {
@@ -87,6 +93,7 @@ export async function POST(req: Request) {
       email,
       full_name: body.full_name?.trim() || email,
       invited_by: me.id,
+      org_id: me.orgId,
       updated_at: new Date().toISOString(),
     };
     if (role === "admin") updates.role = "admin";

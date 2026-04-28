@@ -129,6 +129,11 @@ export type RunSearchOptions = {
   onEvent?: (event: SearchProgressEvent) => void;
   // Negeert de 30-dagen cache en forceert herscrapen van alle kandidaten.
   refresh?: boolean;
+  // Org/owner-scope-overrides voor cron + background jobs zonder
+  // request-context. Bij user-driven searches blijven deze leeg en
+  // pakt de pipeline 'm uit de session.
+  orgId?: string | null;
+  ownerId?: string | null;
 };
 
 export type GetLeadOptions = {

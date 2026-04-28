@@ -26,6 +26,7 @@ export async function GET(req: Request) {
     .from("notifications")
     .select("*")
     .eq("user_id", me.id)
+    .eq("org_id", me.orgId)
     .order("created_at", { ascending: false })
     .limit(50);
   if (!all) query = query.is("read_at", null);
@@ -40,6 +41,7 @@ export async function GET(req: Request) {
     .from("notifications")
     .select("id", { count: "exact", head: true })
     .eq("user_id", me.id)
+    .eq("org_id", me.orgId)
     .is("read_at", null);
 
   return NextResponse.json({ notifications: data ?? [], unread: count ?? 0 });
@@ -59,6 +61,7 @@ export async function POST() {
     .from("notifications")
     .update({ read_at: new Date().toISOString() })
     .eq("user_id", me.id)
+    .eq("org_id", me.orgId)
     .is("read_at", null);
 
   return NextResponse.json({ ok: true });

@@ -25,12 +25,22 @@ type CurrentUser = {
   email: string;
   fullName: string | null;
   role: "admin" | "member";
+  orgId: string;
+  orgNaam: string | null;
+};
+
+type Organization = {
+  id: string;
+  naam: string;
 };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [me, setMe] = useState<CurrentUser | null>(null);
   const [myProfile, setMyProfile] = useState<MyProfile | null>(null);
+  const [organization, setOrganization] = useState<Organization | null>(null);
+  const [orgEditOpen, setOrgEditOpen] = useState(false);
+  const [orgNameDraft, setOrgNameDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -57,9 +67,14 @@ export default function UsersPage() {
       const body = (await res.json()) as {
         users: Profile[];
         currentUser: CurrentUser;
+        organization?: Organization;
       };
       setUsers(body.users);
       setMe(body.currentUser);
+      if (body.organization) {
+        setOrganization(body.organization);
+        setOrgNameDraft(body.organization.naam ?? "");
+      }
 
       // Mijn voorkeuren los — andere shape met notif-vlaggen.
       try {
@@ -170,16 +185,75 @@ export default function UsersPage() {
 
   const isAdmin = me?.role === "admin";
 
+  async function saveOrgName() {
+    const naam = orgNameDraft.trim();
+    if (!naam || !organization || naam === organization.naam) {
+      setOrgEditOpen(false);
+      return;
+    }
+    const res = await fetch("/api/organization", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ naam }),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { organization: Organization };
+      setOrganization(body.organization);
+      setOrgEditOpen(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 md:px-6 md:py-10">
-      <h1 className="text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
-        Gebruikers
-      </h1>
-      <p className="mt-2 text-sm text-pavo-gray-600">
-        {isAdmin
-          ? "Nodig collega's uit en beheer rollen. Magic-link login werkt direct na invite."
-          : "Lijst van gebruikers in deze workspace. Vraag een admin om iemand uit te nodigen."}
-      </p>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
+            Gebruikers
+          </h1>
+          <p className="mt-2 text-sm text-pavo-gray-600">
+            {isAdmin
+              ? "Nodig collega's uit en beheer rollen. Magic-link login werkt direct na invite."
+              : "Lijst van gebruikers in deze workspace. Vraag een admin om iemand uit te nodigen."}
+          </p>
+        </div>
+        {organization && (
+          <div className="text-right">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-pavo-gray-600">
+              Organisatie
+            </p>
+            {orgEditOpen && isAdmin ? (
+              <div className="mt-1 flex items-center gap-1">
+                <input
+                  type="text"
+                  value={orgNameDraft}
+                  onChange={(e) => setOrgNameDraft(e.target.value)}
+                  className="w-44 rounded-md border border-pavo-gray-100 bg-white px-2 py-1 text-sm focus:border-pavo-teal focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={saveOrgName}
+                  className="rounded-md bg-pavo-teal px-2 py-1 text-xs font-semibold text-white"
+                >
+                  Opslaan
+                </button>
+              </div>
+            ) : (
+              <p className="mt-0.5 flex items-center justify-end gap-2 text-sm font-medium text-pavo-navy">
+                {organization.naam}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => setOrgEditOpen(true)}
+                    className="text-[11px] text-pavo-teal hover:underline"
+                  >
+                    hernoem
+                  </button>
+                )}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
 
       {myProfile && (
         <section className="mt-6 rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">

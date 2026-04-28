@@ -17,6 +17,8 @@ export type AppUser = {
   email: string;
   fullName: string | null;
   role: AppRole;
+  orgId: string;
+  orgNaam: string | null;
 };
 
 function readEnv(): { url: string; anonKey: string } | null {
@@ -68,15 +70,29 @@ export async function getCurrentUser(): Promise<AppUser | null> {
 
   const { data: profile } = await sb
     .from("profiles")
-    .select("id, email, full_name, role")
+    .select(
+      "id, email, full_name, role, org_id, organizations:org_id(naam)",
+    )
     .eq("id", user.id)
     .maybeSingle();
 
+  // Profile kan nog niet bestaan in een race-condition tussen
+  // sign-up en handle_new_user-trigger. Als 'profile' null is, geven
+  // we een minimale AppUser terug zonder org — caller mag besluiten
+  // 'm te 401-en.
+  if (!profile) {
+    return null;
+  }
+
+  const org = (profile as { organizations?: { naam?: string } | null })
+    .organizations;
   return {
     id: user.id,
-    email: profile?.email ?? user.email,
-    fullName: profile?.full_name ?? null,
-    role: (profile?.role as AppRole) ?? "member",
+    email: profile.email ?? user.email,
+    fullName: profile.full_name ?? null,
+    role: (profile.role as AppRole) ?? "member",
+    orgId: profile.org_id as string,
+    orgNaam: org?.naam ?? null,
   };
 }
 
@@ -94,6 +110,38 @@ export async function requireAdmin(): Promise<AppUser> {
     throw new AuthError("Alleen admins mogen dit", 403);
   }
   return user;
+}
+
+// Helper voor service-role routes: lever owner-scope (user.id) +
+// org-scope (org.id) terug, valt elegant terug op een
+// "default"-string bij demo-mode (geen auth) zodat bestaande endpoints
+// blijven werken.
+export type OwnerScope = {
+  ownerLabel: string;
+  ownerId: string | null;
+  orgId: string | null;
+  email: string;
+};
+
+export async function resolveOwnerScope(req: Request): Promise<OwnerScope> {
+  if (authConfigured()) {
+    const me = await getCurrentUser();
+    if (me) {
+      return {
+        ownerLabel: me.email,
+        ownerId: me.id,
+        orgId: me.orgId,
+        email: me.email,
+      };
+    }
+  }
+  const fallback = req.headers.get("x-pavo-owner")?.trim() || "default";
+  return {
+    ownerLabel: fallback,
+    ownerId: null,
+    orgId: null,
+    email: fallback,
+  };
 }
 
 export class AuthError extends Error {
