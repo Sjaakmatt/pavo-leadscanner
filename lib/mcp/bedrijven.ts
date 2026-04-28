@@ -9,10 +9,12 @@ import {
   KvkBasisprofiel,
   Geocode,
   KvkSnapshot,
+  WebsiteScrapeResult,
   type KvkZoekHit as KvkZoekHitT,
   type KvkBasisprofiel as KvkBasisprofielT,
   type Geocode as GeocodeT,
   type KvkSnapshot as KvkSnapshotT,
+  type WebsiteScrapeResult as WebsiteScrapeResultT,
 } from "./schemas";
 
 export class BedrijvenMcp {
@@ -54,6 +56,18 @@ export class BedrijvenMcp {
     kvk: string,
   ): Promise<KvkSnapshotT> {
     return this.client.callTool("kvk_historie_snapshot", ctx, { kvk }, KvkSnapshot);
+  }
+
+  async getCompanyWebsiteContent(
+    ctx: TenantContext,
+    args: { url: string; maxPages?: number },
+  ): Promise<WebsiteScrapeResultT> {
+    return this.client.callTool(
+      "get_company_website_content",
+      ctx,
+      args,
+      WebsiteScrapeResult,
+    );
   }
 }
 
