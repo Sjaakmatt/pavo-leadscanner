@@ -52,6 +52,7 @@ import { matchesSignaalQuery } from "@/lib/adapters/mock";
 import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "@/lib/factum/roi";
 import { SCORING_VERSION } from "@/lib/scoring/version";
 import { CostTracker, withSearchScope } from "@/lib/classification/cost";
+import { upsertKvkBestuurders } from "@/lib/lead-source/contacts";
 
 const CACHE_TTL_DAYS = 30;
 const LEAD_DETAIL_TTL_DAYS = 7;
@@ -491,6 +492,18 @@ async function upsertCompanies<T extends { profile: LocalKvkBasisprofiel }>(
     .from("companies")
     .upsert(rows, { onConflict: "kvk" });
   if (error) console.warn(`companies upsert: ${error.message}`);
+
+  // KvK-bestuurders → lead_contacts. Deze data zit al in het basisprofiel,
+  // we surface 'em zodat sales direct namen + functies ziet.
+  await Promise.all(
+    enriched.map(({ profile }) =>
+      upsertKvkBestuurders(
+        supabase,
+        profile.kvkNummer,
+        profile.bestuurders ?? [],
+      ),
+    ),
+  );
 
   // Append KvK-snapshot — lichtgewicht historie zodat we later
   // FTE-mutaties of bestuurders-veranderingen kunnen detecteren.

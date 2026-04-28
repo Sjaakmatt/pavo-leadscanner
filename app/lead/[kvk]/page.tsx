@@ -5,9 +5,12 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import ArchetypeCard from "@/components/ArchetypeCard";
 import ColdContext from "@/components/ColdContext";
+import ContactsCard from "@/components/ContactsCard";
 import LeadBriefing from "@/components/LeadBriefing";
 import LeadChat from "@/components/LeadChat";
 import LeadStatusBar from "@/components/LeadStatusBar";
+import LeadTrend from "@/components/LeadTrend";
+import OnboardingAgent from "@/components/OnboardingAgent";
 import ServiceMatchBar from "@/components/ServiceMatchBar";
 import SignalList from "@/components/SignalList";
 import WarmteBadge from "@/components/WarmteBadge";
@@ -112,6 +115,10 @@ export default function LeadDetailPage({ params }: Props) {
           <LeadStatusBar kvk={lead.kvk} />
         </SectionFade>
 
+        <SectionFade>
+          <OnboardingAgent kvk={lead.kvk} leadNaam={lead.naam} />
+        </SectionFade>
+
         {lead.warmte === "COLD" && (
           <SectionFade>
             <ColdContext lead={lead} />
@@ -130,7 +137,15 @@ export default function LeadDetailPage({ params }: Props) {
         </SectionFade>
 
         <SectionFade>
+          <ContactsCard kvk={lead.kvk} />
+        </SectionFade>
+
+        <SectionFade>
           <ServiceMatchBar diensten={lead.diensten} />
+        </SectionFade>
+
+        <SectionFade>
+          <LeadTrend kvk={lead.kvk} />
         </SectionFade>
 
         <SectionFade>

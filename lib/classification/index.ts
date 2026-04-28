@@ -26,19 +26,53 @@ import type {
 type CompanyHandle = { kvk: string; naam: string };
 
 // ---------- website -------------------------------------------------------
+//
+// Website-scrape levert content uit "Over ons" / "Team" / "Contact" pagina's.
+// We extracten zowel HR-signalen (cluster 1-3) ALS decision-makers
+// (naam + functie + optioneel email/tel) in één LLM-call. De extractor
+// returnt een uitgebreide JSON; classifyWebsite filtert eruit wat de
+// scoring engine wil; de orchestrator persist contacten apart.
+
+export type WebsiteContact = {
+  naam: string;
+  functie?: string;
+  email?: string;
+  telefoon?: string;
+  bronUrl?: string;
+  bewijs?: string;
+};
+
+export type WebsiteClassificationResult = {
+  signalen: Signaal[];
+  contacten: WebsiteContact[];
+};
 
 export async function classifyWebsite(
   company: CompanyHandle,
   result: WebsiteScrapeResult,
 ): Promise<Signaal[]> {
-  if (result.pages.length === 0) return [];
+  const r = await classifyWebsiteFull(company, result);
+  return r.signalen;
+}
+
+export async function classifyWebsiteFull(
+  company: CompanyHandle,
+  result: WebsiteScrapeResult,
+): Promise<WebsiteClassificationResult> {
+  if (result.pages.length === 0) {
+    return { signalen: [], contacten: [] };
+  }
   const context = result.pages
     .map((p) => `### ${p.url}\n${p.text.slice(0, 4000)}`)
     .join("\n\n---\n\n");
   const sitemapInfo = result.sitemap
     ? `\n\nSitemap: ${result.sitemap.vacancyUrls.length} vacancy-URLs / ${result.sitemap.totalUrls} totaal`
     : "";
-  return classify(company, "website", `${context}${sitemapInfo}`);
+  return classifyWithContacts(
+    company,
+    "website",
+    `${context}${sitemapInfo}`,
+  );
 }
 
 // ---------- rechtspraak ---------------------------------------------------
@@ -237,6 +271,111 @@ async function classify(
       bronUrl: s.bronUrl,
       bronType,
     }));
+}
+
+// Variant van classify() die naast signalen óók contacten extraheert.
+// Gebruikt door classifyWebsiteFull — alleen voor bron 'website' want
+// rechtspraak/news/etc. bevatten geen DMU-info.
+async function classifyWithContacts(
+  company: CompanyHandle,
+  bronType: SignaalBronType,
+  context: string,
+): Promise<WebsiteClassificationResult> {
+  const scope = currentScope();
+  if (scope?.tracker.shouldHalt()) {
+    return { signalen: [], contacten: [] };
+  }
+
+  const client = getAnthropicClient();
+  const model = classificationModel();
+  const startedAt = Date.now();
+
+  const extendedSystem = `${PAVO_CLASSIFICATION_PROMPT}
+
+## Aanvullende output: contacten
+
+Naast \`signalen\` retourneer je ook een veld \`contacten\` (array, mag leeg zijn) met decision-makers gevonden op de website. Velden per contact:
+- naam (verplicht, full name)
+- functie (CEO, HR-manager, COO, etc. — optioneel als niet expliciet vermeld)
+- email (alleen als letterlijk op de pagina)
+- telefoon (alleen als letterlijk op de pagina, in NL-formaat)
+- bronUrl (URL van de pagina waar je 'm vond)
+- bewijs (één korte quote uit de pagina, max 120 chars)
+
+Regels:
+- Alleen mensen die expliciet als persoon op de site staan (niet "Team" of "info@..."-mailboxen)
+- Functie blijft leeg als alleen een naam staat
+- Score van het signaal-veld blijft over signalen gaan, NIET over contacten
+- Maximaal 8 contacten per response`;
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 3000,
+    system: [
+      {
+        type: "text",
+        text: extendedSystem,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [
+      {
+        role: "user",
+        content: buildClassifierUserPrompt(company, bronType, context),
+      },
+    ],
+  });
+
+  if (scope) {
+    const usage = (response.usage ?? {}) as AnthropicUsage;
+    const run = {
+      searchQueryId: scope.searchQueryId,
+      kvk: company.kvk,
+      bronType,
+      model,
+      durationMs: Date.now() - startedAt,
+      usage,
+    };
+    const cost = scope.tracker.record(run);
+    void persistRun(run, cost);
+  }
+
+  const text = response.content
+    .flatMap((b) => (b.type === "text" ? [b.text] : []))
+    .join("\n");
+  const json = extractJson(text);
+  if (!json) return { signalen: [], contacten: [] };
+
+  const rawSignalen = (json.signalen ?? []) as Array<Partial<Signaal>>;
+  const signalen = rawSignalen
+    .filter((s) => s && typeof s.categorie === "string")
+    .map((s) => ({
+      categorie: s.categorie as Signaal["categorie"],
+      cluster: (s.cluster ?? "context") as Signaal["cluster"],
+      sterkte: clamp(s.sterkte ?? 0, 0, 100),
+      confidence: clamp(s.confidence ?? 0, 0, 100),
+      observatie: s.observatie ?? "",
+      bewijs: s.bewijs,
+      bronUrl: s.bronUrl,
+      bronType,
+    }));
+
+  const rawContacten = ((json as { contacten?: unknown[] }).contacten ??
+    []) as Array<Partial<WebsiteContact>>;
+  const contacten = rawContacten
+    .filter((c) => c && typeof c.naam === "string" && c.naam.trim())
+    .slice(0, 8)
+    .map((c) => ({
+      naam: (c.naam as string).trim(),
+      functie: typeof c.functie === "string" ? c.functie.trim() : undefined,
+      email: typeof c.email === "string" ? c.email.trim() : undefined,
+      telefoon:
+        typeof c.telefoon === "string" ? c.telefoon.trim() : undefined,
+      bronUrl: typeof c.bronUrl === "string" ? c.bronUrl : undefined,
+      bewijs: typeof c.bewijs === "string" ? c.bewijs : undefined,
+    }));
+
+  return { signalen, contacten };
 }
 
 // Bouwt de user-message voor de classifier. We fencen de ruwe bron-data

@@ -12,6 +12,7 @@ import ResultsToolbar, {
   type ResultFilters,
   type SortKey,
 } from "@/components/ResultsToolbar";
+import CompareBar from "@/components/CompareBar";
 import type { FteKlasse, Lead, SearchFilters } from "@/lib/adapters/types";
 import { DEFAULT_FILTERS } from "@/lib/filter";
 
@@ -58,6 +59,17 @@ export default function DashboardPage() {
     archetype: null,
     dienst: null,
   });
+  const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
+
+  function toggleCompareSelection(kvk: string) {
+    setSelectedForCompare((curr) =>
+      curr.includes(kvk)
+        ? curr.filter((k) => k !== kvk)
+        : curr.length >= 5
+          ? curr // cap op 5
+          : [...curr, kvk],
+    );
+  }
 
   // We cachen de mode één keer op mount; dit beïnvloedt alleen welk
   // API-pad we kiezen, niet de UI zelf.
@@ -266,6 +278,14 @@ export default function DashboardPage() {
           )}
         </AnimatePresence>
 
+        <CompareBar
+          selected={selectedForCompare}
+          onClear={() => setSelectedForCompare([])}
+          onRemove={(kvk) =>
+            setSelectedForCompare((curr) => curr.filter((k) => k !== kvk))
+          }
+        />
+
         {view.kind === "active" && (
           <>
             {/* key moet stabiel blijven binnen één zoekopdracht (anders
@@ -307,6 +327,8 @@ export default function DashboardPage() {
                     resultsView={resultsView}
                     onResultsView={setResultsView}
                     searchFilters={filters}
+                    selectedForCompare={selectedForCompare}
+                    onToggleCompare={toggleCompareSelection}
                   />
                 </motion.div>
               )}
@@ -340,6 +362,8 @@ function FilteredResults({
   resultsView,
   onResultsView,
   searchFilters,
+  selectedForCompare,
+  onToggleCompare,
 }: {
   leads: Lead[];
   sort: SortKey;
@@ -349,6 +373,8 @@ function FilteredResults({
   resultsView: ResultsView;
   onResultsView: (v: ResultsView) => void;
   searchFilters: SearchFilters;
+  selectedForCompare: string[];
+  onToggleCompare: (kvk: string) => void;
 }) {
   const visible = useMemo(() => {
     const filtered = leads.filter((l) => {
@@ -394,7 +420,11 @@ function FilteredResults({
       </div>
 
       {resultsView === "lijst" ? (
-        <LeadGrid leads={visible} />
+        <LeadGrid
+          leads={visible}
+          selected={selectedForCompare}
+          onToggleSelect={onToggleCompare}
+        />
       ) : (
         <ResultsMap leads={visible} />
       )}

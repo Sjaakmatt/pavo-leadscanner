@@ -8,6 +8,8 @@ import WarmteBadge from "./WarmteBadge";
 type Props = {
   lead: Lead;
   index: number;
+  selected?: boolean;
+  onToggleSelect?: (kvk: string) => void;
 };
 
 // Dispatch per warmte: HOT gets the full rich card, WARM drops the
@@ -15,7 +17,12 @@ type Props = {
 // stating the lead was checked but showed no HR-signals. Three
 // visually distinct states so the grid communicates urgency at a
 // glance instead of showing "precies hetzelfde" in three colors.
-export default function LeadCard({ lead, index }: Props) {
+export default function LeadCard({
+  lead,
+  index,
+  selected,
+  onToggleSelect,
+}: Props) {
   const commonMotion = {
     initial: { opacity: 0, y: 8 },
     animate: { opacity: 1, y: 0 },
@@ -26,26 +33,67 @@ export default function LeadCard({ lead, index }: Props) {
     },
   };
 
+  const compareToggle = onToggleSelect ? (
+    <CompareToggle
+      kvk={lead.kvk}
+      selected={!!selected}
+      onToggle={onToggleSelect}
+    />
+  ) : null;
+
   if (lead.warmte === "COLD") {
     return (
-      <motion.div {...commonMotion} className="h-full">
+      <motion.div {...commonMotion} className="relative h-full">
         <ColdCard lead={lead} />
+        {compareToggle}
       </motion.div>
     );
   }
 
   if (lead.warmte === "WARM") {
     return (
-      <motion.div {...commonMotion} className="h-full">
+      <motion.div {...commonMotion} className="relative h-full">
         <WarmCard lead={lead} />
+        {compareToggle}
       </motion.div>
     );
   }
 
   return (
-    <motion.div {...commonMotion} className="h-full">
+    <motion.div {...commonMotion} className="relative h-full">
       <HotCard lead={lead} />
+      {compareToggle}
     </motion.div>
+  );
+}
+
+function CompareToggle({
+  kvk,
+  selected,
+  onToggle,
+}: {
+  kvk: string;
+  selected: boolean;
+  onToggle: (kvk: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggle(kvk);
+      }}
+      title={selected ? "Verwijder uit vergelijking" : "Voeg toe aan vergelijking"}
+      className={`absolute right-2 top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-full border text-xs transition-colors ${
+        selected
+          ? "border-pavo-teal bg-pavo-teal text-white"
+          : "border-pavo-gray-100 bg-white/90 text-pavo-gray-600 hover:border-pavo-teal hover:text-pavo-teal"
+      }`}
+      aria-pressed={selected}
+    >
+      {selected ? "✓" : "+"}
+    </button>
   );
 }
 

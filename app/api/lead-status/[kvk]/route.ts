@@ -148,5 +148,84 @@ export async function PUT(
     { kvk, owner, from: fromStatus, to: next, reden: body.reden ?? null },
   );
 
+  // Team-notifications voor "interessante" overgangen — niet voor
+  // iedere klik-tussen-twee-statussen, alleen wanneer een lead
+  // converteert of voor een gesprek staat. Dropping naar in-app
+  // notifications-tabel zodat collega's het bij hun bell zien.
+  if (
+    ownerId &&
+    (next === "gesprek" || next === "gewonnen" || next === "verloren")
+  ) {
+    void notifyTeam(supabase, {
+      kvk,
+      ownerId,
+      ownerEmail: email,
+      next,
+      from: fromStatus,
+      reden: body.reden ?? null,
+    });
+  }
+
   return NextResponse.json({ status: row });
+}
+
+async function notifyTeam(
+  supabase: import("@supabase/supabase-js").SupabaseClient,
+  args: {
+    kvk: string;
+    ownerId: string;
+    ownerEmail: string;
+    next: LeadStatus;
+    from: LeadStatus;
+    reden: string | null;
+  },
+): Promise<void> {
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id")
+    .neq("id", args.ownerId);
+  const recipients = (profiles ?? []) as Array<{ id: string }>;
+  if (recipients.length === 0) return;
+
+  const verbs: Record<LeadStatus, string> = {
+    nieuw: "naar nieuw teruggezet",
+    shortlist: "op shortlist gezet",
+    benaderd: "benaderd",
+    gesprek: "naar gesprek gezet",
+    gewonnen: "gewonnen 🎉",
+    verloren: "verloren",
+  };
+
+  // Lead-naam mee in de title — als companies-row bestaat.
+  const { data: company } = await supabase
+    .from("companies")
+    .select("naam")
+    .eq("kvk", args.kvk)
+    .maybeSingle();
+  const naam = company?.naam ?? args.kvk;
+
+  const title = `${args.ownerEmail} heeft ${naam} ${verbs[args.next]}`;
+  const body = args.reden ? `Reden: ${args.reden}` : null;
+
+  // Note: notifications heeft een unique index op
+  // (user_id, kvk, saved_search_id). Voor team-events zetten we
+  // saved_search_id NULL, wat dubbele inserts toelaat — bewust, want
+  // iedere status-wijziging is een nieuw event.
+  const inserts = recipients.map((r) => ({
+    user_id: r.id,
+    saved_search_id: null,
+    kvk: args.kvk,
+    type: "lead_status" as const,
+    title,
+    body,
+    metadata: {
+      from: args.from,
+      to: args.next,
+      by: args.ownerEmail,
+    },
+  }));
+  const { error } = await supabase.from("notifications").insert(inserts);
+  if (error) {
+    console.warn(`[notify-team] insert: ${error.message}`);
+  }
 }
