@@ -1,15 +1,29 @@
 import { NextResponse } from "next/server";
 import { tryGetSupabase } from "@/lib/supabase/client";
 import type { SearchFilters } from "@/lib/adapters/types";
+import { authConfigured, getCurrentUser } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
 
-function resolveOwner(req: Request): string {
-  return req.headers.get("x-pavo-owner")?.trim() || "default";
+async function resolveOwner(
+  req: Request,
+): Promise<{ owner: string; ownerId: string | null } | { error: string; status: number }> {
+  if (authConfigured()) {
+    const me = await getCurrentUser();
+    if (!me) return { error: "Niet ingelogd", status: 401 };
+    return { owner: me.email, ownerId: me.id };
+  }
+  return {
+    owner: req.headers.get("x-pavo-owner")?.trim() || "default",
+    ownerId: null,
+  };
 }
 
 export async function GET(req: Request) {
-  const owner = resolveOwner(req);
+  const ow = await resolveOwner(req);
+  if ("error" in ow) {
+    return NextResponse.json({ error: ow.error }, { status: ow.status });
+  }
   const supabase = tryGetSupabase();
   if (!supabase) {
     return NextResponse.json(
@@ -17,11 +31,13 @@ export async function GET(req: Request) {
       { status: 503 },
     );
   }
-  const { data, error } = await supabase
+  const query = supabase
     .from("saved_searches")
     .select("*")
-    .eq("owner", owner)
     .order("updated_at", { ascending: false });
+  const { data, error } = await (ow.ownerId
+    ? query.eq("owner_id", ow.ownerId)
+    : query.eq("owner", ow.owner));
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -29,7 +45,10 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const owner = resolveOwner(req);
+  const ow = await resolveOwner(req);
+  if ("error" in ow) {
+    return NextResponse.json({ error: ow.error }, { status: ow.status });
+  }
 
   let body: {
     naam?: string;
@@ -61,7 +80,8 @@ export async function POST(req: Request) {
     .from("saved_searches")
     .insert([
       {
-        owner,
+        owner: ow.owner,
+        owner_id: ow.ownerId,
         naam: body.naam,
         filters: body.filters as unknown as object,
         alert_enabled: !!body.alert_enabled,

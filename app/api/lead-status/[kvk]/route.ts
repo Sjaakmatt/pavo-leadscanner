@@ -7,13 +7,26 @@ import {
   type LeadStatusRow,
 } from "@/lib/lead-status/types";
 import { factum } from "@/lib/factum/client";
+import { authConfigured, getCurrentUser } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
 
-// Owner-resolutie. Voorlopig één globale "default" owner — bij intro
-// van auth lezen we 'm uit de session. Header-override is dev-handig.
-function resolveOwner(req: Request): string {
-  return req.headers.get("x-pavo-owner")?.trim() || "default";
+// Owner-resolutie. Met auth aan: gebruik user.id (uuid) + e-mail als
+// owner-text. Demo-mode (geen auth): valt terug op header-override of
+// "default".
+async function resolveOwner(req: Request): Promise<{
+  owner: string;
+  ownerId: string | null;
+  email: string;
+}> {
+  if (authConfigured()) {
+    const me = await getCurrentUser();
+    if (me) {
+      return { owner: me.email, ownerId: me.id, email: me.email };
+    }
+  }
+  const fallback = req.headers.get("x-pavo-owner")?.trim() || "default";
+  return { owner: fallback, ownerId: null, email: fallback };
 }
 
 export async function GET(
@@ -21,7 +34,7 @@ export async function GET(
   { params }: { params: Promise<{ kvk: string }> },
 ) {
   const { kvk } = await params;
-  const owner = resolveOwner(req);
+  const { owner, ownerId } = await resolveOwner(req);
   const supabase = tryGetSupabase();
   if (!supabase) {
     return NextResponse.json(
@@ -29,12 +42,16 @@ export async function GET(
       { status: 503 },
     );
   }
-  const { data } = await supabase
+  // Voorkeur: zoek op owner_id (auth.uid). Fallback naar owner-text
+  // zodat pre-auth rijen blijven werken in dev-omgevingen.
+  const query = supabase
     .from("lead_statuses")
     .select("kvk, owner, status, reden, notitie, updated_at, updated_by")
-    .eq("kvk", kvk)
-    .eq("owner", owner)
-    .maybeSingle();
+    .eq("kvk", kvk);
+  const { data } = await (ownerId
+    ? query.eq("owner_id", ownerId)
+    : query.eq("owner", owner)
+  ).maybeSingle();
   return NextResponse.json({ status: (data ?? null) as LeadStatusRow | null });
 }
 
@@ -43,8 +60,8 @@ export async function PUT(
   { params }: { params: Promise<{ kvk: string }> },
 ) {
   const { kvk } = await params;
-  const owner = resolveOwner(req);
-  const updatedBy = req.headers.get("x-pavo-user") ?? owner;
+  const { owner, ownerId, email } = await resolveOwner(req);
+  const updatedBy = email;
 
   let body: { status?: string; reden?: string; notitie?: string };
   try {
@@ -69,12 +86,14 @@ export async function PUT(
     );
   }
 
-  const { data: existing } = await supabase
+  const existingQuery = supabase
     .from("lead_statuses")
     .select("status")
-    .eq("kvk", kvk)
-    .eq("owner", owner)
-    .maybeSingle();
+    .eq("kvk", kvk);
+  const { data: existing } = await (ownerId
+    ? existingQuery.eq("owner_id", ownerId)
+    : existingQuery.eq("owner", owner)
+  ).maybeSingle();
   const fromStatus: LeadStatus = (existing?.status as LeadStatus) ?? "nieuw";
   if (!canTransition(fromStatus, next)) {
     return NextResponse.json(
@@ -89,6 +108,7 @@ export async function PUT(
   const row = {
     kvk,
     owner,
+    owner_id: ownerId,
     status: next,
     reden: body.reden ?? null,
     notitie: body.notitie ?? null,
@@ -109,6 +129,7 @@ export async function PUT(
     {
       kvk,
       owner,
+      owner_id: ownerId,
       status: next,
       reden: body.reden ?? null,
       notitie: body.notitie ?? null,
