@@ -41,25 +41,40 @@ export const SUMMARY_MAX_TOKENS = 250;
 // (persona + portfolio + lead data) so the briefing and the chat share
 // the same cached prefix. First call: full cost. Every chat question
 // about the same lead after: cache HIT.
-export const BRIEFING_USER_PROMPT = `Schrijf een beknopte toelichting voor de PAVO-consultant die dit dossier opent. Je beantwoordt één vraag: "waarom staat dit bedrijf op mijn lijst en hoe zeker weten we dat het klopt?"
+//
+// Output-vorm is bewust BULLET-gebaseerd zodat de UI compact en
+// scanbaar blijft (zie components/LeadBriefing.tsx::BriefingMarkdown
+// voor de renderer).
+export const BRIEFING_USER_PROMPT = `Schrijf een beknopte, scanbare briefing voor de PAVO-consultant die dit dossier opent. Antwoord op één vraag: "waarom is dit een goede lead en welke data heeft dat opgeleverd?"
 
-Dit is GEEN gespreksvoorbereiding. Geen openingszinnen, geen verkoopaanpak, geen "ik zou zus-of-zo beginnen". Alleen de relevantie-uiteenzetting — waarom deze lead door de agent is geselecteerd en hoe betrouwbaar het signaal is.
+Dit is GEEN gespreksvoorbereiding. Geen lange paragrafen. Geen verkoopaanpak.
 
 ### Citaties zijn VERPLICHT
-Elk signaal in de lead-data heeft een nummer tussen blokhaken (bijv. [1], [2]). Wanneer je een bewering doet die op een signaal is gebaseerd, MOET je het relevante signaal-nummer direct achter die bewering plaatsen, in exact het formaat [N] of [N,M]. Geen "(zie signaal 1)" of "volgens signaal 1", alleen [1]. Combinaties van meerdere signalen citeer je als [1,3]. Beweringen zonder citatie zijn niet toegestaan tenzij ze expliciet over het archetype of de bron-sterkte gaan.
+Elk signaal in de lead-data heeft een nummer tussen blokhaken (bijv. [1], [2]). Wanneer je een bewering doet die op een signaal is gebaseerd, MOET je het relevante signaal-nummer direct achter die bewering plaatsen in exact het formaat [N] of [N,M]. Geen "(zie signaal 1)" of "volgens signaal 1". Beweringen zonder citatie zijn niet toegestaan, tenzij ze expliciet over het archetype, de bron-sterkte of de PAVO-dienstmatch gaan.
 
-### Structuur (exact deze koppen, geen andere markdown)
+### Output-format
+Gebruik EXACT de volgende structuur. Iedere sectie begint met een \`## \` kop en bestaat uit Markdown-bullets met \`- \`. Geen paragrafen, geen genummerde lijsten, geen subkoppen.
 
-## Waarom deze lead
-2-3 zinnen met inline [N]-citaties. Specifiek uitleggen waarom dit bedrijf volgens de agent relevant is — vanuit de gedetecteerde signalen gecombineerd met het archetype. Niet generiek. Citeer kerncijfers ("groei van 12→41 FTE in 20 mnd [3]") waar beschikbaar.
+## Waarom een lead
+- 3 tot 5 bullets, max 18 woorden per bullet.
+- Elke bullet noemt één concrete reden + cite [N]. Geen filler.
+- Combineer signalen waar logisch ("vacatures + geen HR + groei [1,3,5]").
 
-## Wat de agent zag
-2-3 genummerde observaties die verbanden leggen tussen signalen onderling of tussen signalen en het archetype. Ook hier inline [N]-citaties die tonen welke signalen je combineert. Interpretatie, geen herhaling.
+## Wat we zagen
+- 3 tot 5 bullets, gegroepeerd per bron-type.
+- Begin elke bullet met de bron in **vet** ("**Bedrijfswebsite:** …", "**Jobdigger:** …", "**KvK:** …", "**Rechtspraak.nl:** …", "**Nieuws:** …").
+- Citeer concrete getallen of feiten. Citatie [N] aan het eind.
+- Géén bron herhalen — pak per bron de sterkste observatie.
 
-## Betrouwbaarheid
-1-2 zinnen. Noem expliciet welke van de gebruikte signalen Feitelijk zijn (KvK-historie, Jobdigger, Rechtspraak.nl) en welke Interpretatief (bedrijfswebsite, LinkedIn). Eerlijk over beperkingen — als een signaal een aanname bevat of niet gevalideerd is, zeg dat. Benoem ook wat de agent NIET kon verifiëren.
+## Risico's & nuances
+- 1 tot 3 bullets met dingen die NIET kloppen, ontbreken, of voorzichtig moeten worden geïnterpreteerd.
+- Onderscheid Feitelijk (registers) vs Interpretatief (publieke content). Citeer waar van toepassing.
 
-Toon: zakelijk, analytisch, Nederlands. Totaal max 220 woorden.`;
+## Voorgestelde focus
+- 1 tot 2 bullets met de meest passende PAVO-dienst (D-code) op basis van de match-score, met korte motivatie.
+- Geen openingszinnen, alleen WAT er aangepakt moet worden.
+
+Toon: zakelijk, analytisch, Nederlands. Totaal max 250 woorden.`;
 
 export function getClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;

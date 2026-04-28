@@ -12,7 +12,7 @@ type Status = "loading" | "streaming" | "done" | "fallback";
 
 // Bump deze suffix als de briefing-prompt verandert — oude cached
 // briefings missen dan de nieuwste structuur (bijv. [N]-citaties).
-const CACHE_PREFIX = "pavo:brief:v2:";
+const CACHE_PREFIX = "pavo:brief:v3-bullets:";
 
 // Richer synthesis streamed from Claude. We cache per kvk in
 // sessionStorage so flipping between leads feels instant and a demo
@@ -152,11 +152,16 @@ export default function LeadBriefing({ kvk, fallbackObservatie }: Props) {
   );
 }
 
-// Rendert onze minimale markdown-subset: `## kop`, genummerde lijsten
-// (`1. …`) en paragrafen. Inline [N] en [N,M]-patronen worden gerenderd
-// als klikbare citatie-pills die naar #signaal-N scrollen. Geen
-// algemene markdown-parser nodig — Claude krijgt een strakke template
-// dus we weten wat we tegenkomen.
+// Rendert onze minimale markdown-subset:
+//   - `## kop`  → section-header
+//   - `- text`  → bullet
+//   - `1. text` → genummerde lijst (legacy)
+//   - paragraaf (legacy)
+//   - inline `**bold**` → <strong>
+//   - inline [N] / [N,M] → klikbare citatie-pills (scroll naar #signaal-N)
+//
+// Claude krijgt een strakke template dus we weten wat we tegenkomen
+// (zie BRIEFING_USER_PROMPT in lib/claude.ts).
 function BriefingMarkdown({
   text,
   streaming,
@@ -167,7 +172,8 @@ function BriefingMarkdown({
   const nodes: React.ReactNode[] = [];
   const lines = text.split("\n");
   let paragraphBuffer: string[] = [];
-  let listBuffer: string[] = [];
+  let bulletBuffer: string[] = [];
+  let numberedBuffer: string[] = [];
   let key = 0;
 
   const flushParagraph = () => {
@@ -177,32 +183,54 @@ function BriefingMarkdown({
         key={`p-${key++}`}
         className="text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]"
       >
-        {renderInlineWithCitations(paragraphBuffer.join(" "))}
+        {renderInline(paragraphBuffer.join(" "))}
       </p>,
     );
     paragraphBuffer = [];
   };
 
-  const flushList = () => {
-    if (listBuffer.length === 0) return;
+  const flushBullets = () => {
+    if (bulletBuffer.length === 0) return;
+    nodes.push(
+      <ul
+        key={`ul-${key++}`}
+        className="space-y-1.5 text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]"
+      >
+        {bulletBuffer.map((item, i) => (
+          <li key={i} className="flex gap-2">
+            <span
+              aria-hidden
+              className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-pavo-teal"
+            />
+            <span className="min-w-0 flex-1">{renderInline(item)}</span>
+          </li>
+        ))}
+      </ul>,
+    );
+    bulletBuffer = [];
+  };
+
+  const flushNumbered = () => {
+    if (numberedBuffer.length === 0) return;
     nodes.push(
       <ol
         key={`ol-${key++}`}
         className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]"
       >
-        {listBuffer.map((item, i) => (
-          <li key={i}>{renderInlineWithCitations(item)}</li>
+        {numberedBuffer.map((item, i) => (
+          <li key={i}>{renderInline(item)}</li>
         ))}
       </ol>,
     );
-    listBuffer = [];
+    numberedBuffer = [];
   };
 
   for (const raw of lines) {
     const line = raw.trimEnd();
     if (line.startsWith("## ")) {
       flushParagraph();
-      flushList();
+      flushBullets();
+      flushNumbered();
       nodes.push(
         <h3
           key={`h-${key++}`}
@@ -213,22 +241,33 @@ function BriefingMarkdown({
       );
       continue;
     }
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    if (bullet) {
+      flushParagraph();
+      flushNumbered();
+      bulletBuffer.push(bullet[1]);
+      continue;
+    }
     const numbered = line.match(/^\s*(\d+)\.\s+(.*)$/);
     if (numbered) {
       flushParagraph();
-      listBuffer.push(numbered[2]);
+      flushBullets();
+      numberedBuffer.push(numbered[2]);
       continue;
     }
     if (line.trim() === "") {
       flushParagraph();
-      flushList();
+      flushBullets();
+      flushNumbered();
       continue;
     }
-    flushList();
+    flushBullets();
+    flushNumbered();
     paragraphBuffer.push(line);
   }
   flushParagraph();
-  flushList();
+  flushBullets();
+  flushNumbered();
 
   if (streaming) {
     nodes.push(
@@ -241,6 +280,39 @@ function BriefingMarkdown({
   }
 
   return <div className="space-y-3">{nodes}</div>;
+}
+
+// Combineer **bold** + [N]-citaties in één pass over een regel.
+function renderInline(raw: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  // Splits eerst op **bold**-tokens. Wat overblijft kan citation-pills bevatten.
+  const boldRe = /\*\*([^*]+)\*\*/g;
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = boldRe.exec(raw)) !== null) {
+    if (m.index > last) {
+      parts.push(
+        ...renderInlineWithCitations(raw.slice(last, m.index)).map(
+          (n, i) => <span key={`pre-${key++}-${i}`}>{n}</span>,
+        ),
+      );
+    }
+    parts.push(
+      <strong key={`b-${key++}`} className="font-semibold text-pavo-navy">
+        {renderInlineWithCitations(m[1])}
+      </strong>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < raw.length) {
+    parts.push(
+      ...renderInlineWithCitations(raw.slice(last)).map((n, i) => (
+        <span key={`tail-${key++}-${i}`}>{n}</span>
+      )),
+    );
+  }
+  return parts;
 }
 
 // Vervangt [N] en [N,M,...] patronen in een tekst door klikbare pills
