@@ -1,14 +1,9 @@
 import { NextResponse } from "next/server";
 import { getLeadSource } from "@/lib/lead-source";
 import { factum } from "@/lib/factum/client";
+import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "@/lib/factum/roi";
 import type { SearchFilters } from "@/lib/adapters/types";
 import { buildSearchSteps } from "@/lib/filter";
-
-// Heuristiek voor "tijd bespaard" in het dashboard: ~10 minuten
-// handmatig speurwerk per opgeleverde lead. Conservatief gekozen zodat
-// de ROI-cijfers verdedigbaar blijven; bijstellen wanneer Roy een
-// gemeten waarde aanlevert.
-const ESTIMATED_MINUTES_SAVED_PER_LEAD = 10;
 
 export async function POST(req: Request) {
   const startedAt = Date.now();

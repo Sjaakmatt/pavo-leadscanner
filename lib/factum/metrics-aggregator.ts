@@ -7,11 +7,8 @@
 // als "online" markeert.
 import { tryGetSupabase } from "@/lib/supabase/client";
 import type { FactumMetrics } from "./client";
+import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "./roi";
 
-// Zelfde heuristiek als in app/api/search/route.ts. Houden we ergens
-// gemeten ROI-cijfers van Roy, dan vervangen we dit door één gedeelde
-// constante.
-const ESTIMATED_MINUTES_SAVED_PER_LEAD = 10;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 type SearchQueryRow = {

@@ -19,7 +19,10 @@ import type { SearchFilters, SearchProgressEvent } from "@/lib/adapters/types";
 // De UI sluit de stream wanneer 'done' (of 'error') is ontvangen.
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 min cap voor grote zoekopdrachten
+// Vercel Pro = 800s, Hobby = 60s. We zetten 'm op 800; voor Hobby
+// wordt het automatisch gecapt. SSE-stream emitteert ondertussen
+// keep-alive comments zodat de client niet timeoutet.
+export const maxDuration = 800;
 
 export async function POST(req: Request) {
   const url = new URL(req.url);
@@ -40,6 +43,17 @@ export async function POST(req: Request) {
         }
       };
 
+      // Heartbeat-comment iedere 15s zodat reverse proxies (Vercel,
+      // CloudFlare) de SSE-connectie niet droppen op idle timeouts.
+      const heartbeat = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(`: keep-alive\n\n`));
+        } catch {
+          // ignore
+        }
+      }, 15_000);
+      heartbeat.unref?.();
+
       try {
         const source = getLeadSource();
         const result = await source.runSearch(filters, {
@@ -53,6 +67,7 @@ export async function POST(req: Request) {
       } catch (err) {
         send({ type: "error", message: String(err) });
       } finally {
+        clearInterval(heartbeat);
         controller.close();
       }
     },

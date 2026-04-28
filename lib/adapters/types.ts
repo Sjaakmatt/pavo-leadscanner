@@ -19,7 +19,20 @@ export type Signaal = {
   bron: Bron;
 };
 
-export type DienstCode = "D1" | "D2" | "D3" | "D4" | "D5" | "D6" | "D7" | "D8";
+export type DienstCode =
+  | "D1"
+  | "D2"
+  | "D3"
+  | "D4"
+  | "D5"
+  | "D6"
+  | "D7"
+  | "D8"
+  | "D9"
+  | "D10"
+  | "D11"
+  | "D12"
+  | "D13";
 
 export type DienstMatch = {
   code: DienstCode;
