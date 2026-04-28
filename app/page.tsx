@@ -241,7 +241,8 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      <div className="mb-3 flex justify-end">
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        <BackgroundJobButton filters={filters} disabled={loading} />
         <SavedSearchControls
           filters={filters}
           onLoad={(f) => setFilters(f)}
@@ -457,6 +458,65 @@ function sortLeads(leads: Lead[], sort: SortKey): Lead[] {
         return a.naam.localeCompare(b.naam);
     }
   });
+}
+
+function BackgroundJobButton({
+  filters,
+  disabled,
+}: {
+  filters: SearchFilters;
+  disabled?: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [available, setAvailable] = useState(true);
+  const [success, setSuccess] = useState(false);
+
+  async function handleClick() {
+    if (busy || disabled) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/search-jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filters,
+          naam: `${filters.branche} · ${new Date().toLocaleDateString("nl-NL")}`,
+          use_batch: true,
+        }),
+      });
+      if (res.status === 401 || res.status === 503) {
+        setAvailable(false);
+        return;
+      }
+      if (res.ok) {
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 4000);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!available) return null;
+
+  return (
+    <div className="relative inline-flex items-center">
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={busy || disabled}
+        className="inline-flex items-center gap-1.5 rounded-md border border-pavo-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-pavo-gray-900 hover:border-pavo-teal hover:text-pavo-teal disabled:opacity-50"
+        title="Plan deze zoekopdracht als achtergrond-job (geen wachten in browser)"
+      >
+        {busy ? "Plannen…" : "Run in achtergrond"}
+      </button>
+      {success && (
+        <span className="ml-2 text-xs text-emerald-700">
+          Gepland — zie /search-jobs
+        </span>
+      )}
+    </div>
+  );
 }
 
 function ExportCsvButton({ filters }: { filters: SearchFilters }) {

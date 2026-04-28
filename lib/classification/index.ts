@@ -13,6 +13,7 @@
 import { getAnthropicClient, classificationModel } from "./client";
 import { PAVO_CLASSIFICATION_PROMPT } from "./prompts";
 import { currentScope, persistRun, type AnthropicUsage } from "./cost";
+import { sanitizeContextHelper } from "./sanitize";
 import type { Signaal, SignaalBronType } from "@/lib/scoring/types";
 import type {
   WebsiteScrapeResult,
@@ -404,15 +405,10 @@ function buildClassifierUserPrompt(
   ].join("\n");
 }
 
-function sanitizeContext(raw: string): string {
-  // Knip externe bron-data los van eventuele XML-fences die op onze
-  // sandbox lijken. We laten markdown intact (Claude moet quotes kunnen
-  // citeren), maar slopen </bron-data> als het er letterlijk in staat.
-  return raw
-    .replace(/<\/?bron-data>/gi, "")
-    .replace(/<\/?system\b[^>]*>/gi, "")
-    .replace(/<\/?instructions?\b[^>]*>/gi, "");
-}
+// Knip externe bron-data los van XML-fences die op onze sandbox lijken.
+// Logic leeft in lib/classification/sanitize.ts zodat batch.ts hem kan
+// hergebruiken zonder cyclische import.
+const sanitizeContext = sanitizeContextHelper;
 
 // Parse JSON uit Claude-output — fenced ```json``` of pure object/array.
 function extractJson(text: string): { signalen?: unknown[] } | null {

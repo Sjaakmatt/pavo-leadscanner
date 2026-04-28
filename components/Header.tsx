@@ -38,6 +38,12 @@ export default async function Header() {
                 Pipeline
               </Link>
               <Link
+                href="/search-jobs"
+                className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+              >
+                Jobs
+              </Link>
+              <Link
                 href="/users"
                 className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
               >
