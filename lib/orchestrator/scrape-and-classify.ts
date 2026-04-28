@@ -19,7 +19,7 @@ import { VacaturesMcp } from "@/lib/mcp/vacatures";
 import { JuridischMcp } from "@/lib/mcp/juridisch";
 import { NewsMcp } from "@/lib/mcp/news";
 import {
-  classifyWebsite,
+  classifyWebsiteFull,
   classifyRechtspraak,
   classifyNla,
   classifyInsolventie,
@@ -28,6 +28,7 @@ import {
 } from "@/lib/classification";
 import type { Signaal } from "@/lib/scoring/types";
 import { persistRaw, readRaw, type CachedToolName } from "./raw-cache";
+import { upsertWebsiteContacts } from "@/lib/lead-source/contacts";
 import type {
   WebsiteScrapeResult,
   VacatureRawResult,
@@ -103,11 +104,16 @@ export async function scrapeAndClassifyCompany(
             ctxFor("get_company_website_content"),
             { url: company.websiteUrl!, maxPages: 5 },
           ),
-      ).then(async (r) =>
-        r
-          ? { tool: "website", signals: await classifyWebsite(company, r) }
-          : mark("get_company_website_content"),
-      ),
+      ).then(async (r) => {
+        if (!r) return mark("get_company_website_content");
+        const full = await classifyWebsiteFull(company, r);
+        // Best-effort: contacten persisten in een fire-and-forget zodat
+        // signaal-flow niet wacht op de contacts-upsert.
+        if (full.contacten.length > 0) {
+          void upsertWebsiteContacts(supabase, company.kvk, full.contacten);
+        }
+        return { tool: "website", signals: full.signalen };
+      }),
     );
     tasks.push(
       fetchWithCache<VacatureRawResult>(
