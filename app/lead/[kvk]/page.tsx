@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import ArchetypeCard from "@/components/ArchetypeCard";
+import ColdContext from "@/components/ColdContext";
 import LeadBriefing from "@/components/LeadBriefing";
 import LeadChat from "@/components/LeadChat";
 import LeadStatusBar from "@/components/LeadStatusBar";
@@ -110,6 +111,12 @@ export default function LeadDetailPage({ params }: Props) {
         <SectionFade>
           <LeadStatusBar kvk={lead.kvk} />
         </SectionFade>
+
+        {lead.warmte === "COLD" && (
+          <SectionFade>
+            <ColdContext lead={lead} />
+          </SectionFade>
+        )}
 
         <SectionFade>
           <LeadBriefing

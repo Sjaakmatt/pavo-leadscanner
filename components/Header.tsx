@@ -35,6 +35,14 @@ export default async function Header() {
               >
                 Gebruikers
               </Link>
+              {user.role === "admin" && (
+                <Link
+                  href="/admin/searches"
+                  className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+                >
+                  Observability
+                </Link>
+              )}
             </nav>
           )}
         </div>

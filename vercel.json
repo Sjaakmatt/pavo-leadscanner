@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/saved-searches-alerts",
       "schedule": "0 7,15 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-active-companies",
+      "schedule": "0 3 * * *"
     }
   ]
 }
