@@ -11,6 +11,15 @@ type Profile = {
   created_at: string;
 };
 
+type MyProfile = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: "admin" | "member";
+  notif_email_alerts: boolean;
+  notif_email_team: boolean;
+};
+
 type CurrentUser = {
   id: string;
   email: string;
@@ -21,6 +30,7 @@ type CurrentUser = {
 export default function UsersPage() {
   const [users, setUsers] = useState<Profile[]>([]);
   const [me, setMe] = useState<CurrentUser | null>(null);
+  const [myProfile, setMyProfile] = useState<MyProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -50,10 +60,40 @@ export default function UsersPage() {
       };
       setUsers(body.users);
       setMe(body.currentUser);
+
+      // Mijn voorkeuren los — andere shape met notif-vlaggen.
+      try {
+        const meRes = await fetch("/api/users/me", { cache: "no-store" });
+        if (meRes.ok) {
+          const meBody = (await meRes.json()) as { profile: MyProfile };
+          setMyProfile(meBody.profile);
+        }
+      } catch {
+        // silent
+      }
     } finally {
       setLoading(false);
     }
   }, []);
+
+  async function updateMyPrefs(
+    patch: Partial<Pick<MyProfile, "notif_email_alerts" | "notif_email_team" | "full_name">>,
+  ) {
+    if (!myProfile) return;
+    const optimistic = { ...myProfile, ...patch };
+    setMyProfile(optimistic);
+    const res = await fetch("/api/users/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { profile: MyProfile };
+      setMyProfile(body.profile);
+    } else {
+      setMyProfile(myProfile); // revert
+    }
+  }
 
   useEffect(() => {
     reload();
@@ -140,6 +180,63 @@ export default function UsersPage() {
           ? "Nodig collega's uit en beheer rollen. Magic-link login werkt direct na invite."
           : "Lijst van gebruikers in deze workspace. Vraag een admin om iemand uit te nodigen."}
       </p>
+
+      {myProfile && (
+        <section className="mt-6 rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
+            Mijn instellingen
+          </h2>
+          <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <label className="block">
+              <span className="block text-[10px] font-semibold uppercase tracking-wide text-pavo-gray-600">
+                Volledige naam
+              </span>
+              <input
+                type="text"
+                defaultValue={myProfile.full_name ?? ""}
+                onBlur={(e) => {
+                  const v = e.target.value.trim();
+                  if (v !== (myProfile.full_name ?? "")) {
+                    updateMyPrefs({ full_name: v });
+                  }
+                }}
+                className="mt-1 w-full rounded-md border border-pavo-gray-100 bg-white px-2 py-1.5 text-sm focus:border-pavo-teal focus:outline-none"
+              />
+            </label>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-pavo-gray-600">
+                E-mail-meldingen
+              </p>
+              <label className="mt-1.5 flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={myProfile.notif_email_alerts}
+                  onChange={(e) =>
+                    updateMyPrefs({ notif_email_alerts: e.target.checked })
+                  }
+                  className="h-4 w-4 accent-pavo-teal"
+                />
+                Saved-search matches
+              </label>
+              <label className="mt-1 flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={myProfile.notif_email_team}
+                  onChange={(e) =>
+                    updateMyPrefs({ notif_email_team: e.target.checked })
+                  }
+                  className="h-4 w-4 accent-pavo-teal"
+                />
+                Team-events (lead-status wijzigingen)
+              </label>
+              <p className="mt-1.5 text-[10px] text-pavo-gray-600">
+                In-app meldingen blijven altijd aan. E-mail werkt alleen
+                als de admin Resend heeft gekoppeld.
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {isAdmin && (
         <section className="mt-6 rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
