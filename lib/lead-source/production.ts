@@ -51,6 +51,7 @@ import { scoreCompany, type StoredSignal } from "@/lib/scoring";
 import { matchesSignaalQuery } from "@/lib/adapters/mock";
 import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "@/lib/factum/roi";
 import { SCORING_VERSION } from "@/lib/scoring/version";
+import { CostTracker, withSearchScope } from "@/lib/classification/cost";
 
 const CACHE_TTL_DAYS = 30;
 const LEAD_DETAIL_TTL_DAYS = 7;
@@ -83,11 +84,47 @@ export class ProductionLeadSource implements LeadSource {
     const searchCtx = buildTenantContext();
     const searchQueryId = await logSearchStart(supabase, filters);
 
+    const tracker = new CostTracker();
+    return withSearchScope(
+      { tracker, supabase, searchQueryId },
+      () => this.runSearchInScope(
+        filters,
+        opts,
+        emit,
+        startedAt,
+        supabase,
+        searchCtx,
+        searchQueryId,
+        tracker,
+      ),
+    );
+  }
+
+  private async runSearchInScope(
+    filters: SearchFilters,
+    opts: RunSearchOptions,
+    emit: NonNullable<RunSearchOptions["onEvent"]>,
+    startedAt: number,
+    supabase: SupabaseClient,
+    searchCtx: TenantContext,
+    searchQueryId: string,
+    tracker: CostTracker,
+  ): Promise<SearchResult> {
+    // Per-stage timings — geschreven naar search_queries aan het eind.
+    const timing = {
+      kvk_ms: 0,
+      basisprofiel_ms: 0,
+      geo_ms: 0,
+      scrape_ms: 0,
+      score_ms: 0,
+    };
+
     try {
       // 1) KvK afbakening
       await updateStep(supabase, searchQueryId, "Kamer van Koophandel doorzoeken");
       emit({ type: "stage", stage: "kvk", message: "Kamer van Koophandel doorzoeken…" });
 
+      const kvkStart = Date.now();
       const sbiCodes = mapBrancheToSbi(filters.branche);
       const provincies = filters.regio_center
         ? provincesWithinRadius(filters.regio_center, filters.regio_straal_km)
@@ -98,6 +135,7 @@ export class ProductionLeadSource implements LeadSource {
         provincies,
         limit: 200,
       });
+      timing.kvk_ms = Date.now() - kvkStart;
       emit({ type: "kvk", totalCandidates: hits.length });
 
       // 2) Basisprofielen ophalen (parallel, throttled)
@@ -111,11 +149,13 @@ export class ProductionLeadSource implements LeadSource {
         stage: "basisprofielen",
         message: `Basisprofielen ophalen (${hits.length})…`,
       });
+      const basisStart = Date.now();
       const profiles = await fetchBasisprofielen(
         this.bedrijven,
         searchCtx,
         hits.map((h) => h.kvkNummer),
       );
+      timing.basisprofiel_ms = Date.now() - basisStart;
       const enriched = hits
         .map((h) => {
           const profile = profiles.get(h.kvkNummer);
@@ -134,6 +174,7 @@ export class ProductionLeadSource implements LeadSource {
       // 4) Geo-filter via mcp-bedrijven.pdok_geocode (DB-cache eerst)
       await updateStep(supabase, searchQueryId, "Regio-filter toepassen");
       emit({ type: "stage", stage: "geo", message: "Regio-filter toepassen…" });
+      const geoStart = Date.now();
       const { kept: geoFiltered, coords: coordsByPlaats } = await applyGeoFilter(
         this.bedrijven,
         searchCtx,
@@ -142,6 +183,7 @@ export class ProductionLeadSource implements LeadSource {
         filters.regio_straal_km,
         supabase,
       );
+      timing.geo_ms = Date.now() - geoStart;
       emit({ type: "geo", remaining: geoFiltered.length });
 
       // 5) Companies upserten (incl. lat/lng zodat next-run skipt PDOK)
@@ -174,10 +216,15 @@ export class ProductionLeadSource implements LeadSource {
           zoeknamen: [p.naam, p.handelsnaam].filter((s): s is string => !!s),
         }));
 
+      const scrapeStart = Date.now();
       let scraped = 0;
       await runScrapeBatch(handles, searchCtx, this.mcps, supabase, {
         concurrency: MAX_PARALLEL_SCRAPES,
         refreshRaw: opts.refresh ?? false,
+        // Stop met scrapen zodra de budget-guard slaat — kosten lopen
+        // anders door op rechtspraak/news ondanks dat classifier al is
+        // gestopt. We laten de batch wel afronden voor in-flight calls.
+        shouldAbort: () => tracker.shouldHalt(),
         onProgress: (e) => {
           scraped = e.done;
           emit({
@@ -186,15 +233,17 @@ export class ProductionLeadSource implements LeadSource {
             naam: handles.find((h) => h.kvk === e.kvk)?.naam ?? e.kvk,
             scraped: e.done,
             total: e.total,
-            costUsd: 0,
+            costUsd: tracker.snapshot().totalUsd,
           });
         },
       });
+      timing.scrape_ms = Date.now() - scrapeStart;
 
       // 7) Scoring per bedrijf — emit per lead zodra hij klaar is
       //    zodat de UI niet hoeft te wachten op alles
       await updateStep(supabase, searchQueryId, "Scoring en rangschikking");
       emit({ type: "stage", stage: "score", message: "Scoren + warmte bepalen…" });
+      const scoreStart = Date.now();
       const leads: Lead[] = [];
       let scoredCount = 0;
       for (const { profile } of geoFiltered) {
@@ -206,6 +255,7 @@ export class ProductionLeadSource implements LeadSource {
         emit({ type: "lead", lead });
         emit({ type: "score", scored: scoredCount, total: geoFiltered.length });
       }
+      timing.score_ms = Date.now() - scoreStart;
 
       // 8) Persist scored_leads (alle gescoorde leads — query-filter
       //    is een UI-presentation-laag, niet een data-uitsluiting).
@@ -218,18 +268,21 @@ export class ProductionLeadSource implements LeadSource {
       );
       const sorted = sortLeadsByWarmte(filteredByQuery);
       const durationMs = Date.now() - startedAt;
+      const cost = tracker.snapshot();
 
       await logSearchComplete(supabase, searchQueryId, {
         totalCandidates: hits.length,
         totalScraped: toScrape.length,
         totalLeadsReturned: sorted.length,
         durationMs,
+        timing,
+        cost,
       });
 
       emit({
         type: "done",
         totalLeadsReturned: sorted.length,
-        totalCostUsd: 0,
+        totalCostUsd: cost.totalUsd,
         durationMs,
       });
 
@@ -266,10 +319,18 @@ export class ProductionLeadSource implements LeadSource {
           (s): s is string => !!s,
         ),
       };
-      await runScrapeBatch([handle], ctx, this.mcps, supabase, {
-        concurrency: 1,
-        refreshRaw: opts.refresh ?? false,
-      });
+      // Geen searchQueryId — solo refresh — maar wel een tracker
+      // zodat het budget alsnog gehandhaafd wordt.
+      const tracker = new CostTracker();
+      await withSearchScope(
+        { tracker, supabase, searchQueryId: null },
+        () =>
+          runScrapeBatch([handle], ctx, this.mcps, supabase, {
+            concurrency: 1,
+            refreshRaw: opts.refresh ?? false,
+            shouldAbort: () => tracker.shouldHalt(),
+          }),
+      );
     }
 
     const stored = await fetchRecentSignals(supabase, kvk, CACHE_TTL_DAYS);
@@ -566,6 +627,20 @@ async function logSearchComplete(
     totalScraped: number;
     totalLeadsReturned: number;
     durationMs: number;
+    timing: {
+      kvk_ms: number;
+      basisprofiel_ms: number;
+      geo_ms: number;
+      scrape_ms: number;
+      score_ms: number;
+    };
+    cost: {
+      totalUsd: number;
+      calls: number;
+      inputTokens: number;
+      outputTokens: number;
+      budgetExceeded: boolean;
+    };
   },
 ): Promise<void> {
   if (searchQueryId.startsWith("local-")) return;
@@ -578,6 +653,16 @@ async function logSearchComplete(
       total_leads_returned: meta.totalLeadsReturned,
       duration_ms: meta.durationMs,
       completed_at: new Date().toISOString(),
+      kvk_ms: meta.timing.kvk_ms,
+      basisprofiel_ms: meta.timing.basisprofiel_ms,
+      geo_ms: meta.timing.geo_ms,
+      scrape_ms: meta.timing.scrape_ms,
+      score_ms: meta.timing.score_ms,
+      total_cost_usd: meta.cost.totalUsd,
+      classification_calls: meta.cost.calls,
+      classification_input_tokens: meta.cost.inputTokens,
+      classification_output_tokens: meta.cost.outputTokens,
+      budget_exceeded: meta.cost.budgetExceeded,
     })
     .eq("id", searchQueryId);
 }
@@ -673,6 +758,8 @@ function scoreToLead(
       score: d.score,
     })),
     observatie: score.samenvatting,
+    cold_redenen:
+      score.cold_redenen.length > 0 ? score.cold_redenen : undefined,
   };
 }
 

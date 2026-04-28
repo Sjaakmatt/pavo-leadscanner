@@ -71,6 +71,10 @@ export type LeadScore = {
     naam: string;
     beschrijving: string;
   } | null;
+  // Voor COLD leads: een korte lijst (max ~3) "waarom NIET" — welke
+  // bron leverde geen signalen, welk drempel werd niet gehaald. Voor
+  // HOT/WARM leeg.
+  cold_redenen: string[];
 };
 
 // ---------- cluster-scoring ----------------------------------------------
@@ -410,6 +414,74 @@ function inferArchetype(
   return null;
 }
 
+// ---------- waarom-NIET voor COLD leads --------------------------------
+//
+// Geeft een korte lijst van concrete redenen waarom de agent geen
+// HR-signalen vond. Mensen zien anders alleen "geen signalen" en weten
+// niet of dat betekent "alles checkte we, niets gevonden" of "we
+// konden niks ophalen". Iedere reden is feitelijk en kort.
+
+const ALL_BRON_TYPES = [
+  "website",
+  "vacatures",
+  "rechtspraak",
+  "nla",
+  "insolventie",
+  "news",
+] as const;
+
+function inferColdRedenen(
+  profile: KvkBasisprofiel,
+  signals: StoredSignal[],
+  clusters: ClusterScores,
+): string[] {
+  const out: string[] = [];
+
+  // 1) Welke bronnen leverden geen enkel signaal — feitelijk dichtgeknoopt.
+  const seenBron = new Set(
+    signals.map((s) => s.bron_type).filter((b): b is string => !!b),
+  );
+  const empty = ALL_BRON_TYPES.filter((b) => !seenBron.has(b));
+  if (empty.length > 0 && empty.length < ALL_BRON_TYPES.length) {
+    out.push(
+      `Geen signalen uit ${empty.length === 1 ? "bron" : "bronnen"}: ${empty.join(", ")}.`,
+    );
+  }
+  if (empty.length === ALL_BRON_TYPES.length) {
+    out.push(
+      "Geen enkele scrape-bron leverde signalen — bedrijf is publiek vrijwel onzichtbaar.",
+    );
+  }
+
+  // 2) Cluster-scores te laag voor warmte-bump.
+  const c = clusters;
+  if (c.cluster1 < 80 && c.cluster2 < 60 && c.cluster3 < 40) {
+    const peak = Math.max(c.cluster1, c.cluster2, c.cluster3);
+    out.push(
+      `Hoogste cluster-score is ${peak}/100 — onder drempel voor WARM (60) of HOT (80).`,
+    );
+  }
+
+  // 3) FTE-bucket te laag of onbekend.
+  if (!profile.fteKlasse) {
+    out.push("FTE-klasse niet beschikbaar in KvK-data — geen size-context.");
+  } else if (fteUpperBound(profile.fteKlasse) < 10) {
+    out.push("Bedrijf onder 10 FTE — meestal nog buiten PAVO-doelgroep.");
+  }
+
+  // 4) Inactief.
+  if (profile.actief === false) {
+    out.push("Bedrijf staat als inactief geregistreerd in KvK.");
+  }
+
+  // 5) Geen website → geen scrape mogelijk.
+  if (!profile.websiteUrl) {
+    out.push("Geen bedrijfswebsite bekend — vacatures + content niet te scrapen.");
+  }
+
+  return out.slice(0, 4);
+}
+
 // ---------- public API -------------------------------------------------
 
 export function scoreCompany(
@@ -427,6 +499,8 @@ export function scoreCompany(
   const diensten = matchDiensten(signals);
   const archetype = inferArchetype(profile, clusters.categorieen);
   const samenvatting = buildSamenvatting(profile, warmte, reden, diensten);
+  const cold_redenen =
+    warmte === "COLD" ? inferColdRedenen(profile, signals, clusters) : [];
 
   return {
     kvk: profile.kvkNummer,
@@ -436,5 +510,6 @@ export function scoreCompany(
     totale_score: totale,
     samenvatting,
     archetype,
+    cold_redenen,
   };
 }

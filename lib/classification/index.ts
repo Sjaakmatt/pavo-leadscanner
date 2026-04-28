@@ -12,6 +12,7 @@
 
 import { getAnthropicClient, classificationModel } from "./client";
 import { PAVO_CLASSIFICATION_PROMPT } from "./prompts";
+import { currentScope, persistRun, type AnthropicUsage } from "./cost";
 import type { Signaal, SignaalBronType } from "@/lib/scoring/types";
 import type {
   WebsiteScrapeResult,
@@ -157,7 +158,17 @@ async function classify(
   bronType: SignaalBronType,
   context: string,
 ): Promise<Signaal[]> {
+  // Budget-guard: als MAX_COST_PER_SEARCH_USD overschreden is slaan
+  // we deze classifier-call over. Dat scheelt geld en de pipeline
+  // gaat verder met de signalen die tot dat punt gevonden zijn.
+  const scope = currentScope();
+  if (scope?.tracker.shouldHalt()) {
+    return [];
+  }
+
   const client = getAnthropicClient();
+  const model = classificationModel();
+  const startedAt = Date.now();
 
   // Prompt-cache: het PAVO_CLASSIFICATION_PROMPT is identiek voor alle
   // calls (4× per bedrijf, 200+ bedrijven per zoekopdracht). Met
@@ -168,7 +179,7 @@ async function classify(
   // zonder hem in de cache te zetten (per-call uniek). Wel beveiligd
   // tegen prompt-injection via een fence (zie sanitizeContext).
   const response = await client.messages.create({
-    model: classificationModel(),
+    model,
     max_tokens: 2000,
     system: [
       {
@@ -184,6 +195,23 @@ async function classify(
       },
     ],
   });
+
+  // Cost-tracking — Anthropic SDK levert usage-counts mee. We pakken
+  // de relevante velden + record naar de active tracker (best-effort,
+  // sla niet over als persist faalt).
+  if (scope) {
+    const usage = (response.usage ?? {}) as AnthropicUsage;
+    const run = {
+      searchQueryId: scope.searchQueryId,
+      kvk: company.kvk,
+      bronType,
+      model,
+      durationMs: Date.now() - startedAt,
+      usage,
+    };
+    const cost = scope.tracker.record(run);
+    void persistRun(run, cost);
+  }
 
   // flatMap i.p.v. een type-predicate: de SDK's TextBlock heeft een
   // verplichte `citations`-prop, dus het inline-predicate

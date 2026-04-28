@@ -80,6 +80,10 @@ export type Lead = {
   signalen: Signaal[];
   diensten: DienstMatch[];
   observatie: string;
+  // Voor COLD leads: korte lijst met concrete redenen waarom er geen
+  // HR-signalen zijn gevonden. Optional zodat HOT/WARM 'm gewoon
+  // weglaten en oude data zonder veld blijft werken.
+  cold_redenen?: string[];
   // Optional so leads without coordinates still load. When regio_center is
   // set on a search, leads without coords are excluded.
   lat?: number;

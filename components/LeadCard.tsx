@@ -152,6 +152,7 @@ function WarmCard({ lead }: { lead: Lead }) {
 }
 
 function ColdCard({ lead }: { lead: Lead }) {
+  const reden = lead.cold_redenen?.[0];
   return (
     <Link
       href={`/lead/${lead.kvk}`}
@@ -167,7 +168,7 @@ function ColdCard({ lead }: { lead: Lead }) {
           </span>
         </div>
         <p className="truncate text-xs text-pavo-gray-600">
-          Onderzocht · geen relevante HR-signalen
+          {reden ?? "Onderzocht · geen relevante HR-signalen"}
         </p>
       </div>
       <WarmteBadge warmte={lead.warmte} className="shrink-0" />
