@@ -1,4 +1,4 @@
-import { mockLeadSource } from "@/lib/adapters/mock";
+import { getLeadSource } from "@/lib/lead-source";
 import {
   CHAT_MAX_TOKENS,
   CHAT_MODEL,
@@ -35,7 +35,7 @@ export async function POST(
     });
   }
 
-  const lead = await mockLeadSource.getLead(kvk);
+  const lead = await getLeadSource().getLead(kvk);
   if (!lead) {
     return new Response("Lead not found", { status: 404 });
   }

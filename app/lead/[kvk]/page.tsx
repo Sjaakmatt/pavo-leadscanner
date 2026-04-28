@@ -6,6 +6,7 @@ import { motion } from "motion/react";
 import ArchetypeCard from "@/components/ArchetypeCard";
 import LeadBriefing from "@/components/LeadBriefing";
 import LeadChat from "@/components/LeadChat";
+import LeadStatusBar from "@/components/LeadStatusBar";
 import ServiceMatchBar from "@/components/ServiceMatchBar";
 import SignalList from "@/components/SignalList";
 import WarmteBadge from "@/components/WarmteBadge";
@@ -106,6 +107,10 @@ export default function LeadDetailPage({ params }: Props) {
         }}
         className="mt-6 space-y-6"
       >
+        <SectionFade>
+          <LeadStatusBar kvk={lead.kvk} />
+        </SectionFade>
+
         <SectionFade>
           <LeadBriefing
             kvk={lead.kvk}

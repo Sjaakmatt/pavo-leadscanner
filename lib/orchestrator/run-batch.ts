@@ -30,6 +30,7 @@ export async function runScrapeBatch(
     concurrency?: number;
     onProgress?: BatchProgress;
     shouldAbort?: () => boolean;
+    refreshRaw?: boolean;
   } = {},
 ): Promise<OrchestrationResult[]> {
   const concurrency = opts.concurrency ?? 5;
@@ -49,6 +50,7 @@ export async function runScrapeBatch(
           ctx,
           mcps,
           supabase,
+          { refreshRaw: opts.refreshRaw },
         );
         results.push(result);
         done += 1;

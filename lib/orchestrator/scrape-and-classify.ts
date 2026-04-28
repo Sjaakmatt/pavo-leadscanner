@@ -27,6 +27,15 @@ import {
   classifyNews,
 } from "@/lib/classification";
 import type { Signaal } from "@/lib/scoring/types";
+import { persistRaw, readRaw, type CachedToolName } from "./raw-cache";
+import type {
+  WebsiteScrapeResult,
+  VacatureRawResult,
+  RechtspraakRawResult,
+  NlaRawResult,
+  InsolventieRawResult,
+  NewsRawResult,
+} from "@/lib/mcp/schemas";
 
 export type ScrapeMcps = {
   bedrijven: BedrijvenMcp;
@@ -50,12 +59,22 @@ export type OrchestrationResult = {
 };
 
 const TOOL_TIMEOUT_MS = 60_000;
+// Cache-TTL voor ruwe MCP-payloads. Korter dan signals-TTL (30d) zodat
+// een refresh sneller terug-naar-MCP gaat als het aanvoelt als stale.
+const RAW_CACHE_TTL_DAYS = 14;
+
+export type ScrapeOptions = {
+  // Negeer de raw-cache en doe sowieso een nieuwe MCP-call. Default false:
+  // we gebruiken eerst de cache als die bestaat én jonger is dan TTL.
+  refreshRaw?: boolean;
+};
 
 export async function scrapeAndClassifyCompany(
   company: CompanyHandle,
   parentCtx: TenantContext,
   mcps: ScrapeMcps,
   supabase: SupabaseClient,
+  opts: ScrapeOptions = {},
 ): Promise<OrchestrationResult> {
   const start = Date.now();
   const failures: string[] = [];
@@ -69,15 +88,21 @@ export async function scrapeAndClassifyCompany(
   });
 
   // Fase 1: alle scrapers parallel — elk faalt onafhankelijk.
+  // Iedere fetch loopt via fetchWithCache() die de raw-cache leest/schrijft.
   const tasks: Array<Promise<{ tool: string; signals: Signaal[] }>> = [];
 
   if (company.websiteUrl) {
     tasks.push(
-      run("get_company_website_content", () =>
-        mcps.bedrijven.getCompanyWebsiteContent(
-          ctxFor("get_company_website_content"),
-          { url: company.websiteUrl!, maxPages: 5 },
-        ),
+      fetchWithCache<WebsiteScrapeResult>(
+        supabase,
+        company.kvk,
+        "get_company_website_content",
+        opts.refreshRaw ?? false,
+        () =>
+          mcps.bedrijven.getCompanyWebsiteContent(
+            ctxFor("get_company_website_content"),
+            { url: company.websiteUrl!, maxPages: 5 },
+          ),
       ).then(async (r) =>
         r
           ? { tool: "website", signals: await classifyWebsite(company, r) }
@@ -85,11 +110,16 @@ export async function scrapeAndClassifyCompany(
       ),
     );
     tasks.push(
-      run("extract_vacancies_from_company_site", () =>
-        mcps.vacatures.extractVacanciesFromCompanySite(
-          ctxFor("extract_vacancies_from_company_site"),
-          { url: company.websiteUrl! },
-        ),
+      fetchWithCache<VacatureRawResult>(
+        supabase,
+        company.kvk,
+        "extract_vacancies_from_company_site",
+        opts.refreshRaw ?? false,
+        () =>
+          mcps.vacatures.extractVacanciesFromCompanySite(
+            ctxFor("extract_vacancies_from_company_site"),
+            { url: company.websiteUrl! },
+          ),
       ).then((r) =>
         r
           ? { tool: "vacatures", signals: classifyVacatures(company, r) }
@@ -99,10 +129,15 @@ export async function scrapeAndClassifyCompany(
   }
 
   tasks.push(
-    run("search_court_cases", () =>
-      mcps.juridisch.searchCourtCases(ctxFor("search_court_cases"), {
-        company_names: company.zoeknamen,
-      }),
+    fetchWithCache<RechtspraakRawResult>(
+      supabase,
+      company.kvk,
+      "search_court_cases",
+      opts.refreshRaw ?? false,
+      () =>
+        mcps.juridisch.searchCourtCases(ctxFor("search_court_cases"), {
+          company_names: company.zoeknamen,
+        }),
     ).then(async (r) =>
       r
         ? { tool: "rechtspraak", signals: await classifyRechtspraak(company, r) }
@@ -111,11 +146,16 @@ export async function scrapeAndClassifyCompany(
   );
 
   tasks.push(
-    run("search_labor_inspections", () =>
-      mcps.juridisch.searchLaborInspections(
-        ctxFor("search_labor_inspections"),
-        { search_term: company.naam },
-      ),
+    fetchWithCache<NlaRawResult>(
+      supabase,
+      company.kvk,
+      "search_labor_inspections",
+      opts.refreshRaw ?? false,
+      () =>
+        mcps.juridisch.searchLaborInspections(
+          ctxFor("search_labor_inspections"),
+          { search_term: company.naam },
+        ),
     ).then(async (r) =>
       r
         ? { tool: "nla", signals: await classifyNla(company, r) }
@@ -124,10 +164,15 @@ export async function scrapeAndClassifyCompany(
   );
 
   tasks.push(
-    run("search_insolvencies", () =>
-      mcps.juridisch.searchInsolvencies(ctxFor("search_insolvencies"), {
-        company_names: company.zoeknamen,
-      }),
+    fetchWithCache<InsolventieRawResult>(
+      supabase,
+      company.kvk,
+      "search_insolvencies",
+      opts.refreshRaw ?? false,
+      () =>
+        mcps.juridisch.searchInsolvencies(ctxFor("search_insolvencies"), {
+          company_names: company.zoeknamen,
+        }),
     ).then((r) =>
       r
         ? { tool: "insolventie", signals: classifyInsolventie(company, r) }
@@ -136,11 +181,16 @@ export async function scrapeAndClassifyCompany(
   );
 
   tasks.push(
-    run("search_company_news", () =>
-      mcps.news.searchCompanyNews(ctxFor("search_company_news"), {
-        company_name: company.naam,
-        max_results: 20,
-      }),
+    fetchWithCache<NewsRawResult>(
+      supabase,
+      company.kvk,
+      "search_company_news",
+      opts.refreshRaw ?? false,
+      () =>
+        mcps.news.searchCompanyNews(ctxFor("search_company_news"), {
+          company_name: company.naam,
+          max_results: 20,
+        }),
     ).then(async (r) =>
       r
         ? { tool: "news", signals: await classifyNews(company, r) }
@@ -174,11 +224,24 @@ export async function scrapeAndClassifyCompany(
     return { tool, signals: [] };
   }
 
-  async function run<T>(label: string, fn: () => Promise<T>): Promise<T | null> {
+  async function fetchWithCache<T>(
+    db: SupabaseClient,
+    kvk: string,
+    tool: CachedToolName,
+    refresh: boolean,
+    fn: () => Promise<T>,
+  ): Promise<T | null> {
+    if (!refresh) {
+      const cached = await readRaw<T>(db, kvk, tool, RAW_CACHE_TTL_DAYS);
+      if (cached) return cached;
+    }
     try {
-      return await withTimeout(fn(), TOOL_TIMEOUT_MS, label);
+      const result = await withTimeout(fn(), TOOL_TIMEOUT_MS, tool);
+      // Best-effort persist — pipeline niet ophouden als cache faalt.
+      void persistRaw(db, kvk, tool, result as unknown);
+      return result;
     } catch (err) {
-      console.warn(`[orchestrator] ${label} faalde voor ${company.kvk}:`, err);
+      console.warn(`[orchestrator] ${tool} faalde voor ${kvk}:`, err);
       return null;
     }
   }
@@ -194,7 +257,9 @@ async function persistSignals(
   const rows = signalen.map((s) => ({
     kvk,
     categorie: s.categorie,
-    cluster: typeof s.cluster === "number" ? s.cluster : null,
+    // Cluster wordt als text opgeslagen (zie migration 004) zodat
+    // "context" niet in NULL valt.
+    cluster: typeof s.cluster === "number" ? String(s.cluster) : s.cluster,
     sterkte: s.sterkte,
     confidence: s.confidence,
     observatie: s.observatie,

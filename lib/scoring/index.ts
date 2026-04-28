@@ -11,6 +11,7 @@
 // UI identiek gebruik kan maken van demo of prod leads.
 
 import type { KvkBasisprofiel } from "@/lib/kvk/types";
+import type { DienstCode } from "@/lib/adapters/types";
 import { DIENSTEN_MATRIX } from "./diensten-matrix";
 
 export type StoredSignal = {
@@ -19,13 +20,40 @@ export type StoredSignal = {
   sterkte: number;
   confidence: number;
   observatie: string;
+  // ISO-8601 timestamp uit signals.detected_at. Optioneel om bestaande
+  // call-sites niet te breken; ontbreken telt als "vandaag" (geen decay).
+  detected_at?: string;
   bron_type?: string;
   bron_url?: string;
   bewijs?: string[];
 };
 
+// Recency-decay parameters. Een signaal van 14 dagen oud telt voor
+// 1/e (~37%). Een signaal van vandaag telt voor 100%. Een failliet-
+// signaal of NLA-overtreding heeft geen decay nodig (registers blijven
+// feitelijk geldig); voor die categorieën geven we een vlakke factor.
+const RECENCY_HALF_LIFE_DAYS = 14;
+const NO_DECAY_CATEGORIES = new Set<string>([
+  "failliet_of_surseance",
+  "arbo_boete_recent",
+  "arbeidsinspectie_stillegging",
+  "asbest_overtreding",
+  "arbeidsrechtzaak_patroon",
+]);
+
+function recencyFactor(sig: StoredSignal): number {
+  if (!sig.detected_at) return 1;
+  if (NO_DECAY_CATEGORIES.has(sig.categorie)) return 1;
+  const t = new Date(sig.detected_at).getTime();
+  if (!Number.isFinite(t)) return 1;
+  const ageDays = Math.max(0, (Date.now() - t) / 86_400_000);
+  // Exponentieel verval; clamp ondergrens op 0.1 zodat oude signalen
+  // niet volledig verdwijnen — ze tellen alleen minder mee.
+  return Math.max(0.1, Math.exp(-ageDays / RECENCY_HALF_LIFE_DAYS));
+}
+
 export type LeadScoreDienst = {
-  code: string;
+  code: DienstCode;
   naam: string;
   prioriteit: "primair" | "secundair";
   score: number;
@@ -100,8 +128,12 @@ function scoreByClusters(signals: StoredSignal[]): ClusterScores {
     s.categorieen.add(sig.categorie);
     if (sig.cluster === null) s.contextFlags.add(sig.categorie);
     const pts = CLUSTER_POINTS[sig.categorie] ?? 0;
-    // Confidence-gewogen — laag-vertrouwen signalen tellen minder mee.
-    const weighted = Math.round(pts * (sig.confidence / 100));
+    // Confidence × recency. Laag-vertrouwen signalen tellen minder mee,
+    // oude signalen ook (zie recencyFactor). Bron-feiten zoals NLA-boetes
+    // hebben geen decay — die zijn permanent geldig in registers.
+    const weighted = Math.round(
+      pts * (sig.confidence / 100) * recencyFactor(sig),
+    );
     if (sig.cluster === 1) s.cluster1 += weighted;
     if (sig.cluster === 2) s.cluster2 += weighted;
     if (sig.cluster === 3) s.cluster3 += weighted;
@@ -240,14 +272,14 @@ function deriveWarmte(
 
 function matchDiensten(signals: StoredSignal[]): LeadScoreDienst[] {
   // Per dienst: som de gewichten van aangetroffen signalen, weeg met
-  // confidence, cap op 100. Diensten met score < 20 vallen weg.
+  // confidence × recency, cap op 100. Diensten met score < 20 vallen weg.
   const out: LeadScoreDienst[] = [];
   for (const regel of DIENSTEN_MATRIX) {
     let score = 0;
     for (const sig of signals) {
       const g = regel.gewicht[sig.categorie];
       if (!g) continue;
-      score += Math.round(g * (sig.confidence / 100));
+      score += Math.round(g * (sig.confidence / 100) * recencyFactor(sig));
     }
     if (score < 20) continue;
     score = Math.min(100, score);

@@ -274,10 +274,13 @@ export default function DashboardPage() {
                         {view.leads.length === 1 ? "lead" : "leads"} gevonden
                       </div>
                       {view.leads.length > 0 && (
-                        <ResultsTabs
-                          value={resultsView}
-                          onChange={setResultsView}
-                        />
+                        <div className="flex items-center gap-2">
+                          <ExportCsvButton filters={filters} />
+                          <ResultsTabs
+                            value={resultsView}
+                            onChange={setResultsView}
+                          />
+                        </div>
                       )}
                     </div>
 
@@ -294,6 +297,45 @@ export default function DashboardPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function ExportCsvButton({ filters }: { filters: SearchFilters }) {
+  const [busy, setBusy] = useState(false);
+
+  async function handleExport() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/export/csv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(filters),
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pavo-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleExport}
+      disabled={busy}
+      className="inline-flex items-center gap-1.5 rounded-md border border-pavo-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-pavo-gray-900 transition-colors hover:border-pavo-teal hover:text-pavo-teal disabled:opacity-50"
+    >
+      {busy ? "Exporteren…" : "Exporteer CSV"}
+    </button>
   );
 }
 

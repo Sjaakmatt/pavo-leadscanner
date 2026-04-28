@@ -6,8 +6,13 @@
 // snake_case StoredSignal (DB-shape). Deze file definieert de
 // camelCase Signaal-shape die de classificatie-laag produceert; de
 // orchestrator transformeert beide.
+//
+// Voor dienst-namen is de DIENSTEN_MATRIX in `./diensten-matrix.ts`
+// de canonical bron — daar staan de scoring-gewichten + namen die de
+// UI laat zien.
 
 import { z } from "zod";
+import type { DienstCode as AdapterDienstCode } from "@/lib/adapters/types";
 
 // 3-cluster framework + bron-specifieke + context-categorieën.
 export const SignaalCategorie = z.enum([
@@ -77,24 +82,9 @@ export const Signaal = z.object({
 });
 export type Signaal = z.infer<typeof Signaal>;
 
-// PAVO's 13 diensten. Cluster-toewijzing volgt Sjaak's matrix.
-export const PAVO_DIENSTEN = {
-  D1: { naam: "HR-beleid", cluster: 1 },
-  D2: { naam: "HR-advies", cluster: 1 },
-  D3: { naam: "HR-Quickscan", cluster: 1 },
-  D4: { naam: "Personeelshandboek", cluster: 1 },
-  D5: { naam: "Werving & Selectie", cluster: 2 },
-  D6: { naam: "Ondersteuning personeelsgesprekken", cluster: 2 },
-  D7: { naam: "Risico-Inventarisatie en Evaluatie", cluster: 1 },
-  D8: { naam: "Functiehuis & Salarishuis", cluster: 1 },
-  D9: { naam: "Gesprekscyclus personeel", cluster: 1 },
-  D10: { naam: "Salarisadministratie", cluster: 3 },
-  D11: { naam: "Financiële administratie", cluster: 3 },
-  D12: { naam: "All-in administratie", cluster: 3 },
-  D13: { naam: "Verzuimreglement", cluster: 1 },
-} as const;
-
-export type DienstCode = keyof typeof PAVO_DIENSTEN;
+// Re-export voor backwards-compat — DienstCode is nu één union in
+// lib/adapters/types.ts en de namen leven in DIENSTEN_MATRIX.
+export type DienstCode = AdapterDienstCode;
 
 export type DienstMatch = {
   code: DienstCode;
