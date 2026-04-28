@@ -1,8 +1,9 @@
-// Zod-schemas voor de payloads die de twee MCPs retourneren.
+// Zod-schemas voor de payloads die de vier domein-MCPs retourneren.
 //
-// Match 1:1 met @factumai/mcp-bedrijven en @factumai/mcp-webscraper. Bij
-// mismatch is dat een contract-schending — open een issue in factumai-mcps,
-// pas hier niet eenzijdig aan.
+// Match 1:1 met @factumai/mcp-bedrijven, @factumai/mcp-vacatures,
+// @factumai/mcp-juridisch en @factumai/mcp-news. Bij mismatch is dat
+// een contract-schending — open een issue in factumai-mcps, pas hier
+// niet eenzijdig aan.
 //
 // `passthrough()` op de root-schemas zodat extra velden uit de MCP
 // (bv. raw-data) niet hard breken; we projecteren naar wat we gebruiken.
@@ -83,7 +84,10 @@ export const KvkSnapshot = z
   .passthrough();
 export type KvkSnapshot = z.infer<typeof KvkSnapshot>;
 
-// ============ mcp-webscraper (RUWE data, geen signalen) ============
+// ============ scrape-resultaten (RUWE data, geen signalen) ============
+// Output-shapes blijven 1:1 hetzelfde als in de oude mcp-webscraper —
+// alleen de tools zijn verspreid over mcp-bedrijven (website-content),
+// mcp-vacatures, mcp-juridisch en mcp-news.
 
 export const ScrapedPage = z.object({
   url: z.string().url(),

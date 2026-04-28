@@ -5,11 +5,11 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TenantContext } from "@/lib/mcp/client";
-import { WebscraperMcp } from "@/lib/mcp/webscraper";
 import {
   scrapeAndClassifyCompany,
   type CompanyHandle,
   type OrchestrationResult,
+  type ScrapeMcps,
 } from "./scrape-and-classify";
 
 export type BatchProgress = (event: {
@@ -24,7 +24,7 @@ export type BatchProgress = (event: {
 export async function runScrapeBatch(
   companies: CompanyHandle[],
   ctx: TenantContext,
-  webscraper: WebscraperMcp,
+  mcps: ScrapeMcps,
   supabase: SupabaseClient,
   opts: {
     concurrency?: number;
@@ -47,7 +47,7 @@ export async function runScrapeBatch(
         const result = await scrapeAndClassifyCompany(
           company,
           ctx,
-          webscraper,
+          mcps,
           supabase,
         );
         results.push(result);
