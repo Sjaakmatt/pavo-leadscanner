@@ -7,36 +7,18 @@ import {
   type LeadStatusRow,
 } from "@/lib/lead-status/types";
 import { factum } from "@/lib/factum/client";
-import { authConfigured, getCurrentUser } from "@/lib/auth/server";
+import { resolveOwnerScope } from "@/lib/auth/server";
 import { email as emailLib } from "@/lib/email/client";
 import { leadStatusEmail } from "@/lib/email/templates";
 
 export const runtime = "nodejs";
-
-// Owner-resolutie. Met auth aan: gebruik user.id (uuid) + e-mail als
-// owner-text. Demo-mode (geen auth): valt terug op header-override of
-// "default".
-async function resolveOwner(req: Request): Promise<{
-  owner: string;
-  ownerId: string | null;
-  email: string;
-}> {
-  if (authConfigured()) {
-    const me = await getCurrentUser();
-    if (me) {
-      return { owner: me.email, ownerId: me.id, email: me.email };
-    }
-  }
-  const fallback = req.headers.get("x-pavo-owner")?.trim() || "default";
-  return { owner: fallback, ownerId: null, email: fallback };
-}
 
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ kvk: string }> },
 ) {
   const { kvk } = await params;
-  const { owner, ownerId } = await resolveOwner(req);
+  const scope = await resolveOwnerScope(req);
   const supabase = tryGetSupabase();
   if (!supabase) {
     return NextResponse.json(
@@ -44,16 +26,18 @@ export async function GET(
       { status: 503 },
     );
   }
-  // Voorkeur: zoek op owner_id (auth.uid). Fallback naar owner-text
-  // zodat pre-auth rijen blijven werken in dev-omgevingen.
-  const query = supabase
+
+  // Met auth aan scopen we op org_id + owner_id; in demo-mode op
+  // owner-text. De API geeft alleen rijen binnen de eigen scope.
+  let query = supabase
     .from("lead_statuses")
     .select("kvk, owner, status, reden, notitie, updated_at, updated_by")
     .eq("kvk", kvk);
-  const { data } = await (ownerId
-    ? query.eq("owner_id", ownerId)
-    : query.eq("owner", owner)
-  ).maybeSingle();
+  if (scope.orgId) query = query.eq("org_id", scope.orgId);
+  query = scope.ownerId
+    ? query.eq("owner_id", scope.ownerId)
+    : query.eq("owner", scope.ownerLabel);
+  const { data } = await query.maybeSingle();
   return NextResponse.json({ status: (data ?? null) as LeadStatusRow | null });
 }
 
@@ -62,8 +46,8 @@ export async function PUT(
   { params }: { params: Promise<{ kvk: string }> },
 ) {
   const { kvk } = await params;
-  const { owner, ownerId, email } = await resolveOwner(req);
-  const updatedBy = email;
+  const scope = await resolveOwnerScope(req);
+  const updatedBy = scope.email;
 
   let body: { status?: string; reden?: string; notitie?: string };
   try {
@@ -88,14 +72,15 @@ export async function PUT(
     );
   }
 
-  const existingQuery = supabase
+  let existingQuery = supabase
     .from("lead_statuses")
     .select("status")
     .eq("kvk", kvk);
-  const { data: existing } = await (ownerId
-    ? existingQuery.eq("owner_id", ownerId)
-    : existingQuery.eq("owner", owner)
-  ).maybeSingle();
+  if (scope.orgId) existingQuery = existingQuery.eq("org_id", scope.orgId);
+  existingQuery = scope.ownerId
+    ? existingQuery.eq("owner_id", scope.ownerId)
+    : existingQuery.eq("owner", scope.ownerLabel);
+  const { data: existing } = await existingQuery.maybeSingle();
   const fromStatus: LeadStatus = (existing?.status as LeadStatus) ?? "nieuw";
   if (!canTransition(fromStatus, next)) {
     return NextResponse.json(
@@ -109,8 +94,9 @@ export async function PUT(
   const now = new Date().toISOString();
   const row = {
     kvk,
-    owner,
-    owner_id: ownerId,
+    owner: scope.ownerLabel,
+    owner_id: scope.ownerId,
+    org_id: scope.orgId,
     status: next,
     reden: body.reden ?? null,
     notitie: body.notitie ?? null,
@@ -130,8 +116,9 @@ export async function PUT(
   await supabase.from("lead_status_history").insert([
     {
       kvk,
-      owner,
-      owner_id: ownerId,
+      owner: scope.ownerLabel,
+      owner_id: scope.ownerId,
+      org_id: scope.orgId,
       status: next,
       reden: body.reden ?? null,
       notitie: body.notitie ?? null,
@@ -147,21 +134,27 @@ export async function PUT(
       ? "task_completed"
       : "info",
     `Lead-status · ${kvk} → ${next}`,
-    { kvk, owner, from: fromStatus, to: next, reden: body.reden ?? null },
+    {
+      kvk,
+      owner: scope.ownerLabel,
+      org_id: scope.orgId,
+      from: fromStatus,
+      to: next,
+      reden: body.reden ?? null,
+    },
   );
 
-  // Team-notifications voor "interessante" overgangen — niet voor
-  // iedere klik-tussen-twee-statussen, alleen wanneer een lead
-  // converteert of voor een gesprek staat. Dropping naar in-app
-  // notifications-tabel zodat collega's het bij hun bell zien.
+  // Team-notifications voor "interessante" overgangen.
   if (
-    ownerId &&
+    scope.ownerId &&
+    scope.orgId &&
     (next === "gesprek" || next === "gewonnen" || next === "verloren")
   ) {
     void notifyTeam(supabase, {
       kvk,
-      ownerId,
-      ownerEmail: email,
+      ownerId: scope.ownerId,
+      ownerEmail: scope.email,
+      orgId: scope.orgId,
       next,
       from: fromStatus,
       reden: body.reden ?? null,
@@ -177,14 +170,17 @@ async function notifyTeam(
     kvk: string;
     ownerId: string;
     ownerEmail: string;
+    orgId: string;
     next: LeadStatus;
     from: LeadStatus;
     reden: string | null;
   },
 ): Promise<void> {
+  // Alleen collega's binnen dezelfde org.
   const { data: profiles } = await supabase
     .from("profiles")
     .select("id, email, notif_email_team")
+    .eq("org_id", args.orgId)
     .neq("id", args.ownerId);
   const recipients = (profiles ?? []) as Array<{
     id: string;
@@ -214,6 +210,7 @@ async function notifyTeam(
 
   const inserts = recipients.map((r) => ({
     user_id: r.id,
+    org_id: args.orgId,
     saved_search_id: null,
     kvk: args.kvk,
     type: "lead_status" as const,

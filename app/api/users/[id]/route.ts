@@ -20,22 +20,38 @@ export async function PATCH(
     }
 
     const admin = supabaseAdminClient();
+
+    // Target moet binnen dezelfde org zitten — anders kan een admin
+    // van A in B gaan zitten rommelen.
+    const { data: target } = await admin
+      .from("profiles")
+      .select("org_id, role, email")
+      .eq("id", id)
+      .maybeSingle();
+    if (!target || target.org_id !== me.orgId) {
+      return NextResponse.json(
+        { error: "User niet gevonden in deze organisatie" },
+        { status: 404 },
+      );
+    }
+
     const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
     if (body.role === "admin" || body.role === "member") {
-      // Veiligheids-check: een admin mag zichzelf niet downgraden als hij
-      // de laatste admin is — anders zit niemand meer in de cockpit.
+      // Laatste-admin guard binnen DE EIGEN ORG (admins van andere
+      // orgs tellen niet mee).
       if (body.role === "member" && id === me.id) {
         const { data: admins } = await admin
           .from("profiles")
           .select("id")
-          .eq("role", "admin");
+          .eq("role", "admin")
+          .eq("org_id", me.orgId);
         if ((admins?.length ?? 0) <= 1) {
           return NextResponse.json(
             {
               error:
-                "Je bent de enige admin — promoot eerst iemand anders voordat je jezelf downgrade.",
+                "Je bent de enige admin in deze organisatie — promoot eerst iemand anders.",
             },
             { status: 400 },
           );
@@ -49,6 +65,7 @@ export async function PATCH(
       .from("profiles")
       .update(updates)
       .eq("id", id)
+      .eq("org_id", me.orgId)
       .select("id, email, full_name, role")
       .maybeSingle();
     if (error) {
@@ -85,22 +102,30 @@ export async function DELETE(
     }
     const admin = supabaseAdminClient();
 
-    // Veiligheids-check: nooit de laatste admin verwijderen.
+    // Target moet in dezelfde org zitten als de admin die delete.
     const { data: target } = await admin
       .from("profiles")
-      .select("role, email")
+      .select("role, email, org_id")
       .eq("id", id)
       .maybeSingle();
-    if (target?.role === "admin") {
+    if (!target || target.org_id !== me.orgId) {
+      return NextResponse.json(
+        { error: "User niet gevonden in deze organisatie" },
+        { status: 404 },
+      );
+    }
+
+    if (target.role === "admin") {
       const { data: admins } = await admin
         .from("profiles")
         .select("id")
-        .eq("role", "admin");
+        .eq("role", "admin")
+        .eq("org_id", me.orgId);
       if ((admins?.length ?? 0) <= 1) {
         return NextResponse.json(
           {
             error:
-              "Dit is de enige admin — je kan 'm niet verwijderen zonder eerst iemand anders te promoten.",
+              "Dit is de enige admin in deze organisatie — promoot eerst iemand anders.",
           },
           { status: 400 },
         );

@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { tryGetSupabase } from "@/lib/supabase/client";
 import { isLeadStatus, type LeadStatus } from "@/lib/lead-status/types";
-import { authConfigured, getCurrentUser } from "@/lib/auth/server";
+import { resolveOwnerScope } from "@/lib/auth/server";
 
 export const runtime = "nodejs";
 
-// Lijst-endpoint: alle statuses voor een owner, optioneel gefilterd op
-// een specifieke status. Gebruikt door de "mijn pipeline"-view.
+// Lijst-endpoint: alle statuses voor een owner binnen z'n org,
+// optioneel gefilterd op specifieke status. Admins zien alle leads
+// binnen de eigen org (zie RLS); deze endpoint draait via service-role
+// + handmatige scoping.
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -19,17 +21,11 @@ export async function GET(req: Request) {
     );
   }
 
-  let ownerId: string | null = null;
-  let owner = "default";
-  if (authConfigured()) {
-    const me = await getCurrentUser();
-    if (!me) {
-      return NextResponse.json({ error: "Niet ingelogd" }, { status: 401 });
-    }
-    ownerId = me.id;
-    owner = me.email;
-  } else {
-    owner = req.headers.get("x-pavo-owner")?.trim() || "default";
+  const scope = await resolveOwnerScope(req);
+  // Geen auth + geen header = bewust niet toegestaan voor list
+  // (was een privacy-risico).
+  if (!scope.ownerId && !req.headers.get("x-pavo-owner")) {
+    return NextResponse.json({ error: "Niet ingelogd" }, { status: 401 });
   }
 
   let query = supabase
@@ -38,7 +34,10 @@ export async function GET(req: Request) {
       "kvk, owner, status, reden, notitie, updated_at, updated_by, companies!inner(naam, plaats, fte_klasse)",
     )
     .order("updated_at", { ascending: false });
-  query = ownerId ? query.eq("owner_id", ownerId) : query.eq("owner", owner);
+  if (scope.orgId) query = query.eq("org_id", scope.orgId);
+  query = scope.ownerId
+    ? query.eq("owner_id", scope.ownerId)
+    : query.eq("owner", scope.ownerLabel);
 
   if (statusFilter && isLeadStatus(statusFilter)) {
     query = query.eq("status", statusFilter as LeadStatus);

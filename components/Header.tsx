@@ -15,6 +15,14 @@ export default async function Header() {
           >
             PAVO Research Agent
           </Link>
+          {user?.orgNaam && (
+            <span
+              className="hidden rounded-md border border-pavo-gray-100 bg-pavo-gray-50 px-2 py-0.5 text-[11px] font-medium text-pavo-gray-600 md:inline-flex"
+              title="Jouw organisatie"
+            >
+              {user.orgNaam}
+            </span>
+          )}
           {user && (
             <nav className="hidden items-center gap-4 md:flex">
               <Link
