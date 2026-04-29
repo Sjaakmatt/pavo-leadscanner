@@ -22,7 +22,13 @@ export class BedrijvenMcp {
 
   async kvkZoeken(
     ctx: TenantContext,
-    args: { sbiCodes: string[]; provincies?: string[]; limit?: number },
+    args: {
+      plaatsen: string[];
+      type?: "hoofdvestiging" | "nevenvestiging" | "rechtspersoon";
+      naam?: string;
+      inclusiefInactief?: boolean;
+      limit?: number;
+    },
   ): Promise<KvkZoekHitT[]> {
     return this.client.callTool("kvk_zoeken", ctx, args, z.array(KvkZoekHit));
   }
