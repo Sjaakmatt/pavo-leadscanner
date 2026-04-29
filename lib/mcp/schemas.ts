@@ -12,24 +12,25 @@ import { z } from "zod";
 
 // ============ mcp-bedrijven ============
 
+// Zoeken-API v2 levert per hit minder data dan basisprofiel — geen sbiCodes
+// (die zitten alleen in basisprofiel) en geen FTE-data. Adres is genest
+// onder `adres.binnenlandsAdres` op de wire, maar de MCP-adapter projecteert
+// naar deze platte vorm.
 export const KvkZoekHit = z
   .object({
     kvkNummer: z.string(),
     naam: z.string(),
-    handelsnaam: z.string().optional(),
     vestigingsnummer: z.string().optional(),
-    sbiCodes: z.array(z.string()),
+    rsin: z.string().optional(),
+    type: z.enum(["hoofdvestiging", "nevenvestiging", "rechtspersoon"]).optional(),
+    actief: z.boolean().optional(),
     adres: z.object({
       straat: z.string().optional(),
       huisnummer: z.string().optional(),
+      huisletter: z.string().optional(),
       postcode: z.string().optional(),
       plaats: z.string(),
-      provincie: z.string().optional(),
     }),
-    // Optioneel: MCP MAG fteKlasse meegeven uit de KvK-werknemers-bucket.
-    // Niet vereist (sommige KvK-records bevatten 'm niet); wanneer wel
-    // aanwezig gebruiken we 'm voor de FTE-filter.
-    fteKlasse: z.string().optional(),
   })
   .passthrough();
 export type KvkZoekHit = z.infer<typeof KvkZoekHit>;
@@ -44,7 +45,6 @@ export const KvkVestiging = z.object({
   vestigingsnummer: z.string(),
   adres: z.object({
     plaats: z.string(),
-    provincie: z.string().optional(),
   }),
   isHoofdvestiging: z.boolean(),
 });
@@ -61,7 +61,11 @@ export const KvkBasisprofiel = z
     bestuurders: z.array(KvkBestuurder),
     vestigingen: z.array(KvkVestiging),
     actief: z.boolean(),
-    fteKlasse: z.string().optional(),
+    // FTE-data direct uit basisprofiel (sinds mcp-bedrijven 0.4.0).
+    totaalWerkzamePersonen: z.number().int().nonnegative().optional(),
+    fteKlasse: z
+      .enum(["0", "1", "2-4", "5-9", "10-19", "20-49", "50-99", "100-249", "250+"])
+      .optional(),
   })
   .passthrough();
 export type KvkBasisprofiel = z.infer<typeof KvkBasisprofiel>;
