@@ -140,7 +140,13 @@ export class McpHttpClient {
         await delay(wait + Math.floor(Math.random() * 100));
       }
     }
-    this.breaker.onFailure();
+    // Tel alleen server-degraded fouten mee voor de breaker. Application-
+    // level fouten (404, isError-tool-results, schema-mismatch) zijn
+    // legitieme uitkomsten en mogen 'm niet openen — anders trippt 'ie
+    // op een handvol uitgeschreven kvk-nummers in een batch van 100.
+    if (lastErr instanceof McpCallError ? lastErr.retryable : true) {
+      this.breaker.onFailure();
+    }
     throw lastErr;
   }
 
@@ -219,7 +225,19 @@ export class McpHttpClient {
         false,
       );
     }
-    return responseSchema.parse(parsed);
+    // Wrap zod-validatie zodat schema-mismatch een non-retryable
+    // McpCallError wordt — anders telt 'ie als "server degraded" en
+    // trippt de breaker bij het eerste handvol records met onverwachte
+    // velden.
+    try {
+      return responseSchema.parse(parsed);
+    } catch (err) {
+      throw new McpCallError(
+        `Schema-mismatch in MCP-response van ${toolName}: ${String(err)}`,
+        toolName,
+        false,
+      );
+    }
   }
 
   private buildHeaders(): Record<string, string> {
