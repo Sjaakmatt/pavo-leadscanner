@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import ArchetypeCard from "@/components/ArchetypeCard";
 import ColdContext from "@/components/ColdContext";
+import CompanyDataCard from "@/components/CompanyDataCard";
 import ContactsCard from "@/components/ContactsCard";
 import LeadBriefing from "@/components/LeadBriefing";
 import LeadChat from "@/components/LeadChat";
@@ -130,6 +131,10 @@ export default function LeadDetailPage({ params }: Props) {
             kvk={lead.kvk}
             fallbackObservatie={lead.observatie}
           />
+        </SectionFade>
+
+        <SectionFade>
+          <CompanyDataCard kvk={lead.kvk} />
         </SectionFade>
 
         <SectionFade>

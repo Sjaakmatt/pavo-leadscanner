@@ -8,7 +8,7 @@ const BRON_DESCRIPTIE: Record<Bron, string> = {
   KvK: "openbaar handelsregister",
   "KvK-historie": "historische mutaties (18 mnd)",
   "KvK-deponering": "jaarrekening-deponering",
-  Jobdigger: "vacature-aggregator",
+  Vacatures: "sitemap + JSON-LD scrape van bedrijfssite",
   bedrijfswebsite: "eigen bedrijfssite (gescand)",
   "Rechtspraak.nl": "gepubliceerde uitspraken",
   NLA: "Nederlandse Arbeidsinspectie",

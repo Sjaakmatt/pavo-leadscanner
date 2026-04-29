@@ -15,7 +15,7 @@ const HARD_BRONNEN: Bron[] = [
   "NLA",
   "Insolventieregister",
   "CBS",
-  "Jobdigger",
+  "Vacatures",
 ];
 
 export function bronSterkte(bron: Bron): BronSterkte {
@@ -62,7 +62,7 @@ Gebruik EXACT de volgende structuur. Iedere sectie begint met een \`## \` kop en
 
 ## Wat we zagen
 - 3 tot 5 bullets, gegroepeerd per bron-type.
-- Begin elke bullet met de bron in **vet** ("**Bedrijfswebsite:** …", "**Jobdigger:** …", "**KvK:** …", "**Rechtspraak.nl:** …", "**Nieuws:** …").
+- Begin elke bullet met de bron in **vet** ("**Bedrijfswebsite:** …", "**Vacatures:** …", "**KvK:** …", "**Rechtspraak.nl:** …", "**Nieuws:** …").
 - Citeer concrete getallen of feiten. Citatie [N] aan het eind.
 - Géén bron herhalen — pak per bron de sterkste observatie.
 
@@ -124,7 +124,7 @@ export function buildSystemPrompt(lead: Lead): string {
 # Stijl
 - Nederlands, zakelijk, bondig. Geen opsommingen langer dan nodig. Geen uitroeptekens, geen emojis.
 - Antwoorden van 2-4 zinnen tenzij de vraag expliciet om meer vraagt.
-- Altijd onderbouwd vanuit de onderstaande lead-data. Niet verzinnen. Als iets niet in de data staat: zeg dat, en beschrijf hoe je het in productie zou ophalen (Jobdigger, KvK-historie, Rechtspraak.nl, bedrijfswebsite, LinkedIn).
+- Altijd onderbouwd vanuit de onderstaande lead-data. Niet verzinnen. Als iets niet in de data staat: zeg dat, en beschrijf hoe je het in productie zou ophalen (vacature-scrape, KvK-historie, Rechtspraak.nl, bedrijfswebsite, LinkedIn).
 - Schrijf over de agent in de ik-vorm ("ik zie in de signalen dat…").
 
 # PAVO-dienstenportfolio
@@ -134,7 +134,7 @@ ${diensten}
 ${archetypes}
 
 # Productie-context
-In productie heb ik via MCP live-toegang tot Jobdigger, KvK (en -historie), Rechtspraak.nl, PDOK geocoding, bedrijfswebsites (headless browser) en LinkedIn-bedrijfspagina's. Hier in de demo werk je met de snapshot hieronder.
+In productie heb ik via MCP live-toegang tot vacature-scraping (sitemap + JSON-LD), KvK (en -historie), Rechtspraak.nl, PDOK geocoding, bedrijfswebsites (headless browser) en LinkedIn-bedrijfspagina's. Hier in de demo werk je met de snapshot hieronder.
 
 # Lead-data (snapshot)
 Naam: ${lead.naam}

@@ -86,7 +86,7 @@ export function buildSearchSteps(
   const refinedCount = Math.max(hitCount + 2, Math.floor(hitCount * 2.5));
 
   lines.push(
-    `Vacature-historie via Jobdigger + bedrijfswebsites gescand voor ${refinedCount} bedrijven`,
+    `Vacature-historie via bedrijfswebsites + sitemaps gescand voor ${refinedCount} bedrijven`,
     `Rechtspraak.nl en KvK-historie gekruist op arbeidsconflicten en FTE-mutaties`,
   );
 
@@ -132,7 +132,7 @@ export function buildLeadSteps(
   const lines = [
     `Bedrijfsgegevens opgehaald uit KvK voor ${lead.naam}`,
     "KvK-historie en bedrijfswebsite geanalyseerd",
-    "Vacature-historie via Jobdigger gekruist (24 mnd)",
+    "Vacature-historie via sitemap + JSON-LD scrape (24 mnd)",
     "Rechtspraak.nl gecontroleerd op arbeidsrechtzaken",
     lead.archetype
       ? `Archetype bepaald: ${lead.archetype.naam}`

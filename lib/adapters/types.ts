@@ -4,7 +4,7 @@ export type Bron =
   | "KvK"
   | "KvK-historie"
   | "KvK-deponering"
-  | "Jobdigger"
+  | "Vacatures"
   | "bedrijfswebsite"
   | "Rechtspraak.nl"
   | "NLA"

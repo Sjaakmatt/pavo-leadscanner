@@ -55,7 +55,7 @@ const BRON_TYPE_TO_BRON: Record<string, Bron> = {
   nla: "NLA",
   insolventie: "Insolventieregister",
   news: "Nieuws",
-  vacatures: "Jobdigger",
+  vacatures: "Vacatures",
 };
 
 export async function GET(

@@ -99,27 +99,123 @@ export async function getCurrentUser(): Promise<AppUser | null> {
     .eq("id", user.id)
     .maybeSingle();
 
-  // Profile kan nog niet bestaan in een race-condition tussen
-  // sign-up en handle_new_user-trigger. Als 'profile' null is, geven
-  // we een minimale AppUser terug zonder org — caller mag besluiten
-  // 'm te 401-en.
-  if (!profile) {
+  // Profile kan ontbreken om twee redenen:
+  // 1. Race-condition tussen sign-up en handle_new_user-trigger
+  // 2. User bestond al in auth.users vóór migration 005 (trigger draaide
+  //    dus nooit voor 'm)
+  // Self-heal: maak alsnog een profile aan met dezelfde logica als de
+  // trigger (eerste user → admin + nieuwe org, rest → member in default org).
+  let resolvedProfile: ProfileRow | null = (profile as unknown as ProfileRow | null);
+  if (!resolvedProfile) {
     console.warn(
-      `[auth/getCurrentUser] user OK maar profile ontbreekt voor ${user.id} — handle_new_user-trigger niet gedraaid?`,
+      `[auth/getCurrentUser] profile ontbreekt voor ${user.id} — auto-heal poging`,
     );
+    resolvedProfile = await ensureProfile(user.id, user.email, user.user_metadata);
+    if (!resolvedProfile) {
+      console.warn(
+        `[auth/getCurrentUser] auto-heal faalde voor ${user.id} — geen profile, geen org`,
+      );
+      return null;
+    }
+  }
+
+  const org = resolvedProfile.organizations;
+  return {
+    id: user.id,
+    email: resolvedProfile.email ?? user.email,
+    fullName: resolvedProfile.full_name ?? null,
+    role: (resolvedProfile.role as AppRole) ?? "member",
+    orgId: resolvedProfile.org_id as string,
+    orgNaam: org?.naam ?? null,
+  };
+}
+
+/**
+ * Maak een profiles-row + org aan voor een user die wél in auth.users
+ * staat maar nog geen profile heeft. Mirror van handle_new_user-trigger
+ * (zie supabase/migrations/010_organizations.sql) — alleen draait dit
+ * runtime via service-role, voor users die de trigger gemist hebben.
+ *
+ * Gebruikt service-role client zodat we RLS bypassen voor deze
+ * bootstrap-insert. Geen risico: we authenticeerden de user al via
+ * auth.getUser() voor we deze functie aanroepen.
+ */
+type ProfileRow = {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  role: string;
+  org_id: string;
+  organizations: { naam: string } | null;
+};
+
+async function ensureProfile(
+  userId: string,
+  userEmail: string | undefined,
+  userMeta: Record<string, unknown> | undefined,
+): Promise<ProfileRow | null> {
+  // Lazy import om circulaire dependency te voorkomen.
+  const { tryGetSupabase } = await import("@/lib/supabase/client");
+  const admin = tryGetSupabase();
+  if (!admin) return null;
+
+  const fullName =
+    (userMeta?.full_name as string | undefined) ?? userEmail ?? "Onbekend";
+
+  // Bepaal org-id: pak eerste bestaande organisatie. Als er geen org is,
+  // maak een nieuwe 'PAVO' org aan en zet deze user als admin.
+  let orgId: string | null = null;
+  let role: "admin" | "member" = "member";
+  const { data: orgs } = await admin
+    .from("organizations")
+    .select("id")
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (orgs && orgs.length > 0) {
+    orgId = (orgs[0] as { id: string }).id;
+  } else {
+    // Eerste user op een lege install — maak org + maak deze admin.
+    const { data: newOrg, error: orgErr } = await admin
+      .from("organizations")
+      .insert({ naam: "PAVO", slug: "pavo" })
+      .select("id")
+      .single();
+    if (orgErr || !newOrg) {
+      console.warn(`[ensureProfile] org-insert faalde: ${orgErr?.message}`);
+      return null;
+    }
+    orgId = (newOrg as { id: string }).id;
+    role = "admin";
+  }
+
+  // Eerste profile-rij ever? Dan toch admin maken.
+  const { count } = await admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true });
+  if ((count ?? 0) === 0) {
+    role = "admin";
+  }
+
+  const { error: insertErr } = await admin.from("profiles").insert({
+    id: userId,
+    email: userEmail ?? null,
+    full_name: fullName,
+    role,
+    org_id: orgId,
+  });
+  if (insertErr && !insertErr.message.includes("duplicate")) {
+    console.warn(`[ensureProfile] profile-insert faalde: ${insertErr.message}`);
     return null;
   }
 
-  const org = (profile as { organizations?: { naam?: string } | null })
-    .organizations;
-  return {
-    id: user.id,
-    email: profile.email ?? user.email,
-    fullName: profile.full_name ?? null,
-    role: (profile.role as AppRole) ?? "member",
-    orgId: profile.org_id as string,
-    orgNaam: org?.naam ?? null,
-  };
+  // Re-fetch met org join zodat we dezelfde shape teruggeven als
+  // de happy-path query in getCurrentUser().
+  const { data } = await admin
+    .from("profiles")
+    .select("id, email, full_name, role, org_id, organizations:org_id(naam)")
+    .eq("id", userId)
+    .maybeSingle();
+  return (data as unknown as ProfileRow) ?? null;
 }
 
 export async function requireUser(): Promise<AppUser> {
