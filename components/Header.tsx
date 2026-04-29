@@ -32,6 +32,12 @@ export default async function Header() {
                 Leads
               </Link>
               <Link
+                href="/searches"
+                className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+              >
+                Geschiedenis
+              </Link>
+              <Link
                 href="/pipeline"
                 className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
               >
