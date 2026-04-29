@@ -203,6 +203,12 @@ export class McpHttpClient {
     if (!textBlock) {
       throw new McpCallError("Geen text-block in MCP-response", toolName, false);
     }
+    // MCP-tools die falen retourneren `{isError: true, content:[{text: "..."}]}`
+    // met een plain-text error message — geen JSON. Surface de tekst zodat
+    // upstream issues (bv. KvK 520) niet als "Ongeldige JSON" verschijnen.
+    if (json.result?.isError === true) {
+      throw new McpCallError(textBlock.text || "MCP tool error", toolName);
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(textBlock.text);
@@ -284,7 +290,7 @@ export class McpHttpClient {
 // MCP Streamable HTTP kan zowel application/json als text/event-stream
 // retourneren voor JSON-RPC responses. We accepteren beide.
 async function parseJsonRpc(response: Response): Promise<{
-  result?: { content?: unknown[] };
+  result?: { content?: unknown[]; isError?: boolean };
   error?: { message?: string };
 }> {
   const contentType = response.headers.get("content-type") ?? "";
