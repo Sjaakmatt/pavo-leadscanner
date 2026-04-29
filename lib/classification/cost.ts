@@ -59,6 +59,32 @@ export function estimateCostUsd(
   );
 }
 
+// KvK API tariefkaart (zie developers.kvk.nl pricing). Zoeken is gratis;
+// Basisprofiel/Vestigingsprofiel/Naamgeving zijn €0.02 per call. We slaan
+// USD op in de tracker — conversie via een vaste factor zodat het budget
+// in MAX_COST_PER_SEARCH_USD blijft kloppen. Bij sterke EUR-USD-fluctuatie
+// kan EUR_USD_RATE als env-override gezet worden.
+const EUR_USD_RATE = (() => {
+  const env = process.env.EUR_USD_RATE;
+  const n = env ? Number(env) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 1.1;
+})();
+
+const KVK_PRICE_EUR: Record<string, number> = {
+  kvk_zoeken: 0,
+  kvk_basisprofiel: 0.02,
+  kvk_vestigingsprofiel: 0.02,
+  kvk_naamgeving: 0.02,
+  kvk_historie_snapshot: 0.02,
+  pdok_geocode: 0,
+  get_company_website_content: 0,
+};
+
+export function estimateKvkCostUsd(toolName: string): number {
+  const eur = KVK_PRICE_EUR[toolName] ?? 0;
+  return eur * EUR_USD_RATE;
+}
+
 export type ClassifierRun = {
   searchQueryId: string | null;
   kvk: string | null;
@@ -69,12 +95,17 @@ export type ClassifierRun = {
 };
 
 export class CostTracker {
-  private totalUsd = 0;
+  // LLM-classifier kosten + tokens.
+  private llmUsd = 0;
   private inputTokens = 0;
   private outputTokens = 0;
   private cacheReadTokens = 0;
   private cacheCreationTokens = 0;
   private calls = 0;
+  // KvK API kosten + call-counts (per tool). Zoeken is gratis maar tellen
+  // we wel zodat observability ziet hoeveel queries er gedaan zijn.
+  private kvkUsd = 0;
+  private kvkCallsByTool = new Map<string, number>();
   private budgetExceeded = false;
   private readonly budgetUsd: number | null;
 
@@ -86,16 +117,31 @@ export class CostTracker {
 
   record(run: ClassifierRun): number {
     const cost = estimateCostUsd(run.model, run.usage);
-    this.totalUsd += cost;
+    this.llmUsd += cost;
     this.inputTokens += run.usage.input_tokens ?? 0;
     this.outputTokens += run.usage.output_tokens ?? 0;
     this.cacheReadTokens += run.usage.cache_read_input_tokens ?? 0;
     this.cacheCreationTokens += run.usage.cache_creation_input_tokens ?? 0;
     this.calls += 1;
-    if (this.budgetUsd !== null && this.totalUsd > this.budgetUsd) {
+    this.checkBudget();
+    return cost;
+  }
+
+  recordKvkCall(toolName: string): number {
+    const cost = estimateKvkCostUsd(toolName);
+    this.kvkUsd += cost;
+    this.kvkCallsByTool.set(
+      toolName,
+      (this.kvkCallsByTool.get(toolName) ?? 0) + 1,
+    );
+    this.checkBudget();
+    return cost;
+  }
+
+  private checkBudget(): void {
+    if (this.budgetUsd !== null && this.llmUsd + this.kvkUsd > this.budgetUsd) {
       this.budgetExceeded = true;
     }
-    return cost;
   }
 
   shouldHalt(): boolean {
@@ -104,7 +150,10 @@ export class CostTracker {
 
   snapshot(): {
     totalUsd: number;
+    llmUsd: number;
+    kvkUsd: number;
     calls: number;
+    kvkCalls: number;
     inputTokens: number;
     outputTokens: number;
     cacheReadTokens: number;
@@ -112,9 +161,14 @@ export class CostTracker {
     budgetExceeded: boolean;
     budgetUsd: number | null;
   } {
+    let kvkCalls = 0;
+    for (const n of this.kvkCallsByTool.values()) kvkCalls += n;
     return {
-      totalUsd: this.totalUsd,
+      totalUsd: this.llmUsd + this.kvkUsd,
+      llmUsd: this.llmUsd,
+      kvkUsd: this.kvkUsd,
       calls: this.calls,
+      kvkCalls,
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
       cacheReadTokens: this.cacheReadTokens,
