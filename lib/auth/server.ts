@@ -64,9 +64,32 @@ export async function supabaseRouteClient(): Promise<SupabaseClient | null> {
 export async function getCurrentUser(): Promise<AppUser | null> {
   const sb = await supabaseRouteClient();
   if (!sb) return null;
-  const { data: userResp } = await sb.auth.getUser();
+  // Diagnostiek voor de auth-flow: tel cookies + log getUser-uitkomst.
+  // Vooral nuttig om te zien of een Safari/iOS-sessie de cookie wel
+  // meestuurt maar Supabase 'm niet kan resolven (token expired etc).
+  let cookieNames: string[] = [];
+  try {
+    const cookieStore = await cookies();
+    cookieNames = cookieStore
+      .getAll()
+      .map((c) => c.name)
+      .filter((n) => n.startsWith("sb-"));
+  } catch {
+    // OK — alleen voor logging
+  }
+  const { data: userResp, error: userErr } = await sb.auth.getUser();
   const user = userResp.user;
-  if (!user || !user.email) return null;
+  if (!user || !user.email) {
+    if (cookieNames.length > 0 || userErr) {
+      // Logged "halfway through" — cookie present maar geen user, of
+      // expliciet error. Dit is de Safari-failure-mode die we willen
+      // zien in Vercel logs.
+      console.warn(
+        `[auth/getCurrentUser] no user — sb-cookies=[${cookieNames.join(",")}] err=${userErr?.message ?? "none"}`,
+      );
+    }
+    return null;
+  }
 
   const { data: profile } = await sb
     .from("profiles")
@@ -81,6 +104,9 @@ export async function getCurrentUser(): Promise<AppUser | null> {
   // we een minimale AppUser terug zonder org — caller mag besluiten
   // 'm te 401-en.
   if (!profile) {
+    console.warn(
+      `[auth/getCurrentUser] user OK maar profile ontbreekt voor ${user.id} — handle_new_user-trigger niet gedraaid?`,
+    );
     return null;
   }
 
