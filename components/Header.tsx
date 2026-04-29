@@ -23,62 +23,67 @@ export default async function Header() {
               {user.orgNaam}
             </span>
           )}
-          {user && (
-            <nav className="hidden items-center gap-4 md:flex">
-              <Link
-                href="/"
-                className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
-              >
-                Leads
-              </Link>
-              <Link
-                href="/searches"
-                className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
-              >
-                Geschiedenis
-              </Link>
-              <Link
-                href="/pipeline"
-                className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
-              >
-                Pipeline
-              </Link>
-              <Link
-                href="/search-jobs"
-                className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
-              >
-                Jobs
-              </Link>
-              <Link
-                href="/users"
-                className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
-              >
-                Gebruikers
-              </Link>
-              {user.role === "admin" && (
-                <>
-                  <Link
-                    href="/admin/searches"
-                    className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
-                  >
-                    Observability
-                  </Link>
-                  <Link
-                    href="/admin/calibration"
-                    className="text-sm text-pavo-gray-600 transition-colors hover:text-pavo-teal"
-                  >
-                    Calibration
-                  </Link>
-                </>
-              )}
-            </nav>
-          )}
         </div>
         <div className="flex items-center gap-3">
           <ModeBadge />
           <HeaderAuth user={user} />
         </div>
       </div>
+      {(user || authConfigured()) && (
+        <nav
+          className="-mx-px flex items-center gap-4 overflow-x-auto border-t border-pavo-gray-100 px-4 py-2 text-sm md:mx-auto md:max-w-7xl md:gap-5 md:border-t-0 md:px-6 md:py-2"
+          aria-label="Hoofdnavigatie"
+        >
+          <Link
+            href="/"
+            className="whitespace-nowrap text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+          >
+            Leads
+          </Link>
+          <Link
+            href="/searches"
+            className="whitespace-nowrap text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+          >
+            Geschiedenis
+          </Link>
+          <Link
+            href="/pipeline"
+            className="whitespace-nowrap text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+          >
+            Pipeline
+          </Link>
+          <Link
+            href="/search-jobs"
+            className="whitespace-nowrap text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+          >
+            Jobs
+          </Link>
+          {user && (
+            <Link
+              href="/users"
+              className="whitespace-nowrap text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+            >
+              Gebruikers
+            </Link>
+          )}
+          {user?.role === "admin" && (
+            <>
+              <Link
+                href="/admin/searches"
+                className="whitespace-nowrap text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+              >
+                Observability
+              </Link>
+              <Link
+                href="/admin/calibration"
+                className="whitespace-nowrap text-pavo-gray-600 transition-colors hover:text-pavo-teal"
+              >
+                Calibration
+              </Link>
+            </>
+          )}
+        </nav>
+      )}
     </header>
   );
 }
