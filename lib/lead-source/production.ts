@@ -570,8 +570,10 @@ async function fetchBasisprofielenWithFilter(args: {
 
 function hasSbiOverlap(profileSbi: string[], filterSbi: string[]): boolean {
   if (filterSbi.length === 0) return true;
-  const set = new Set(filterSbi);
-  return profileSbi.some((c) => set.has(c));
+  // mapBrancheToSbi retourneert 2-digit prefixes ("41","42","43") terwijl
+  // KvK basisprofiel volledige codes geeft ("41201", "4120"). Prefix-match
+  // werkt voor beide: "41201".startsWith("41") en ook "41201".startsWith("41201").
+  return profileSbi.some((sbi) => filterSbi.some((prefix) => sbi.startsWith(prefix)));
 }
 
 /**
