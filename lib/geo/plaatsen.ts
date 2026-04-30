@@ -29,6 +29,25 @@ export const PLAATSEN: ReadonlyArray<PlaatsRecord> = [
   { naam: "Velsen", coords: { lat: 52.4596, lng: 4.6561 } },
   { naam: "Beverwijk", coords: { lat: 52.4861, lng: 4.6561 } },
   { naam: "IJmuiden", coords: { lat: 52.4607, lng: 4.6122 } },
+  // West-Friesland (Noord-Holland) — kleine plaatsen die we eerder misten
+  { naam: "Enkhuizen", coords: { lat: 52.7019, lng: 5.2906 } },
+  { naam: "Medemblik", coords: { lat: 52.7708, lng: 5.1056 } },
+  { naam: "Schagen", coords: { lat: 52.7872, lng: 4.7972 } },
+  { naam: "Stede Broec", coords: { lat: 52.7158, lng: 5.2053 } },
+  { naam: "Bovenkarspel", coords: { lat: 52.7167, lng: 5.2289 } },
+  { naam: "Andijk", coords: { lat: 52.7456, lng: 5.1844 } },
+  { naam: "Wervershoof", coords: { lat: 52.7311, lng: 5.1503 } },
+  { naam: "Wieringerwerf", coords: { lat: 52.8403, lng: 5.0394 } },
+  { naam: "Hippolytushoef", coords: { lat: 52.9008, lng: 4.9569 } },
+  { naam: "Anna Paulowna", coords: { lat: 52.8722, lng: 4.8631 } },
+  { naam: "Den Burg", coords: { lat: 53.0517, lng: 4.7944 } },
+  { naam: "Volendam", coords: { lat: 52.4944, lng: 5.0728 } },
+  { naam: "Edam", coords: { lat: 52.5117, lng: 5.0436 } },
+  { naam: "Monnickendam", coords: { lat: 52.4583, lng: 5.0411 } },
+  { naam: "Castricum", coords: { lat: 52.5469, lng: 4.6608 } },
+  { naam: "Heiloo", coords: { lat: 52.5994, lng: 4.7039 } },
+  { naam: "Bergen", coords: { lat: 52.6661, lng: 4.6964 } },
+  { naam: "Egmond aan Zee", coords: { lat: 52.6206, lng: 4.6300 } },
 
   // Randstad — Zuid-Holland
   { naam: "Rotterdam", coords: { lat: 51.9244, lng: 4.4777 } },
@@ -167,7 +186,7 @@ export const PLAATSEN: ReadonlyArray<PlaatsRecord> = [
  * `center` ligt, gesorteerd op afstand. Geschikt om door te geven aan
  * `kvk_zoeken({plaatsen})`.
  *
- * Cap op `maxPlaatsen` (default 8) zodat een grote radius niet leidt tot
+ * Cap op `maxPlaatsen` (default 12) zodat een grote radius niet leidt tot
  * een KvK-search die zelf weer 50+ plaatsen probeert af te lopen — kosten
  * blijven zo voorspelbaar.
  */
@@ -176,7 +195,7 @@ export function plaatsenWithinRadius(
   radiusKm: number,
   opts: { maxPlaatsen?: number } = {},
 ): string[] {
-  const max = opts.maxPlaatsen ?? 8;
+  const max = opts.maxPlaatsen ?? 12;
   const withDistance = PLAATSEN
     .map((p) => ({ naam: p.naam, dist: haversineKm(center, p.coords) }))
     .filter((p) => p.dist <= radiusKm)

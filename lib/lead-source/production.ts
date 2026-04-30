@@ -77,7 +77,7 @@ const MAX_BASISPROFIELEN_PER_SEARCH = (() => {
 const DEFAULT_RADIUS_KM = 25;
 // Cap op aantal plaatsen die we per search aflopen — grote radii leveren
 // anders te veel plaatsen op die elk weer hun eigen Zoeken-call doen.
-const MAX_PLAATSEN_PER_SEARCH = 8;
+const MAX_PLAATSEN_PER_SEARCH = 12;
 // Maximum hits die we uit één Zoeken-call accepteren. KvK v2 max = 100.
 const ZOEKEN_PAGE_SIZE = 100;
 const LIMIT_PER_SEARCH = 50;
@@ -169,6 +169,9 @@ export class ProductionLeadSource implements LeadSource {
             { maxPlaatsen: MAX_PLAATSEN_PER_SEARCH },
           )
         : [];
+      console.log(
+        `[funnel] plaatsen=[${targetPlaatsen.join(",")}] center=${filters.regio_center ? `${filters.regio_center.lat.toFixed(2)},${filters.regio_center.lng.toFixed(2)}` : "none"} radius=${filters.regio_straal_km ?? DEFAULT_RADIUS_KM}km branche="${filters.branche}" sbi=[${sbiCodes.join(",")}] fte=[${filters.fte_klassen.join(",")}]`,
+      );
 
       if (targetPlaatsen.length === 0 && filters.regio_center) {
         timing.kvk_ms = Date.now() - kvkStart;
@@ -540,6 +543,18 @@ async function fetchBasisprofielenWithFilter(args: {
   if (kvks.length === 0) return;
 
   const queue = [...kvks];
+  // Diagnostiek: tel waarom kandidaten worden verworpen zodat we via
+  // Vercel-logs kunnen zien of de funnel klopt. "fewer leads than
+  // expected" debug-vraag is anders moeilijk te beantwoorden.
+  const stats = {
+    fetched: 0,
+    nullProfile: 0,
+    rejectedSbi: 0,
+    rejectedFte: 0,
+    rejectedFteUnknown: 0,
+    fetchErr: 0,
+    matched: 0,
+  };
   const workers = Array.from(
     { length: Math.min(args.concurrency, queue.length) },
     async () => {
@@ -551,21 +566,32 @@ async function fetchBasisprofielenWithFilter(args: {
         args.onSpend();
         try {
           const profile = await bedrijven.kvkBasisprofiel(ctx, kvk);
-          if (!profile) continue;
+          stats.fetched += 1;
+          if (!profile) {
+            stats.nullProfile += 1;
+            continue;
+          }
           if (sbiFilter.length > 0 && !hasSbiOverlap(profile.sbiCodes, sbiFilter)) {
+            stats.rejectedSbi += 1;
             continue;
           }
           if (fteFilter.length > 0 && !matchesFteKlasse(profile.fteKlasse, fteFilter)) {
+            if (!profile.fteKlasse) stats.rejectedFteUnknown += 1;
+            else stats.rejectedFte += 1;
             continue;
           }
+          stats.matched += 1;
           args.onMatch(profile);
-        } catch (err) {
-          console.warn(`kvk_basisprofiel ${kvk} faalde: ${String(err)}`);
+        } catch {
+          stats.fetchErr += 1;
         }
       }
     },
   );
   await Promise.all(workers);
+  console.log(
+    `[funnel] basisprofiel: queued=${kvks.length} fetched=${stats.fetched} null=${stats.nullProfile} sbi-out=${stats.rejectedSbi} fte-out=${stats.rejectedFte} fte-unknown-out=${stats.rejectedFteUnknown} err=${stats.fetchErr} matched=${stats.matched} sbiFilter=[${sbiFilter.join(",")}] fteFilter=[${fteFilter.join(",")}]`,
+  );
 }
 
 function hasSbiOverlap(profileSbi: string[], filterSbi: string[]): boolean {
