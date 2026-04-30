@@ -25,44 +25,55 @@ async function loadAllPlaatsen(): Promise<ReadonlyArray<PlaatsRecord>> {
   if (plaatsenCache) return plaatsenCache;
   plaatsenCache = (async () => {
     try {
-      const url = `${PDOK_SEARCH_URL}?q=*&fq=type:woonplaats&rows=3000&fl=woonplaatsnaam,centroide_ll`;
-      const res = await fetch(url, {
-        headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(8_000),
-      });
-      if (!res.ok) {
-        console.warn(`[plaatsen] PDOK returned ${res.status} → fallback to static list`);
-        return PLAATSEN_STATIC;
-      }
-      const json = (await res.json()) as {
-        response?: {
-          docs?: Array<{
-            woonplaatsnaam?: string;
-            centroide_ll?: string;
-          }>;
-        };
-      };
-      const docs = json.response?.docs ?? [];
+      // PDOK Locatieserver accepteert max 100 rows per page; we pagineren
+      // tot we leeg terugkomen of de safety-cap raken. Solr `q=*:*` matcht
+      // alles; `fq=type:woonplaats` filtert tot woonplaatsen (geen
+      // gemeenten/wijken/postcodes).
+      const PAGE_SIZE = 100;
+      const MAX_PAGES = 40; // ~4000 woonplaatsen safety cap (NL heeft ~2500)
       const out: PlaatsRecord[] = [];
       const seen = new Set<string>();
-      for (const d of docs) {
-        const naam = d.woonplaatsnaam;
-        const wkt = d.centroide_ll;
-        if (!naam || !wkt) continue;
-        const m = wkt.match(/POINT\(\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*\)/);
-        if (!m) continue;
-        const lng = parseFloat(m[1]);
-        const lat = parseFloat(m[2]);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-        const key = naam.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({ naam, coords: { lat, lng } });
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const url =
+          `${PDOK_SEARCH_URL}?q=*:*&fq=type:woonplaats&rows=${PAGE_SIZE}` +
+          `&start=${page * PAGE_SIZE}&fl=woonplaatsnaam,centroide_ll`;
+        const res = await fetch(url, {
+          headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (!res.ok) {
+          console.warn(
+            `[plaatsen] PDOK page ${page} returned ${res.status} — stopping pagination at ${out.length}`,
+          );
+          break;
+        }
+        const json = (await res.json()) as {
+          response?: {
+            docs?: Array<{ woonplaatsnaam?: string; centroide_ll?: string }>;
+          };
+        };
+        const docs = json.response?.docs ?? [];
+        if (docs.length === 0) break; // klaar
+        for (const d of docs) {
+          const naam = d.woonplaatsnaam;
+          const wkt = d.centroide_ll;
+          if (!naam || !wkt) continue;
+          const m = wkt.match(/POINT\(\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*\)/);
+          if (!m) continue;
+          const lng = parseFloat(m[1]);
+          const lat = parseFloat(m[2]);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+          const key = naam.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ naam, coords: { lat, lng } });
+        }
+        if (docs.length < PAGE_SIZE) break; // laatste pagina
       }
       if (out.length < 100) {
-        // PDOK gaf wat terug maar te weinig om bruikbaar te zijn — val
-        // terug op de statische lijst.
-        console.warn(`[plaatsen] PDOK returned only ${out.length} plaatsen → fallback to static list`);
+        console.warn(
+          `[plaatsen] PDOK gaf maar ${out.length} woonplaatsen → fallback to static list`,
+        );
         return PLAATSEN_STATIC;
       }
       console.log(`[plaatsen] loaded ${out.length} woonplaatsen from PDOK`);
@@ -97,12 +108,16 @@ const PLAATSEN_STATIC: ReadonlyArray<PlaatsRecord> = [
   { naam: "Velsen", coords: { lat: 52.4596, lng: 4.6561 } },
   { naam: "Beverwijk", coords: { lat: 52.4861, lng: 4.6561 } },
   { naam: "IJmuiden", coords: { lat: 52.4607, lng: 4.6122 } },
-  // West-Friesland (Noord-Holland) — kleine plaatsen die we eerder misten
+  // West-Friesland (Noord-Holland) — kleine plaatsen die we eerder misten.
+  // (Stede Broec is een gemeente i.p.v. woonplaats — KvK kent 'm niet,
+  // dus weggelaten. De woonplaatsen Bovenkarspel/Grootebroek/Lutjebroek
+  // staan apart.)
   { naam: "Enkhuizen", coords: { lat: 52.7019, lng: 5.2906 } },
   { naam: "Medemblik", coords: { lat: 52.7708, lng: 5.1056 } },
   { naam: "Schagen", coords: { lat: 52.7872, lng: 4.7972 } },
-  { naam: "Stede Broec", coords: { lat: 52.7158, lng: 5.2053 } },
   { naam: "Bovenkarspel", coords: { lat: 52.7167, lng: 5.2289 } },
+  { naam: "Grootebroek", coords: { lat: 52.7117, lng: 5.2036 } },
+  { naam: "Lutjebroek", coords: { lat: 52.7236, lng: 5.2122 } },
   { naam: "Andijk", coords: { lat: 52.7456, lng: 5.1844 } },
   { naam: "Wervershoof", coords: { lat: 52.7311, lng: 5.1503 } },
   { naam: "Wieringerwerf", coords: { lat: 52.8403, lng: 5.0394 } },

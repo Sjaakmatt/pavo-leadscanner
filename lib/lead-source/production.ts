@@ -232,11 +232,23 @@ export class ProductionLeadSource implements LeadSource {
           if (newProfiles.length >= remainingNeeded) break;
           if (basisprofielenSpent >= MAX_BASISPROFIELEN_PER_SEARCH) break;
 
-          const hits = await this.bedrijven.kvkZoeken(searchCtx, {
-            plaatsen: [plaats],
-            type: "hoofdvestiging",
-            limit: ZOEKEN_PAGE_SIZE,
-          });
+          // Eén bad plaats (404 omdat KvK 'm niet kent — bv. een gemeente-
+          // naam in plaats van woonplaats) mag niet de hele search afkappen.
+          // PDOK kan in zeldzame gevallen plaats-aliassen teruggeven die
+          // KvK niet herkent; we slaan 'm dan over en gaan door.
+          let hits: Awaited<ReturnType<typeof this.bedrijven.kvkZoeken>>;
+          try {
+            hits = await this.bedrijven.kvkZoeken(searchCtx, {
+              plaatsen: [plaats],
+              type: "hoofdvestiging",
+              limit: ZOEKEN_PAGE_SIZE,
+            });
+          } catch (err) {
+            console.warn(
+              `[funnel] kvk_zoeken faalde voor plaats="${plaats}": ${String(err)}`,
+            );
+            continue;
+          }
           kvkHitsTotal += hits.length;
           emit({ type: "kvk", totalCandidates: kvkHitsTotal });
 
