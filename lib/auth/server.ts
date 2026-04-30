@@ -196,15 +196,24 @@ async function ensureProfile(
     role = "admin";
   }
 
-  const { error: insertErr } = await admin.from("profiles").insert({
-    id: userId,
-    email: userEmail ?? null,
-    full_name: fullName,
-    role,
-    org_id: orgId,
-  });
-  if (insertErr && !insertErr.message.includes("duplicate")) {
-    console.warn(`[ensureProfile] profile-insert faalde: ${insertErr.message}`);
+  // upsert i.p.v. insert: idempotent én race-safe. Bij parallele
+  // self-heal-calls (twee tabs tegelijk) was de oude insert vatbaar voor
+  // duplicate-key errors die we daarna swallowed (incomplete fix). Met
+  // upsert + onConflict='id' is de eerste call de enige effectieve.
+  const { error: insertErr } = await admin
+    .from("profiles")
+    .upsert(
+      {
+        id: userId,
+        email: userEmail ?? null,
+        full_name: fullName,
+        role,
+        org_id: orgId,
+      },
+      { onConflict: "id", ignoreDuplicates: true },
+    );
+  if (insertErr) {
+    console.warn(`[ensureProfile] profile-upsert faalde: ${insertErr.message}`);
     return null;
   }
 

@@ -199,6 +199,11 @@ export const VacatureRawResult = z
     vacatures: z.array(Vacature),
     sitemapUrls: z.array(SitemapEntry),
     oudsteVacature: z.string().optional(),
+    // Welke MCP-adapters daadwerkelijk data hebben geleverd (bv.
+    // ['site-scraping','recruitee']). Optioneel — oudere mcp-vacatures
+    // versies vullen 'm niet, dan rendert de classifier "site-scrape"
+    // als bron-label.
+    sourcesChecked: z.array(z.string()).optional(),
   })
   .passthrough();
 export type VacatureRawResult = z.infer<typeof VacatureRawResult>;

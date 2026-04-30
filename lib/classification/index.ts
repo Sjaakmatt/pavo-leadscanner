@@ -139,14 +139,25 @@ export function classifyVacatures(
 ): Signaal[] {
   if (result.vacatures.length === 0) return [];
   const signalen: Signaal[] = [];
+  const count = result.vacatures.length;
 
-  if (result.vacatures.length >= 5) {
+  // Drempel verlaagd: 1+ vacature gaat al een signaal opleveren, sterkte
+  // schaalt met het aantal. Eerder vereist 5+ wat te streng was — bedrijven
+  // met 2-4 actieve vacatures zijn óók PAVO-relevant ("hiring manager
+  // actief"-archetype). De score-engine combineert dit met andere signalen
+  // dus de uiteindelijke warmte is alsnog conservatief.
+  if (count >= 1) {
+    // Sterkte-curve: 1→25, 2→40, 3→55, 5→80, 8→95, 10+→100
+    const sterkte = Math.min(100, 25 + (count - 1) * 15);
     signalen.push({
       categorie: "veel_open_vacatures",
       cluster: 2,
-      sterkte: Math.min(100, result.vacatures.length * 10),
-      confidence: 95,
-      observatie: `${result.vacatures.length} open vacatures gevonden via sitemap/JSON-LD`,
+      sterkte,
+      confidence: count >= 3 ? 95 : 80,
+      observatie:
+        count === 1
+          ? `1 open vacature gevonden via ${describeSources(result)}`
+          : `${count} open vacatures gevonden via ${describeSources(result)}`,
       bewijs: result.vacatures.slice(0, 5).map((v) => `${v.title} (${v.url})`),
       bronType: "vacatures",
     });
@@ -167,7 +178,39 @@ export function classifyVacatures(
     }
   }
 
+  // Herposte vacatures: dezelfde job-titel verschijnt 2× of vaker. Wijst
+  // op draaideur-werving (kandidaten haken steeds af). Cluster 2-signaal
+  // dat met negatieve_reviews_chaos archetype A4 oplevert.
+  const titleCounts = new Map<string, number>();
+  for (const v of result.vacatures) {
+    if (!v.title) continue;
+    const key = v.title.trim().toLowerCase();
+    titleCounts.set(key, (titleCounts.get(key) ?? 0) + 1);
+  }
+  const dups = [...titleCounts.entries()].filter(([, n]) => n >= 2);
+  if (dups.length > 0) {
+    signalen.push({
+      categorie: "herposte_vacatures",
+      cluster: 2,
+      sterkte: Math.min(100, 50 + dups.length * 15),
+      confidence: 85,
+      observatie: `${dups.length} vacature${dups.length === 1 ? "" : "s"} ${dups.length === 1 ? "is" : "zijn"} meermalen geplaatst (draaideur-signaal)`,
+      bewijs: dups.slice(0, 3).map(([t, n]) => `"${t}" (${n}×)`),
+      bronType: "vacatures",
+    });
+  }
+
   return signalen;
+}
+
+function describeSources(result: VacatureRawResult): string {
+  const sources = (result.sourcesChecked ?? []) as string[] | undefined;
+  if (!sources || sources.length === 0) return "site-scrape";
+  if (sources.includes("recruitee")) return "Recruitee";
+  if (sources.includes("greenhouse")) return "Greenhouse";
+  if (sources.includes("lever")) return "Lever";
+  if (sources.includes("personio")) return "Personio";
+  return sources[0] ?? "site-scrape";
 }
 
 // ---------- news ----------------------------------------------------------
