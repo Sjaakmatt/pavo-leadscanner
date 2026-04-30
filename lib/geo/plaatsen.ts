@@ -1,19 +1,87 @@
-// Statische lijst NL-plaatsen + WGS84-centroids. Gebruikt om vóór de
-// KvK Zoeken-call te bepalen welke plaatsen binnen `radiusKm` van het
-// search-center liggen.
+// Plaatsen-lookup voor de KvK Zoeken-flow. We hebben een lijst plaats-
+// namen + WGS84-centroids nodig om vóór de KvK-call te bepalen welke
+// plaatsen binnen `radiusKm` van het search-center vallen.
 //
-// Bron: open coordinaten (CBS / OpenStreetMap-afgeleid). De ~150 grootste
-// plaatsen dekken >90% van de NL bevolking en zijn voldoende voor PAVO's
-// MKB-target. Een plaats die hier niet in zit valt buiten de search; we
-// kunnen 'm later toevoegen als pavo-gebruikers gaten in de coverage
-// merken (geen migratie nodig — PR met 1 regel toevoegen volstaat).
+// Strategie:
+//   1. Bij eerste call: laad alle ~2500 NL-woonplaatsen uit PDOK
+//      Locatieserver. Eén HTTP-call, gecached voor de levensduur van het
+//      Node-proces (Vercel-lambda).
+//   2. Fallback: statische curated lijst (~150 plaatsen) als PDOK faalt
+//      of niet bereikbaar is. Dekt minimaal de Randstad + grote steden
+//      zodat een search nooit volledig leeg uitvalt.
+//   3. Toekomstige caches kunnen de result naar Supabase stikken zodat
+//      meerdere lambda-instances 'm kunnen delen — voor nu in-memory
+//      per-instance is goed genoeg gezien <500ms PDOK-fetch.
 
 import { haversineKm, type LatLng } from "./pdok";
 
 export type PlaatsRecord = { naam: string; coords: LatLng };
 
+const PDOK_SEARCH_URL = "https://api.pdok.nl/bzk/locatieserver/search/v3_1/free";
+
+let plaatsenCache: Promise<ReadonlyArray<PlaatsRecord>> | null = null;
+
+async function loadAllPlaatsen(): Promise<ReadonlyArray<PlaatsRecord>> {
+  if (plaatsenCache) return plaatsenCache;
+  plaatsenCache = (async () => {
+    try {
+      const url = `${PDOK_SEARCH_URL}?q=*&fq=type:woonplaats&rows=3000&fl=woonplaatsnaam,centroide_ll`;
+      const res = await fetch(url, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!res.ok) {
+        console.warn(`[plaatsen] PDOK returned ${res.status} → fallback to static list`);
+        return PLAATSEN_STATIC;
+      }
+      const json = (await res.json()) as {
+        response?: {
+          docs?: Array<{
+            woonplaatsnaam?: string;
+            centroide_ll?: string;
+          }>;
+        };
+      };
+      const docs = json.response?.docs ?? [];
+      const out: PlaatsRecord[] = [];
+      const seen = new Set<string>();
+      for (const d of docs) {
+        const naam = d.woonplaatsnaam;
+        const wkt = d.centroide_ll;
+        if (!naam || !wkt) continue;
+        const m = wkt.match(/POINT\(\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*\)/);
+        if (!m) continue;
+        const lng = parseFloat(m[1]);
+        const lat = parseFloat(m[2]);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        const key = naam.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ naam, coords: { lat, lng } });
+      }
+      if (out.length < 100) {
+        // PDOK gaf wat terug maar te weinig om bruikbaar te zijn — val
+        // terug op de statische lijst.
+        console.warn(`[plaatsen] PDOK returned only ${out.length} plaatsen → fallback to static list`);
+        return PLAATSEN_STATIC;
+      }
+      console.log(`[plaatsen] loaded ${out.length} woonplaatsen from PDOK`);
+      return out;
+    } catch (err) {
+      console.warn(`[plaatsen] PDOK fetch failed: ${String(err)} → fallback to static list`);
+      return PLAATSEN_STATIC;
+    }
+  })();
+  return plaatsenCache;
+}
+
+/**
+ * Static fallback list — ~150 grootste NL-plaatsen. Wordt alleen gebruikt
+ * als PDOK bereikbaar is maar geen data teruggeeft, of als PDOK een fout
+ * gooit. Niet bedoeld als primaire bron — PDOK is dat.
+ */
 // Volgorde irrelevant; haversine-filter sorteert toch.
-export const PLAATSEN: ReadonlyArray<PlaatsRecord> = [
+const PLAATSEN_STATIC: ReadonlyArray<PlaatsRecord> = [
   // Randstad — Noord-Holland
   { naam: "Amsterdam", coords: { lat: 52.3676, lng: 4.9041 } },
   { naam: "Haarlem", coords: { lat: 52.3874, lng: 4.6462 } },
@@ -190,14 +258,32 @@ export const PLAATSEN: ReadonlyArray<PlaatsRecord> = [
  * een KvK-search die zelf weer 50+ plaatsen probeert af te lopen — kosten
  * blijven zo voorspelbaar.
  */
-export function plaatsenWithinRadius(
+export async function plaatsenWithinRadius(
+  center: LatLng,
+  radiusKm: number,
+  opts: { maxPlaatsen?: number } = {},
+): Promise<string[]> {
+  const max = opts.maxPlaatsen ?? 12;
+  const all = await loadAllPlaatsen();
+  const withDistance = all
+    .map((p) => ({ naam: p.naam, dist: haversineKm(center, p.coords) }))
+    .filter((p) => p.dist <= radiusKm)
+    .sort((a, b) => a.dist - b.dist);
+  return withDistance.slice(0, max).map((p) => p.naam);
+}
+
+/** Synchrone variant op de statische fallback — voor tests of code-paden
+ * waar je geen async kunt gebruiken. Niet de primaire pad. */
+export function plaatsenWithinRadiusStatic(
   center: LatLng,
   radiusKm: number,
   opts: { maxPlaatsen?: number } = {},
 ): string[] {
   const max = opts.maxPlaatsen ?? 12;
-  const withDistance = PLAATSEN
-    .map((p) => ({ naam: p.naam, dist: haversineKm(center, p.coords) }))
+  const withDistance = PLAATSEN_STATIC.map((p) => ({
+    naam: p.naam,
+    dist: haversineKm(center, p.coords),
+  }))
     .filter((p) => p.dist <= radiusKm)
     .sort((a, b) => a.dist - b.dist);
   return withDistance.slice(0, max).map((p) => p.naam);

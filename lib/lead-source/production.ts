@@ -163,7 +163,7 @@ export class ProductionLeadSource implements LeadSource {
       const kvkStart = Date.now();
       const sbiCodes = mapBrancheToSbi(filters.branche);
       const targetPlaatsen = filters.regio_center
-        ? plaatsenWithinRadius(
+        ? await plaatsenWithinRadius(
             filters.regio_center,
             filters.regio_straal_km ?? DEFAULT_RADIUS_KM,
             { maxPlaatsen: MAX_PLAATSEN_PER_SEARCH },
