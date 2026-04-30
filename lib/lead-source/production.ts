@@ -208,6 +208,8 @@ export class ProductionLeadSource implements LeadSource {
       // eerdere searches. Pak alle matches in target-plaatsen meteen.
       const cachedProfiles = await loadCachedProfiles(supabase, {
         plaatsen: targetPlaatsen,
+        center: filters.regio_center,
+        radiusKm: filters.regio_straal_km ?? DEFAULT_RADIUS_KM,
         sbiCodes,
         fteKlassen: filters.fte_klassen,
       });
@@ -416,9 +418,21 @@ export class ProductionLeadSource implements LeadSource {
     const supabase = supabaseServer();
     const ctx = buildTenantContext();
 
-    const profile = await this.bedrijven.kvkBasisprofiel(ctx, kvk);
-    if (!profile) return null;
-    const local = toLocalProfile(profile, null);
+    // Probeer eerst een verse basisprofiel-call; bij failure fall-back op
+    // de gecachete companies-row. Eerder gaf dit endpoint 404 zodra KvK
+    // even niet bereikbaar was — maar als de lead net in een search-run is
+    // gevonden zit 'ie sowieso al in companies en kunnen we 'm wel renderen.
+    let local: LocalKvkBasisprofiel | null = null;
+    try {
+      const profile = await this.bedrijven.kvkBasisprofiel(ctx, kvk);
+      if (profile) local = toLocalProfile(profile, null);
+    } catch (err) {
+      console.warn(`[getLead] KvK basisprofiel ${kvk} faalde: ${String(err)} — val terug op cache`);
+    }
+    if (!local) {
+      local = await loadProfileFromCache(supabase, kvk);
+    }
+    if (!local) return null;
 
     const stale =
       opts.refresh === true ||
@@ -452,33 +466,116 @@ export class ProductionLeadSource implements LeadSource {
   }
 }
 
+/**
+ * Laad één LocalKvkBasisprofiel uit de companies-cache. Wordt gebruikt
+ * door getLead() als fallback wanneer KvK basisprofiel-call faalt — een
+ * lead die al in een search-run is gevonden zit altijd in companies, dus
+ * we kunnen 'm renderen ook al is KvK API tijdelijk down.
+ */
+async function loadProfileFromCache(
+  supabase: SupabaseClient,
+  kvk: string,
+): Promise<LocalKvkBasisprofiel | null> {
+  const { data } = await supabase
+    .from("companies")
+    .select(
+      "kvk, naam, handelsnaam, website_url, sbi_codes, fte_klasse, plaats, provincie, bestuursvorm, oprichtingsdatum, actief",
+    )
+    .eq("kvk", kvk)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as {
+    kvk: string;
+    naam: string;
+    handelsnaam: string | null;
+    website_url: string | null;
+    sbi_codes: string[] | null;
+    fte_klasse: string | null;
+    plaats: string | null;
+    provincie: string | null;
+    bestuursvorm: string | null;
+    oprichtingsdatum: string | null;
+    actief: boolean;
+  };
+  return {
+    kvkNummer: row.kvk,
+    naam: row.naam,
+    handelsnaam: row.handelsnaam ?? undefined,
+    websiteUrl: row.website_url ?? undefined,
+    sbiCodes: row.sbi_codes ?? [],
+    fteKlasse: (row.fte_klasse ?? undefined) as LocalKvkBasisprofiel["fteKlasse"],
+    bestuursvorm: row.bestuursvorm ?? undefined,
+    oprichtingsdatum: row.oprichtingsdatum ?? undefined,
+    actief: row.actief,
+    bestuurders: [],
+    vestigingen: row.plaats
+      ? [
+          {
+            vestigingsnummer: "",
+            isHoofdvestiging: true,
+            handelsnaam: row.handelsnaam ?? row.naam,
+            adres: `${row.plaats}${row.provincie ? `, ${row.provincie}` : ""}`,
+            plaats: row.plaats,
+            provincie: row.provincie ?? undefined,
+          },
+        ]
+      : [],
+    plaats: row.plaats ?? undefined,
+    provincie: row.provincie ?? undefined,
+    raw: null,
+  };
+}
+
 // ---------- helpers -------------------------------------------------------
 
 /**
- * Lees companies-cache: alle bekende kvk's in de target-plaatsen die
- * voldoen aan SBI- en FTE-filter. Cache-hit → €0 per kvk; we omzeilen
- * Zoeken én basisprofiel volledig voor bekende bedrijven.
+ * Lees companies-cache: alle bekende kvk's in het zoekgebied die voldoen
+ * aan SBI- en FTE-filter. Cache-hit → €0 per kvk; we omzeilen Zoeken én
+ * basisprofiel volledig voor bekende bedrijven.
  *
- * De companies-tabel wordt gevuld bij elke search die wél basisprofielen
+ * Geo-lookup via lat/lng bounding-box i.p.v. `plaats IN (...)`. PDOK levert
+ * woonplaatsen voor `targetPlaatsen`, maar KvK basisprofiel kan een
+ * vestiging registreren in een nabijgelegen woonplaats die niet in onze
+ * target-set zit. Een name-match miste die — een geo-bbox dekt wél.
+ *
+ * De companies-tabel wordt gevuld bij elke search die basisprofielen
  * fetcht; na een paar runs in een regio is dit zelfvoorzienend.
  */
 async function loadCachedProfiles(
   supabase: SupabaseClient,
   args: {
     plaatsen: string[];
+    center: LatLng | null;
+    radiusKm: number;
     sbiCodes: string[];
     fteKlassen: FteKlasse[];
   },
 ): Promise<LocalKvkBasisprofiel[]> {
-  if (args.plaatsen.length === 0) return [];
-
   let query = supabase
     .from("companies")
     .select(
-      "kvk, naam, handelsnaam, website_url, sbi_codes, fte_klasse, plaats, provincie, bestuursvorm, oprichtingsdatum, actief",
+      "kvk, naam, handelsnaam, website_url, sbi_codes, fte_klasse, plaats, provincie, bestuursvorm, oprichtingsdatum, actief, lat, lng",
     )
-    .in("plaats", args.plaatsen)
     .eq("actief", true);
+
+  if (args.center) {
+    // Bounding-box: 1° latitude ≈ 111 km; longitude wordt smaller naar
+    // het noorden (cos(lat)). Voor NL ~52° is 1° lng ≈ 68 km. Iets ruimer
+    // dan strikt de cirkel — false positives filteren we later weg in
+    // applyGeoFilter via haversine.
+    const dLat = args.radiusKm / 111;
+    const dLng = args.radiusKm / (111 * Math.cos((args.center.lat * Math.PI) / 180));
+    query = query
+      .gte("lat", args.center.lat - dLat)
+      .lte("lat", args.center.lat + dLat)
+      .gte("lng", args.center.lng - dLng)
+      .lte("lng", args.center.lng + dLng);
+  } else if (args.plaatsen.length > 0) {
+    // Geen center → val terug op plaats-name match (zeldzaam pad).
+    query = query.in("plaats", args.plaatsen);
+  } else {
+    return [];
+  }
 
   if (args.sbiCodes.length > 0) {
     query = query.overlaps("sbi_codes", args.sbiCodes);
@@ -493,7 +590,11 @@ async function loadCachedProfiles(
     return [];
   }
 
-  return ((data ?? []) as Array<{
+  // Post-query haversine: bbox kan companies ~10% buiten de cirkel
+  // includeren. Final-haversine filter knipt die weg.
+  const center = args.center;
+  const radius = args.radiusKm;
+  const filtered = ((data ?? []) as Array<{
     kvk: string;
     naam: string;
     handelsnaam?: string | null;
@@ -505,7 +606,15 @@ async function loadCachedProfiles(
     bestuursvorm: string | null;
     oprichtingsdatum: string | null;
     actief: boolean;
-  }>).map((row) => ({
+    lat: number | null;
+    lng: number | null;
+  }>).filter((row) => {
+    if (!center) return true;
+    if (row.lat === null || row.lng === null) return true; // niet weggooien zonder geo-data
+    return haversineKm(center, { lat: row.lat, lng: row.lng }) <= radius;
+  });
+
+  return filtered.map((row) => ({
     kvkNummer: row.kvk,
     naam: row.naam,
     handelsnaam: row.handelsnaam ?? undefined,

@@ -85,6 +85,20 @@ export function estimateKvkCostUsd(toolName: string): number {
   return eur * EUR_USD_RATE;
 }
 
+/**
+ * Convert intern-tracked USD-bedrag naar EUR voor display. Gebruikt
+ * dezelfde EUR_USD_RATE zodat ronden van KvK-prijzen consistent blijft
+ * (KvK €0.02 → tracker $0.022 → display €0.020).
+ */
+export function usdToEur(usd: number): number {
+  return usd / EUR_USD_RATE;
+}
+
+export function formatEur(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined) return "—";
+  return `€${usdToEur(Number(usd)).toFixed(2)}`;
+}
+
 export type ClassifierRun = {
   searchQueryId: string | null;
   kvk: string | null;

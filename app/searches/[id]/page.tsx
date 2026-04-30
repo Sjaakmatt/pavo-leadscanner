@@ -28,9 +28,11 @@ function fmtMs(ms: number | null): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+// total_cost_usd in DB is canonical USD; UI toont EUR.
+const EUR_USD_RATE = 1.1;
 function fmtUsd(n: number | null): string {
   if (n === null || n === undefined) return "—";
-  return `$${Number(n).toFixed(2)}`;
+  return `€${(Number(n) / EUR_USD_RATE).toFixed(2)}`;
 }
 
 export default function SearchDetailPage({

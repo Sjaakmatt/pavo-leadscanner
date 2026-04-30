@@ -199,8 +199,10 @@ export default function DashboardPage() {
       );
       setLoading(false);
     } else if (payload.type === "done") {
+      // payload.totalCostUsd is canonical USD; tonen in EUR.
+      const eur = Number(payload.totalCostUsd) / 1.1;
       append(
-        `Klaar · ${payload.totalLeadsReturned} leads · $${Number(payload.totalCostUsd).toFixed(3)}`,
+        `Klaar · ${payload.totalLeadsReturned} leads · €${eur.toFixed(3)}`,
       );
     } else if (payload.type === "error") {
       append(`Fout: ${payload.message}`);

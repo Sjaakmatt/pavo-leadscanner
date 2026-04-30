@@ -34,10 +34,12 @@ export const BRANCHE_TO_SBI: Record<BrancheLabel, string[]> = {
 
 export function mapBrancheToSbi(branche: string): string[] {
   if (!branche || branche === "Alle branches" || branche === "alle") {
-    // All SBI-prefixes combined — rarely useful but keeps the contract.
-    return [
-      ...new Set(Object.values(BRANCHE_TO_SBI).flat()),
-    ];
+    // "Alle branches" = geen SBI-filter. Vroeger retourneerde we de unie
+    // van alle CONFIGUREERDE prefixes (~40 codes), maar dat sloot
+    // bedrijven uit niet-geconfigureerde branches uit (kappers SBI 96,
+    // horeca 56, zorg 86, etc.). Lege array betekent voor de filter
+    // 'no-op' — alle SBI-codes passeren.
+    return [];
   }
   const hit = BRANCHE_TO_SBI[branche as BrancheLabel];
   return hit ?? [];
