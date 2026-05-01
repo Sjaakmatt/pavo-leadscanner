@@ -39,6 +39,7 @@ import companiesData from './companies.json';
 
 const CACHE_DIR = './test-cache';
 const OUTPUT_DIR = './test-output';
+const SAMPLES_PER_BRON = 5;
 
 interface TestCompany {
   kvk: string;
@@ -126,8 +127,6 @@ async function main(): Promise<void> {
       const section = await testCompany(c, mcps, flags);
       sections.push(section);
     } catch (err) {
-      // Zou nu zelden moeten happenen — testCompany vangt classifier-
-      // errors per-bron op zodat één fail de Raw counts niet verbergt.
       console.error(`  FATALE FOUT: ${formatError(err)}`);
       sections.push(`## ${c.naam} (${c.kvk})\n\n**FATALE FOUT:** ${String(err)}\n`);
     }
@@ -153,7 +152,6 @@ async function testCompany(
 ): Promise<string> {
   const parentCtx = buildTenantContext();
 
-  // 1) Resolve website (KvK-aangeleverd of inferred)
   let websiteUrl = c.websiteUrl;
   let websiteSource: 'kvk' | 'inferred' | 'none' = c.websiteUrl ? 'kvk' : 'none';
   if (!websiteUrl) {
@@ -169,7 +167,6 @@ async function testCompany(
     }
   }
 
-  // 2) Fetch 6 raw datasets (parallel)
   const handle = {
     kvk: c.kvk,
     naam: c.naam,
@@ -213,10 +210,6 @@ async function testCompany(
     ),
   ]);
 
-  // 3) Classify (skip wanneer --no-llm). Per-classifier error-isolation:
-  //    een falende Anthropic-call (bv. 401) op één bron mag de andere
-  //    classifiers + de Raw counts niet verbergen. We verzamelen
-  //    failures separaat zodat het rapport ze toont.
   const allSignals: Signaal[] = [];
   const classifierFailures: string[] = [];
   if (!flags.noLlm) {
@@ -246,7 +239,8 @@ async function testCompany(
       const name = named[i].name;
       if (res.status === 'fulfilled') {
         allSignals.push(...res.value);
-        if (res.value.length > 0) console.log(`  · classify ${name}: ${res.value.length} signaal(en)`);
+        if (res.value.length > 0)
+          console.log(`  · classify ${name}: ${res.value.length} signaal(en)`);
       } else {
         const msg = formatError(res.reason);
         classifierFailures.push(`${name}: ${msg}`);
@@ -258,7 +252,6 @@ async function testCompany(
     });
   }
 
-  // 4) Score — stub minimaal profile zodat scoreCompany werkt
   const profileStub = {
     kvkNummer: c.kvk,
     naam: c.naam,
@@ -288,16 +281,15 @@ async function testCompany(
   const score = scoreCompany(profileStub, stored);
 
   return formatCompanySection(c, websiteSource, websiteUrl, allSignals, score, {
-    website: !!website,
-    vacatures: vacatures?.vacatures.length ?? 0,
-    rechtspraak: rechtspraak?.uitspraken.length ?? 0,
-    nla: nla?.overtredingen.length ?? 0,
-    insolventie: insolventie?.zaken.length ?? 0,
-    news: news?.items.length ?? 0,
+    website,
+    vacatures,
+    rechtspraak,
+    nla,
+    insolventie,
+    news,
   }, classifierFailures);
 }
 
-// Per-tool eigen toolCallId zodat dashboard-tracing klopt.
 function childCtx(parent: TenantContext): TenantContext {
   return {
     organizationId: parent.organizationId,
@@ -325,7 +317,7 @@ async function fetchWithFsCache<T>(
         return parsed;
       }
     } catch {
-      // cache miss — doorvallen naar fetch
+      // cache miss
     }
   }
   try {
@@ -348,20 +340,22 @@ async function fetchWithFsCache<T>(
   }
 }
 
+interface RawData {
+  website: WebsiteScrapeResult | null;
+  vacatures: VacatureRawResult | null;
+  rechtspraak: RechtspraakRawResult | null;
+  nla: NlaRawResult | null;
+  insolventie: InsolventieRawResult | null;
+  news: NewsRawResult | null;
+}
+
 function formatCompanySection(
   c: TestCompany,
   websiteSource: 'kvk' | 'inferred' | 'none',
   websiteUrl: string | null,
   signals: Signaal[],
   score: ReturnType<typeof scoreCompany>,
-  rawCounts: {
-    website: boolean;
-    vacatures: number;
-    rechtspraak: number;
-    nla: number;
-    insolventie: number;
-    news: number;
-  },
+  raw: RawData,
   classifierFailures: string[],
 ): string {
   const websiteLabel =
@@ -371,12 +365,20 @@ function formatCompanySection(
         ? `inferred → ${websiteUrl}`
         : 'GEEN (skip website + vacatures)';
 
+  const counts = {
+    vacatures: raw.vacatures?.vacatures.length ?? 0,
+    rechtspraak: raw.rechtspraak?.uitspraken.length ?? 0,
+    nla: raw.nla?.overtredingen.length ?? 0,
+    insolventie: raw.insolventie?.zaken.length ?? 0,
+    news: raw.news?.items.length ?? 0,
+  };
+
   const lines: string[] = [
     `## ${c.naam} (${c.kvk})`,
     '',
     `- Plaats: ${c.plaats} · FTE: ${c.fteKlasse} · SBI: ${c.sbiCodes.join(', ')}`,
     `- Website: ${websiteLabel}`,
-    `- Raw: website=${rawCounts.website ? '✓' : '–'}, vacatures=${rawCounts.vacatures}, rechtspraak=${rawCounts.rechtspraak}, nla=${rawCounts.nla}, insolventie=${rawCounts.insolventie}, news=${rawCounts.news}`,
+    `- Raw: website=${raw.website ? '✓' : '–'}, vacatures=${counts.vacatures}, rechtspraak=${counts.rechtspraak}, nla=${counts.nla}, insolventie=${counts.insolventie}, news=${counts.news}`,
     `- Warmte: **${score.warmte}** · Score: ${score.totale_score} · ${score.archetype?.code ?? '–'} ${score.archetype?.naam ?? ''}`,
     `- Reden: ${score.warmte_reden}`,
     '',
@@ -388,8 +390,17 @@ function formatCompanySection(
     lines.push('');
   }
 
+  // Per-bron raw samples — kwaliteit van MCP-resultaten zichtbaar
+  // maken zodat false-positives (verkeerde rechtsgebied, homoniem-news,
+  // dode vacatures) snel opvallen.
+  appendVacaturesSection(lines, raw.vacatures);
+  appendRechtspraakSection(lines, raw.rechtspraak);
+  appendNlaSection(lines, raw.nla);
+  appendInsolventieSection(lines, raw.insolventie);
+  appendNewsSection(lines, raw.news);
+
   if (signals.length === 0) {
-    lines.push('_Geen signalen gedetecteerd._');
+    lines.push('### Signalen', '', '_Geen signalen gedetecteerd._');
   } else {
     lines.push('### Signalen');
     for (const s of signals) {
@@ -415,6 +426,139 @@ function formatCompanySection(
   return lines.join('\n');
 }
 
+function appendVacaturesSection(lines: string[], raw: VacatureRawResult | null): void {
+  if (!raw) {
+    lines.push('### Vacatures', '', '_MCP-call faalde of skipt (geen websiteUrl)._', '');
+    return;
+  }
+  const sources = raw.sourcesChecked?.length ? ` · sources: ${raw.sourcesChecked.join(', ')}` : '';
+  if (raw.vacatures.length === 0) {
+    lines.push(`### Vacatures (0)${sources}`, '', '_Geen vacatures gevonden._', '');
+    return;
+  }
+  lines.push(`### Vacatures (${raw.vacatures.length})${sources}`);
+  for (const v of raw.vacatures.slice(0, SAMPLES_PER_BRON)) {
+    const date = v.datePosted ? formatDate(v.datePosted) : '?';
+    const titleClean = clean(v.title, 100);
+    lines.push(`- ${date} · "${titleClean}" — ${shortUrl(v.url)}`);
+  }
+  if (raw.vacatures.length > SAMPLES_PER_BRON) {
+    lines.push(`- _… +${raw.vacatures.length - SAMPLES_PER_BRON} meer_`);
+  }
+  lines.push('');
+}
+
+function appendRechtspraakSection(
+  lines: string[],
+  raw: RechtspraakRawResult | null,
+): void {
+  if (!raw) {
+    lines.push('### Rechtspraak', '', '_MCP-call faalde._', '');
+    return;
+  }
+  const skipped = raw.pseudonimiseringSkipped?.length
+    ? ` · pseudoniem-skip: ${raw.pseudonimiseringSkipped.join(', ')}`
+    : '';
+  if (raw.uitspraken.length === 0) {
+    lines.push(
+      `### Rechtspraak (0)${skipped}`,
+      '',
+      `_Geen arbeidsrecht-uitspraken gevonden voor: ${raw.namesTried.join(', ')}_`,
+      '',
+    );
+    return;
+  }
+  lines.push(`### Rechtspraak (${raw.uitspraken.length})${skipped}`);
+  for (const u of raw.uitspraken.slice(0, SAMPLES_PER_BRON)) {
+    const date = formatDate(u.datum);
+    const rg = u.rechtsgebied ? ` · ${u.rechtsgebied}` : '';
+    const titel = u.titel ? clean(u.titel, 80) : '(geen titel)';
+    lines.push(`- ${date}${rg} · ${u.ecli} — "${titel}"`);
+  }
+  if (raw.uitspraken.length > SAMPLES_PER_BRON) {
+    lines.push(`- _… +${raw.uitspraken.length - SAMPLES_PER_BRON} meer_`);
+  }
+  lines.push('');
+}
+
+function appendNlaSection(lines: string[], raw: NlaRawResult | null): void {
+  if (!raw) {
+    lines.push('### NLA-overtredingen', '', '_MCP-call faalde._', '');
+    return;
+  }
+  if (raw.overtredingen.length === 0) {
+    const portals = raw.portalsChecked.length
+      ? ` · gechecked: ${raw.portalsChecked.join(', ')}`
+      : '';
+    lines.push(
+      `### NLA-overtredingen (0)${portals}`,
+      '',
+      '_Geen overtredingen gevonden (NLA-portal nog stub — implementatie volgt)._',
+      '',
+    );
+    return;
+  }
+  lines.push(`### NLA-overtredingen (${raw.overtredingen.length})`);
+  for (const o of raw.overtredingen.slice(0, SAMPLES_PER_BRON)) {
+    const date = formatDate(o.datum);
+    const wet = o.wetsartikel ? ` · ${o.wetsartikel}` : '';
+    lines.push(`- ${date} · ${clean(o.type, 60)}${wet} · bron: ${o.bron}`);
+  }
+  if (raw.overtredingen.length > SAMPLES_PER_BRON) {
+    lines.push(`- _… +${raw.overtredingen.length - SAMPLES_PER_BRON} meer_`);
+  }
+  lines.push('');
+}
+
+function appendInsolventieSection(
+  lines: string[],
+  raw: InsolventieRawResult | null,
+): void {
+  if (!raw) {
+    lines.push('### Insolventie', '', '_MCP-call faalde._', '');
+    return;
+  }
+  if (raw.zaken.length === 0) {
+    lines.push(
+      `### Insolventie (0)`,
+      '',
+      `_Geen faillissement/surseance voor: ${raw.namesTried.join(', ')} (insolventieregister stub — implementatie volgt)._`,
+      '',
+    );
+    return;
+  }
+  lines.push(`### Insolventie (${raw.zaken.length})`);
+  for (const z of raw.zaken.slice(0, SAMPLES_PER_BRON)) {
+    const date = formatDate(z.startdatum);
+    lines.push(`- ${date} · ${z.type.toUpperCase()} · ${clean(z.bedrijfsnaam, 80)}`);
+  }
+  if (raw.zaken.length > SAMPLES_PER_BRON) {
+    lines.push(`- _… +${raw.zaken.length - SAMPLES_PER_BRON} meer_`);
+  }
+  lines.push('');
+}
+
+function appendNewsSection(lines: string[], raw: NewsRawResult | null): void {
+  if (!raw) {
+    lines.push('### News', '', '_MCP-call faalde._', '');
+    return;
+  }
+  if (raw.items.length === 0) {
+    lines.push(`### News (0)`, '', '_Geen nieuwsberichten gevonden._', '');
+    return;
+  }
+  lines.push(`### News (${raw.items.length})`);
+  for (const n of raw.items.slice(0, SAMPLES_PER_BRON)) {
+    const date = formatDate(n.publishedAt);
+    const src = n.source ? ` · ${n.source}` : '';
+    lines.push(`- ${date}${src} · "${clean(n.title, 100)}" — ${shortUrl(n.url)}`);
+  }
+  if (raw.items.length > SAMPLES_PER_BRON) {
+    lines.push(`- _… +${raw.items.length - SAMPLES_PER_BRON} meer_`);
+  }
+  lines.push('');
+}
+
 function buildReport(sections: string[], flags: CliFlags): string {
   const header = [
     `# Test-leads run — ${new Date().toISOString()}`,
@@ -426,6 +570,30 @@ function buildReport(sections: string[], flags: CliFlags): string {
     '',
   ].join('\n');
   return header + sections.join('\n\n---\n\n') + '\n';
+}
+
+function clean(s: string | undefined, max: number): string {
+  if (!s) return '';
+  const c = s.replace(/\s+/g, ' ').trim();
+  return c.length <= max ? c : c.slice(0, max - 1) + '…';
+}
+
+function formatDate(s: string | undefined): string {
+  if (!s) return '?';
+  // Pak alleen YYYY-MM-DD prefix wanneer dat herkenbaar is
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : s.slice(0, 10);
+}
+
+function shortUrl(u: string | undefined): string {
+  if (!u) return '';
+  try {
+    const url = new URL(u);
+    const pathname = url.pathname.length > 60 ? url.pathname.slice(0, 59) + '…' : url.pathname;
+    return `${url.host}${pathname}`;
+  } catch {
+    return u.length > 80 ? u.slice(0, 79) + '…' : u;
+  }
 }
 
 function formatError(err: unknown): string {
