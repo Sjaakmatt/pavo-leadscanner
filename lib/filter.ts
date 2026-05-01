@@ -1,4 +1,7 @@
-import type { SearchFilters } from "./adapters/types";
+import {
+  DEFAULT_MAX_BASISPROFIELEN,
+  type SearchFilters,
+} from "./adapters/types";
 
 export const BRANCHE_OPTIONS = [
   "Alle branches",
@@ -17,6 +20,7 @@ export const DEFAULT_FILTERS: SearchFilters = {
   regio_center: null,
   regio_straal_km: 50,
   signaal_query: "",
+  max_basisprofielen: DEFAULT_MAX_BASISPROFIELEN,
 };
 
 // Geographic centre of the Netherlands — used as the initial map view

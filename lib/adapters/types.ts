@@ -90,12 +90,24 @@ export type Lead = {
   lng?: number;
 };
 
+// Boundary-constants voor de configurable basisprofielen-cap.
+// MIN/MAX zijn ook server-side hard-clamped in production.ts om forged
+// requests te voorkomen die KvK-budgets opblazen.
+export const MIN_BASISPROFIELEN = 10;
+export const MAX_BASISPROFIELEN_HARD_LIMIT = 500;
+export const DEFAULT_MAX_BASISPROFIELEN = 200;
+
 export type SearchFilters = {
   fte_klassen: FteKlasse[];
   branche: string;
   regio_center: LatLng | null;
   regio_straal_km: number;
   signaal_query: string;
+  // Maximaal aantal betaalde KvK-basisprofielen (€0.02 per call) dat
+  // de zoekopdracht mag uitvoeren. Hoger = bredere coverage maar duurder.
+  // Optional zodat oude clients zonder dit veld de env-/server-default
+  // (200) blijven gebruiken. Server clamp 1..MAX_BASISPROFIELEN_HARD_LIMIT.
+  max_basisprofielen?: number;
 };
 
 export type SearchResult = {
