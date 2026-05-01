@@ -89,7 +89,7 @@ export function getClient(): Anthropic {
 // Builds the system prompt. Its bytes are stable per-lead, so a cache
 // breakpoint here gives us ~90% input-token discount on follow-up
 // questions about the same lead.
-export function buildSystemPrompt(lead: Lead): string {
+export function buildSystemPrompt(lead: Lead, websiteUrl: string | null = null): string {
   const diensten = Object.entries(meta.diensten)
     .map(([code, naam]) => `- ${code}: ${naam}`)
     .join("\n");
@@ -148,6 +148,7 @@ Wanneer NIET aanroepen: voor algemene PAVO-portfolio-vragen, archetype-uitleg, o
 # Lead-data (snapshot)
 Naam: ${lead.naam}
 KvK: ${lead.kvk}
+Website: ${websiteUrl ?? "(niet bekend in companies-tabel)"}
 Sector: ${lead.sector}
 Plaats: ${lead.plaats}, ${lead.provincie}
 FTE-klasse: ${lead.fte_klasse}

@@ -13,6 +13,7 @@ import {
 import {
   LEAD_TOOLS,
   executeLeadTool,
+  loadLeadContext,
   newToolBudget,
 } from "@/lib/agent/lead-tools";
 
@@ -63,7 +64,16 @@ export async function POST(
     });
   }
 
-  const system = buildSystemPrompt(lead);
+  // Lead-context: kvk + naam komen uit de URL/snapshot, website komt
+  // uit de companies-tabel. Tools krijgen 'm pre-bound zodat de agent
+  // niet hoeft te raden welke URL de scan gebruikte.
+  const leadCtx = await loadLeadContext(kvk, lead.naam).catch(() => ({
+    kvk,
+    naam: lead.naam,
+    websiteUrl: null,
+  }));
+
+  const system = buildSystemPrompt(lead, leadCtx.websiteUrl);
 
   // Conversation-state voor de tool-use loop. Begin met de user-vraag,
   // groei met assistant-turns + tool-results.
@@ -117,7 +127,7 @@ export async function POST(
             controller.enqueue(
               encoder.encode(`\n\n[🔧 ${block.name}…]\n`),
             );
-            const result = await executeLeadTool(block, budget);
+            const result = await executeLeadTool(block, budget, leadCtx);
             toolResults.push({
               type: "tool_result",
               tool_use_id: result.toolUseId,
