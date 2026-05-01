@@ -29,6 +29,7 @@ import {
 import type { Signaal } from "@/lib/scoring/types";
 import { persistRaw, readRaw, type CachedToolName } from "./raw-cache";
 import { upsertWebsiteContacts } from "@/lib/lead-source/contacts";
+import { inferWebsiteUrl } from "./website-inference";
 import type {
   WebsiteScrapeResult,
   VacatureRawResult,
@@ -57,6 +58,9 @@ export type OrchestrationResult = {
   signalen: Signaal[];
   durationMs: number;
   failures: string[]; // tool-namen die faalden, voor logging
+  // Geinferreerde website-URL als KvK 'm niet leverde — caller kan deze
+  // optioneel terug-persisten naar companies-tabel.
+  inferredWebsiteUrl?: string;
 };
 
 const TOOL_TIMEOUT_MS = 60_000;
@@ -88,11 +92,44 @@ export async function scrapeAndClassifyCompany(
     parentCallId: parentCtx.toolCallId,
   });
 
+  // Website-inference: als KvK-basisprofiel geen websiteUrl had, probeer
+  // 'm af te leiden uit de bedrijfsnaam ("Joz B.V." → joz.nl). Best-effort
+  // — geen match → website + vacatures tasks worden geskipt zoals voorheen.
+  // Persist terug naar companies-tabel zodat volgende search dit niet
+  // opnieuw hoeft te doen.
+  let resolvedWebsiteUrl = company.websiteUrl;
+  let inferredWebsiteUrl: string | undefined;
+  if (!resolvedWebsiteUrl) {
+    try {
+      const inferred = await inferWebsiteUrl(company.naam);
+      if (inferred) {
+        resolvedWebsiteUrl = inferred;
+        inferredWebsiteUrl = inferred;
+        console.log(
+          `[orchestrator] inferred website for ${company.kvk} "${company.naam}": ${inferred}`,
+        );
+        // Best-effort persist; faalt deze update dan loopt de pipeline
+        // gewoon door — next-run probeert opnieuw.
+        void supabase
+          .from("companies")
+          .update({
+            website_url: inferred,
+            last_updated_at: new Date().toISOString(),
+          })
+          .eq("kvk", company.kvk);
+      }
+    } catch (err) {
+      console.warn(
+        `[orchestrator] inferWebsiteUrl faalde voor ${company.kvk}: ${String(err)}`,
+      );
+    }
+  }
+
   // Fase 1: alle scrapers parallel — elk faalt onafhankelijk.
   // Iedere fetch loopt via fetchWithCache() die de raw-cache leest/schrijft.
   const tasks: Array<Promise<{ tool: string; signals: Signaal[] }>> = [];
 
-  if (company.websiteUrl) {
+  if (resolvedWebsiteUrl) {
     tasks.push(
       fetchWithCache<WebsiteScrapeResult>(
         supabase,
@@ -102,7 +139,7 @@ export async function scrapeAndClassifyCompany(
         () =>
           mcps.bedrijven.getCompanyWebsiteContent(
             ctxFor("get_company_website_content"),
-            { url: company.websiteUrl!, maxPages: 5 },
+            { url: resolvedWebsiteUrl!, maxPages: 5 },
           ),
       ).then(async (r) => {
         if (!r) return mark("get_company_website_content");
@@ -124,7 +161,7 @@ export async function scrapeAndClassifyCompany(
         () =>
           mcps.vacatures.extractVacanciesFromCompanySite(
             ctxFor("extract_vacancies_from_company_site"),
-            { url: company.websiteUrl! },
+            { url: resolvedWebsiteUrl! },
           ),
       ).then((r) =>
         r
@@ -223,6 +260,7 @@ export async function scrapeAndClassifyCompany(
     signalen: allSignals,
     durationMs: Date.now() - start,
     failures,
+    inferredWebsiteUrl,
   };
 
   function mark(tool: string): { tool: string; signals: Signaal[] } {
