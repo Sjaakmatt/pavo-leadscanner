@@ -58,6 +58,21 @@ wijzen — dat zou false-positive signalen aan de scoring opleveren:
 - \`arbeidsrechtzaak_recent\`, \`arbeidsrechtzaak_patroon\` →
   alleen vanuit bron-type "rechtspraak". Niet uit news.
 
+  **STRIKT op rechtsgebied:** rapporteer een arbeidsrechtzaak-signaal
+  ALLEEN als de uitspraak EXPLICIET in het rechtsgebied "arbeidsrecht",
+  "ambtenarenrecht" of "sociaal recht" valt. Check het "rechtsgebied"-
+  veld in de raw bron-data. Cases over BPM-belasting, strafrecht,
+  bestuursrecht, vreemdelingenrecht, civielrecht-niet-arbeid,
+  belastingrecht etc. die toevallig op de bedrijfsnaam matchen zijn
+  FALSE POSITIVES — sla ze over, ook als ze in dezelfde rechtbank en
+  hetzelfde jaar zitten als andere uitspraken. Drie BPM-zaken zijn
+  GEEN "patroon van arbeidsrechtelijke geschillen".
+
+  **STRIKT op naam-aanwezigheid:** de bedrijfsnaam (of een evidente
+  variant zonder B.V./N.V.-suffix) MOET letterlijk voorkomen in de
+  uitspraak-tekst of titel. Als de naam alleen indirect is afgeleid
+  uit een geanonimiseerde eiser of een gemachtigde → niet rapporteren.
+
 Categorieën die NIET rapporteren — er is geen sluitende bron beschikbaar:
 
 - \`recruiter_overload\` (vraagt aparte HR-tooling/data)
