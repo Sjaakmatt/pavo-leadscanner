@@ -7,3 +7,6 @@ out
 .vercel
 next-env.d.ts
 tsconfig.tsbuildinfo
+# Test-leads CLI: ruwe MCP-responses + run-rapporten — alleen lokaal
+test-cache/
+test-output/
