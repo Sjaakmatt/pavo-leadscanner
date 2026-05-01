@@ -610,7 +610,10 @@ async function loadCachedProfiles(
     lng: number | null;
   }>).filter((row) => {
     if (!center) return true;
-    if (row.lat === null || row.lng === null) return true; // niet weggooien zonder geo-data
+    // Strict: bedrijven in de cache zonder lat/lng kunnen niet betrouwbaar
+    // tegen een straal getoetst worden — uitsluiten is veiliger dan
+    // mogelijk een Almere-bedrijf in een Westwoud-search te tonen.
+    if (row.lat === null || row.lng === null) return false;
     return haversineKm(center, { lat: row.lat, lng: row.lng }) <= radius;
   });
 
@@ -822,10 +825,18 @@ async function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
   if (!center) {
     return { kept: enriched, coords: coordsByPlaats };
   }
+  // Strict mode wanneer regio_center is gezet: bedrijven zonder plaats
+  // OF zonder gecachete/PDOK-coords kunnen niet geverifieerd worden tegen
+  // de straal. De vorige "graceful keep" fallback (return true) liet
+  // bedrijven uit andere provincies doorglippen wanneer PDOK een
+  // plaats-geocode niet leverde — symptoom: een Westwoud + 10km zoekopdracht
+  // gaf 12 Almere-leads (~45km verderop) omdat coords voor "Almere"
+  // onterecht ontbraken in de cache. Nu: liever uitsluiten dan een verre
+  // lead opnemen.
   const kept = enriched.filter(({ profile }) => {
-    if (!profile.plaats) return true;
+    if (!profile.plaats) return false;
     const coords = coordsByPlaats.get(profile.plaats);
-    if (!coords) return true;
+    if (!coords) return false;
     return haversineKm(center, coords) <= radiusKm;
   });
   return { kept, coords: coordsByPlaats };
@@ -930,9 +941,12 @@ async function fetchRecentSignals(
   ttlDays: number,
 ): Promise<StoredSignal[]> {
   const cutoff = new Date(Date.now() - ttlDays * 86_400_000).toISOString();
+  // detected_at meeselecteren — scoring/index.ts::recencyFactor() heeft
+  // 'm nodig voor de exp-decay. Zonder deze kolom in SELECT viel decay
+  // permanent op 1, waardoor oude signalen even zwaar telden als verse.
   const { data } = await supabase
     .from("signals")
-    .select("categorie, cluster, sterkte, confidence, observatie, bron_type, bron_url, bewijs")
+    .select("categorie, cluster, sterkte, confidence, observatie, detected_at, bron_type, bron_url, bewijs")
     .eq("kvk", kvk)
     .gte("detected_at", cutoff);
   return ((data ?? []) as Array<{
