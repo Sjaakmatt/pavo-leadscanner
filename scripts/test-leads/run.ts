@@ -75,7 +75,6 @@ async function main(): Promise<void> {
   const flags = parseFlags();
   VERBOSE = flags.verbose;
 
-  // Banner: toont env-config zodat je direct ziet of iets ontbreekt.
   console.log('=== test-leads CLI ===');
   console.log(`mode: refresh=${flags.refresh} noLlm=${flags.noLlm} verbose=${flags.verbose}`);
   try {
@@ -93,6 +92,14 @@ async function main(): Promise<void> {
   console.log(`vacatures URL: ${truncate(requireVacaturesUrl(), 60)}`);
   console.log(`juridisch URL: ${truncate(requireJuridischUrl(), 60)}`);
   console.log(`news URL:      ${truncate(requireNewsUrl(), 60)}`);
+  if (!flags.noLlm) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.warn(
+        `\nWAARSCHUWING: ANTHROPIC_API_KEY niet gezet. Classifiers gaan ` +
+          `falen met 401. Gebruik --no-llm of zet de key in .env.local.`,
+      );
+    }
+  }
   console.log('');
 
   const companies = (companiesData as TestCompany[]).filter(
@@ -119,8 +126,10 @@ async function main(): Promise<void> {
       const section = await testCompany(c, mcps, flags);
       sections.push(section);
     } catch (err) {
-      console.error(`  FOUT: ${formatError(err)}`);
-      sections.push(`## ${c.naam} (${c.kvk})\n\n**FOUT:** ${String(err)}\n`);
+      // Zou nu zelden moeten happenen — testCompany vangt classifier-
+      // errors per-bron op zodat één fail de Raw counts niet verbergt.
+      console.error(`  FATALE FOUT: ${formatError(err)}`);
+      sections.push(`## ${c.naam} (${c.kvk})\n\n**FATALE FOUT:** ${String(err)}\n`);
     }
   }
 
@@ -142,9 +151,6 @@ async function testCompany(
   },
   flags: CliFlags,
 ): Promise<string> {
-  // Per bedrijf: één parent-toolCallId zodat dashboard alle child-calls
-  // onder één run groepeert. Echte tenant-id's uit env (productie-MCPs
-  // weigeren anders de call).
   const parentCtx = buildTenantContext();
 
   // 1) Resolve website (KvK-aangeleverd of inferred)
@@ -207,20 +213,49 @@ async function testCompany(
     ),
   ]);
 
-  // 3) Classify (skip wanneer --no-llm)
+  // 3) Classify (skip wanneer --no-llm). Per-classifier error-isolation:
+  //    een falende Anthropic-call (bv. 401) op één bron mag de andere
+  //    classifiers + de Raw counts niet verbergen. We verzamelen
+  //    failures separaat zodat het rapport ze toont.
   const allSignals: Signaal[] = [];
+  const classifierFailures: string[] = [];
   if (!flags.noLlm) {
     const classifierHandle = { kvk: c.kvk, naam: c.naam };
-    const tasks: Array<Promise<Signaal[]>> = [];
-    if (website) tasks.push(classifyWebsite(classifierHandle, website));
-    if (vacatures) tasks.push(Promise.resolve(classifyVacatures(classifierHandle, vacatures)));
-    if (rechtspraak) tasks.push(classifyRechtspraak(classifierHandle, rechtspraak));
-    if (nla) tasks.push(classifyNla(classifierHandle, nla));
+    const named: Array<{ name: string; promise: Promise<Signaal[]> }> = [];
+    if (website)
+      named.push({ name: 'website', promise: classifyWebsite(classifierHandle, website) });
+    if (vacatures)
+      named.push({
+        name: 'vacatures',
+        promise: Promise.resolve(classifyVacatures(classifierHandle, vacatures)),
+      });
+    if (rechtspraak)
+      named.push({
+        name: 'rechtspraak',
+        promise: classifyRechtspraak(classifierHandle, rechtspraak),
+      });
+    if (nla) named.push({ name: 'nla', promise: classifyNla(classifierHandle, nla) });
     if (insolventie)
-      tasks.push(Promise.resolve(classifyInsolventie(classifierHandle, insolventie)));
-    if (news) tasks.push(classifyNews(classifierHandle, news));
-    const results = await Promise.all(tasks);
-    for (const r of results) allSignals.push(...r);
+      named.push({
+        name: 'insolventie',
+        promise: Promise.resolve(classifyInsolventie(classifierHandle, insolventie)),
+      });
+    if (news) named.push({ name: 'news', promise: classifyNews(classifierHandle, news) });
+    const settled = await Promise.allSettled(named.map((n) => n.promise));
+    settled.forEach((res, i) => {
+      const name = named[i].name;
+      if (res.status === 'fulfilled') {
+        allSignals.push(...res.value);
+        if (res.value.length > 0) console.log(`  · classify ${name}: ${res.value.length} signaal(en)`);
+      } else {
+        const msg = formatError(res.reason);
+        classifierFailures.push(`${name}: ${msg}`);
+        console.warn(`  ✗ classify ${name} faalde: ${msg}`);
+        if (VERBOSE && res.reason instanceof Error && res.reason.stack) {
+          console.warn(`     stack:\n${indentLines(res.reason.stack, '       ')}`);
+        }
+      }
+    });
   }
 
   // 4) Score — stub minimaal profile zodat scoreCompany werkt
@@ -259,7 +294,7 @@ async function testCompany(
     nla: nla?.overtredingen.length ?? 0,
     insolventie: insolventie?.zaken.length ?? 0,
     news: news?.items.length ?? 0,
-  });
+  }, classifierFailures);
 }
 
 // Per-tool eigen toolCallId zodat dashboard-tracing klopt.
@@ -283,8 +318,6 @@ async function fetchWithFsCache<T>(
     try {
       const data = await fs.readFile(cachePath, 'utf-8');
       const parsed = JSON.parse(data) as T | null;
-      // Behandel `null` in cache als cache-miss — voorkomt dat een
-      // eerdere fail permanent gecached blijft.
       if (parsed === null) {
         if (VERBOSE) console.log(`  · ${tool} cache had null, opnieuw fetchen`);
       } else {
@@ -298,8 +331,6 @@ async function fetchWithFsCache<T>(
   try {
     const t0 = Date.now();
     const result = await fn();
-    // Sla niets op als de fetch null/undefined gaf — dan weten we
-    // bij volgende run dat we 'm opnieuw moeten proberen.
     if (result === null || result === undefined) {
       console.log(`  ✗ ${tool} returned null/undefined (${Date.now() - t0}ms) — niet gecached`);
       return null;
@@ -313,7 +344,6 @@ async function fetchWithFsCache<T>(
     if (VERBOSE && err instanceof Error && err.stack) {
       console.warn(`     stack:\n${indentLines(err.stack, '       ')}`);
     }
-    // Niet cachen — volgende run zonder --refresh probeert opnieuw.
     return null;
   }
 }
@@ -332,6 +362,7 @@ function formatCompanySection(
     insolventie: number;
     news: number;
   },
+  classifierFailures: string[],
 ): string {
   const websiteLabel =
     websiteSource === 'kvk'
@@ -350,6 +381,12 @@ function formatCompanySection(
     `- Reden: ${score.warmte_reden}`,
     '',
   ];
+
+  if (classifierFailures.length > 0) {
+    lines.push('### Classifier-failures');
+    for (const f of classifierFailures) lines.push(`- ${f}`);
+    lines.push('');
+  }
 
   if (signals.length === 0) {
     lines.push('_Geen signalen gedetecteerd._');
