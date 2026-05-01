@@ -180,6 +180,13 @@ export async function scrapeAndClassifyCompany(
       () =>
         mcps.juridisch.searchCourtCases(ctxFor("search_court_cases"), {
           company_names: company.zoeknamen,
+          // Pre-filter op rechtsgebied bij de feed. Eerder werd dit
+          // veld leeggelaten waardoor BPM/strafrecht/bestuursrecht-
+          // cases die toevallig op naam matchten doorkwamen en door
+          // de classifier ten onrechte als arbeidsrecht-patroon werden
+          // geïnterpreteerd. Server-side is er een extra strict filter
+          // op rechtsgebied + naam-match (defense in depth).
+          legal_area: "arbeidsrecht",
         }),
     ).then(async (r) =>
       r
