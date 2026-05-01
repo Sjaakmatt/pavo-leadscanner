@@ -5,24 +5,6 @@
  * zonder iedere iteratie de MCPs (en bijhorende tijd/quota) opnieuw te
  * raken. KvK-basisprofielen zijn buiten scope: dit script werkt op een
  * vooraf opgeslagen bedrijfslijst (./companies.json).
- *
- * Flow per bedrijf:
- *   1. Bepaal websiteUrl. Als ontbreekt → inferWebsiteUrl(naam) (cached).
- *   2. Fetch 4 MCPs (website / vacatures / rechtspraak / NLA / insolventie /
- *      news) met `fetchWithFsCache`: leest uit ./test-cache/<kvk>/<tool>.json
- *      tenzij --refresh meegegeven.
- *   3. Roep classifiers aan op de cached data (Claude Haiku — kost tokens
- *      maar geen MCP-quota). Skip met --no-llm voor MCP-only test.
- *   4. Score met `scoreCompany` en log een Markdown-sectie per bedrijf.
- *
- * Gebruik:
- *   npm run test:leads                       # alle bedrijven, gebruik cache
- *   npm run test:leads -- --refresh          # cache leeggooien voor MCP-fetch
- *   npm run test:leads -- --no-llm           # alleen MCP-data verzamelen
- *   npm run test:leads -- --only=36041158    # één bedrijf testen
- *   npm run test:leads -- --out=run.md       # rapport naar file
- *
- * Output: ./test-output/<timestamp>.md tenzij --out anders zegt.
  */
 import 'dotenv/config';
 import * as fs from 'node:fs/promises';
@@ -32,6 +14,7 @@ import { BedrijvenMcp, requireBedrijvenUrl } from '@/lib/mcp/bedrijven';
 import { VacaturesMcp, requireVacaturesUrl } from '@/lib/mcp/vacatures';
 import { JuridischMcp, requireJuridischUrl } from '@/lib/mcp/juridisch';
 import { NewsMcp, requireNewsUrl } from '@/lib/mcp/news';
+import { buildTenantContext } from '@/lib/mcp/tenant';
 import {
   classifyWebsite,
   classifyVacatures,
@@ -70,6 +53,7 @@ interface TestCompany {
 type CliFlags = {
   refresh: boolean;
   noLlm: boolean;
+  verbose: boolean;
   only?: string;
   out?: string;
 };
@@ -79,27 +63,46 @@ function parseFlags(): CliFlags {
   return {
     refresh: args.includes('--refresh'),
     noLlm: args.includes('--no-llm'),
+    verbose: args.includes('--verbose'),
     only: args.find((a) => a.startsWith('--only='))?.split('=')[1],
     out: args.find((a) => a.startsWith('--out='))?.split('=')[1],
   };
 }
 
+let VERBOSE = false;
+
 async function main(): Promise<void> {
   const flags = parseFlags();
+  VERBOSE = flags.verbose;
+
+  // Banner: toont env-config zodat je direct ziet of iets ontbreekt.
+  console.log('=== test-leads CLI ===');
+  console.log(`mode: refresh=${flags.refresh} noLlm=${flags.noLlm} verbose=${flags.verbose}`);
+  try {
+    const ctx = buildTenantContext();
+    console.log(`tenant: org=${ctx.organizationId.slice(0, 8)}… agent=${ctx.agentId.slice(0, 8)}…`);
+  } catch (err) {
+    console.error(
+      `\nFOUT: ${String(err)}\n\n` +
+        `Zet FACTUMAI_ORGANIZATION_ID en FACTUMAI_AGENT_ID in .env.local. ` +
+        `Productie-MCPs weigeren calls zonder geldige tenant.`,
+    );
+    process.exit(1);
+  }
+  console.log(`bedrijven URL: ${truncate(requireBedrijvenUrl(), 60)}`);
+  console.log(`vacatures URL: ${truncate(requireVacaturesUrl(), 60)}`);
+  console.log(`juridisch URL: ${truncate(requireJuridischUrl(), 60)}`);
+  console.log(`news URL:      ${truncate(requireNewsUrl(), 60)}`);
+  console.log('');
+
   const companies = (companiesData as TestCompany[]).filter(
     (c) => !flags.only || c.kvk === flags.only,
   );
-
   if (companies.length === 0) {
     console.error(`Geen bedrijf gevonden voor --only=${flags.only}`);
     process.exit(1);
   }
 
-  const ctx: TenantContext = {
-    organizationId: 'test-org',
-    agentId: 'test-leads-cli',
-    toolCallId: randomId(),
-  };
   const mcps = {
     bedrijven: new BedrijvenMcp(new McpHttpClient(requireBedrijvenUrl())),
     vacatures: new VacaturesMcp(new McpHttpClient(requireVacaturesUrl())),
@@ -113,10 +116,10 @@ async function main(): Promise<void> {
     idx += 1;
     console.log(`\n[${idx}/${companies.length}] ${c.naam} (${c.kvk})`);
     try {
-      const section = await testCompany(c, ctx, mcps, flags);
+      const section = await testCompany(c, mcps, flags);
       sections.push(section);
     } catch (err) {
-      console.error(`  FOUT: ${String(err)}`);
+      console.error(`  FOUT: ${formatError(err)}`);
       sections.push(`## ${c.naam} (${c.kvk})\n\n**FOUT:** ${String(err)}\n`);
     }
   }
@@ -131,7 +134,6 @@ async function main(): Promise<void> {
 
 async function testCompany(
   c: TestCompany,
-  ctx: TenantContext,
   mcps: {
     bedrijven: BedrijvenMcp;
     vacatures: VacaturesMcp;
@@ -140,46 +142,68 @@ async function testCompany(
   },
   flags: CliFlags,
 ): Promise<string> {
+  // Per bedrijf: één parent-toolCallId zodat dashboard alle child-calls
+  // onder één run groepeert. Echte tenant-id's uit env (productie-MCPs
+  // weigeren anders de call).
+  const parentCtx = buildTenantContext();
+
   // 1) Resolve website (KvK-aangeleverd of inferred)
   let websiteUrl = c.websiteUrl;
   let websiteSource: 'kvk' | 'inferred' | 'none' = c.websiteUrl ? 'kvk' : 'none';
   if (!websiteUrl) {
-    websiteUrl = await fetchWithFsCache<string | null>(
+    const inferred = await fetchWithFsCache<string | null>(
       c.kvk,
       'inferred-website',
       flags.refresh,
       async () => (await inferWebsiteUrl(c.naam)) ?? null,
     );
-    if (websiteUrl) websiteSource = 'inferred';
+    if (inferred) {
+      websiteUrl = inferred;
+      websiteSource = 'inferred';
+    }
   }
 
   // 2) Fetch 6 raw datasets (parallel)
-  const handle = { kvk: c.kvk, naam: c.naam, zoeknamen: [c.naam, c.handelsnaam].filter(Boolean) as string[] };
+  const handle = {
+    kvk: c.kvk,
+    naam: c.naam,
+    zoeknamen: [c.naam, c.handelsnaam].filter(Boolean) as string[],
+  };
   const [website, vacatures, rechtspraak, nla, insolventie, news] = await Promise.all([
     websiteUrl
       ? fetchWithFsCache<WebsiteScrapeResult | null>(c.kvk, 'website', flags.refresh, () =>
-          mcps.bedrijven.getCompanyWebsiteContent(ctxFor(ctx), { url: websiteUrl!, maxPages: 5 }),
+          mcps.bedrijven.getCompanyWebsiteContent(childCtx(parentCtx), {
+            url: websiteUrl!,
+            maxPages: 5,
+          }),
         )
       : Promise.resolve(null),
     websiteUrl
       ? fetchWithFsCache<VacatureRawResult | null>(c.kvk, 'vacatures', flags.refresh, () =>
-          mcps.vacatures.extractVacanciesFromCompanySite(ctxFor(ctx), { url: websiteUrl! }),
+          mcps.vacatures.extractVacanciesFromCompanySite(childCtx(parentCtx), {
+            url: websiteUrl!,
+          }),
         )
       : Promise.resolve(null),
     fetchWithFsCache<RechtspraakRawResult | null>(c.kvk, 'rechtspraak', flags.refresh, () =>
-      mcps.juridisch.searchCourtCases(ctxFor(ctx), {
+      mcps.juridisch.searchCourtCases(childCtx(parentCtx), {
         company_names: handle.zoeknamen,
         legal_area: 'arbeidsrecht',
       }),
     ),
     fetchWithFsCache<NlaRawResult | null>(c.kvk, 'nla', flags.refresh, () =>
-      mcps.juridisch.searchLaborInspections(ctxFor(ctx), { search_term: c.naam }),
+      mcps.juridisch.searchLaborInspections(childCtx(parentCtx), { search_term: c.naam }),
     ),
     fetchWithFsCache<InsolventieRawResult | null>(c.kvk, 'insolventie', flags.refresh, () =>
-      mcps.juridisch.searchInsolvencies(ctxFor(ctx), { company_names: handle.zoeknamen }),
+      mcps.juridisch.searchInsolvencies(childCtx(parentCtx), {
+        company_names: handle.zoeknamen,
+      }),
     ),
     fetchWithFsCache<NewsRawResult | null>(c.kvk, 'news', flags.refresh, () =>
-      mcps.news.searchCompanyNews(ctxFor(ctx), { company_name: c.naam, max_results: 20 }),
+      mcps.news.searchCompanyNews(childCtx(parentCtx), {
+        company_name: c.naam,
+        max_results: 20,
+      }),
     ),
   ]);
 
@@ -192,7 +216,8 @@ async function testCompany(
     if (vacatures) tasks.push(Promise.resolve(classifyVacatures(classifierHandle, vacatures)));
     if (rechtspraak) tasks.push(classifyRechtspraak(classifierHandle, rechtspraak));
     if (nla) tasks.push(classifyNla(classifierHandle, nla));
-    if (insolventie) tasks.push(Promise.resolve(classifyInsolventie(classifierHandle, insolventie)));
+    if (insolventie)
+      tasks.push(Promise.resolve(classifyInsolventie(classifierHandle, insolventie)));
     if (news) tasks.push(classifyNews(classifierHandle, news));
     const results = await Promise.all(tasks);
     for (const r of results) allSignals.push(...r);
@@ -238,7 +263,7 @@ async function testCompany(
 }
 
 // Per-tool eigen toolCallId zodat dashboard-tracing klopt.
-function ctxFor(parent: TenantContext): TenantContext {
+function childCtx(parent: TenantContext): TenantContext {
   return {
     organizationId: parent.organizationId,
     agentId: parent.agentId,
@@ -252,13 +277,20 @@ async function fetchWithFsCache<T>(
   tool: string,
   refresh: boolean,
   fn: () => Promise<T>,
-): Promise<T> {
+): Promise<T | null> {
   const cachePath = path.join(CACHE_DIR, kvk, `${tool}.json`);
   if (!refresh) {
     try {
       const data = await fs.readFile(cachePath, 'utf-8');
-      console.log(`  ✓ ${tool} (cache)`);
-      return JSON.parse(data) as T;
+      const parsed = JSON.parse(data) as T | null;
+      // Behandel `null` in cache als cache-miss — voorkomt dat een
+      // eerdere fail permanent gecached blijft.
+      if (parsed === null) {
+        if (VERBOSE) console.log(`  · ${tool} cache had null, opnieuw fetchen`);
+      } else {
+        console.log(`  ✓ ${tool} (cache)`);
+        return parsed;
+      }
     } catch {
       // cache miss — doorvallen naar fetch
     }
@@ -266,13 +298,23 @@ async function fetchWithFsCache<T>(
   try {
     const t0 = Date.now();
     const result = await fn();
+    // Sla niets op als de fetch null/undefined gaf — dan weten we
+    // bij volgende run dat we 'm opnieuw moeten proberen.
+    if (result === null || result === undefined) {
+      console.log(`  ✗ ${tool} returned null/undefined (${Date.now() - t0}ms) — niet gecached`);
+      return null;
+    }
     await fs.mkdir(path.dirname(cachePath), { recursive: true });
     await fs.writeFile(cachePath, JSON.stringify(result, null, 2), 'utf-8');
     console.log(`  ✓ ${tool} (fresh, ${Date.now() - t0}ms)`);
     return result;
   } catch (err) {
-    console.warn(`  ✗ ${tool} faalde: ${String(err)}`);
-    return null as unknown as T;
+    console.warn(`  ✗ ${tool} faalde: ${formatError(err)}`);
+    if (VERBOSE && err instanceof Error && err.stack) {
+      console.warn(`     stack:\n${indentLines(err.stack, '       ')}`);
+    }
+    // Niet cachen — volgende run zonder --refresh probeert opnieuw.
+    return null;
   }
 }
 
@@ -347,6 +389,24 @@ function buildReport(sections: string[], flags: CliFlags): string {
     '',
   ].join('\n');
   return header + sections.join('\n\n---\n\n') + '\n';
+}
+
+function formatError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return String(err);
+}
+
+function indentLines(s: string, prefix: string): string {
+  return s
+    .split('\n')
+    .map((line) => prefix + line)
+    .join('\n');
+}
+
+function truncate(s: string, max: number): string {
+  return s.length <= max ? s : s.slice(0, max - 1) + '…';
 }
 
 function randomId(): string {
