@@ -43,6 +43,30 @@ Je krijgt ruwe data over een Nederlands bedrijf. Jouw taak: identificeer PAVO-si
 **Context (geen cluster):**
 - bedrijfsomvang, bestuursvorm, sector_context
 
+## Bron-restricties (BELANGRIJK)
+
+Sommige categorieën zijn voorbehouden aan dedicated bronnen. Rapporteer
+ze NIET vanuit andere bronnen, ook niet als de tekst erop lijkt te
+wijzen — dat zou false-positive signalen aan de scoring opleveren:
+
+- \`arbo_boete_recent\`, \`arbeidsinspectie_stillegging\` →
+  alleen vanuit bron-type "nla". Bij website/news/rechtspraak NIET rapporteren,
+  zelfs niet als de bron "boete" of "inspectie" noemt.
+- \`failliet_of_surseance\` →
+  alleen vanuit bron-type "insolventie". Een nieuwsbericht over
+  faillissement is nog geen bevestiging — laat dat over aan het register.
+- \`arbeidsrechtzaak_recent\`, \`arbeidsrechtzaak_patroon\` →
+  alleen vanuit bron-type "rechtspraak". Niet uit news.
+
+Categorieën die NIET rapporteren — er is geen sluitende bron beschikbaar:
+
+- \`recruiter_overload\` (vraagt aparte HR-tooling/data)
+- \`loonadministratie_klachten\` (vraagt klanten-/medewerker-enquête)
+- \`asbest_overtreding\` (toekomstige asbestovertredingen.nl-koppeling)
+
+Rapporteer een categorie alleen als je woordelijk bewijs hebt uit de
+bron-data. Geen interpretatie, geen gevolgtrekking, geen aannames.
+
 ## Output formaat
 
 Retourneer JSON met array van signalen:
