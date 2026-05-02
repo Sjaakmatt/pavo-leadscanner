@@ -65,19 +65,19 @@ export default function NotificationBell({ enabled }: { enabled: boolean }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="relative rounded-md border border-pavo-gray-100 bg-white p-1.5 text-pavo-gray-900 hover:border-pavo-teal hover:text-pavo-teal"
+        className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-pavo-ink/[0.08] bg-white/70 text-pavo-gray-600 backdrop-blur-sm transition-colors hover:border-pavo-teal/40 hover:text-pavo-teal"
         aria-label="Meldingen"
       >
         <BellIcon className="h-4 w-4" />
         {unread > 0 && (
-          <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-pavo-orange px-1 text-[10px] font-semibold text-white">
+          <span className="absolute -right-0.5 -top-0.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-gradient-to-br from-pavo-orange to-pavo-coral px-1 text-[10px] font-bold text-white ring-2 ring-white">
             {unread > 9 ? "9+" : unread}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-1 w-80 rounded-lg border border-pavo-gray-100 bg-white p-2 shadow-md">
+        <div className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-2xl border border-pavo-ink/[0.06] bg-white p-2 shadow-card-lg">
           <div className="flex items-center justify-between border-b border-pavo-gray-100 px-2 pb-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
               Meldingen

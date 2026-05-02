@@ -1,6 +1,8 @@
 @import "tailwindcss";
 
 @theme {
+  /* === BESTAANDE TOKENS — niet aanraken zodat alle bestaande
+     componenten consistent blijven werken === */
   --color-pavo-teal: #1B5F6C;
   --color-pavo-teal-dark: #0F3E47;
   --color-pavo-orange: #E87544;
@@ -8,6 +10,7 @@
   --color-pavo-navy: #1E3A5F;
   --color-pavo-gray-50: #F8F9FA;
   --color-pavo-gray-100: #E9ECEF;
+  --color-pavo-gray-200: #CED4DA;
   --color-pavo-gray-600: #6C757D;
   --color-pavo-gray-900: #212529;
 
@@ -17,25 +20,151 @@
   --color-cold-text: #495057;
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* === NIEUWE TOKENS — additief, breken niets === */
+  --color-pavo-teal-bright: #2A8FA3;
+  --color-pavo-coral: #FF6B47;
+  --color-pavo-cream: #FAF7F2;
+  --color-pavo-frost: #F2EFE8;
+  --color-pavo-ink: #0E1B2C;
+  --color-mint: #5FBFAE;
+  --color-amber: #F5B947;
+
+  /* Layered shadows */
+  --shadow-card: 0 1px 2px rgba(14, 36, 64, 0.04), 0 4px 12px rgba(14, 36, 64, 0.04);
+  --shadow-card-lg: 0 2px 4px rgba(14, 36, 64, 0.05), 0 12px 32px rgba(14, 36, 64, 0.08);
+  --shadow-hot: 0 1px 2px rgba(232, 117, 68, 0.12), 0 12px 28px rgba(232, 117, 68, 0.16);
 }
 
 html,
 body {
-  background-color: var(--color-pavo-gray-50);
+  background-color: var(--color-pavo-cream);
   color: var(--color-pavo-gray-900);
 }
 
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "cv11";
+  text-rendering: optimizeLegibility;
+}
+
+/* Page-canvas: warm cream + 2 zachte color-blobs in de hoeken die de
+   leegte breken. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1100px 600px at 0% -10%, rgba(27, 95, 108, 0.10), transparent 60%),
+    radial-gradient(900px 500px at 100% 110%, rgba(232, 117, 68, 0.08), transparent 55%),
+    radial-gradient(700px 400px at 90% 0%, rgba(95, 191, 174, 0.05), transparent 60%);
+}
+
+/* Heel fijn raster — dekking extreem laag (0.022) zodat het onbewust
+   werkt. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.022;
+  background-image:
+    linear-gradient(to right, var(--color-pavo-ink) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-pavo-ink) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 30%, transparent 100%);
+}
+
+/* Headlines — strakker spacing */
+h1, h2, h3 {
+  letter-spacing: -0.022em;
+  font-feature-settings: "ss01", "cv11";
+}
+
+/* Custom scrollbar — past bij het palet */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(14, 36, 64, 0.18) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgba(14, 36, 64, 0.18);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(14, 36, 64, 0.32);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+/* Selection — past bij het brand */
+::selection {
+  background: rgba(232, 117, 68, 0.22);
+  color: var(--color-pavo-gray-900);
 }
 
 /* Prevent iOS Safari auto-zooming form inputs when the declared font-size
-   is below 16px. Desktop keeps the smaller text-sm via Tailwind utilities. */
+   is below 16px. */
 @media (max-width: 767px) {
   input,
   textarea,
   select {
     font-size: 16px;
   }
+}
+
+/* Reusable utility classes via Tailwind v4 @utility */
+@utility surface-card {
+  background: #ffffff;
+  border: 1px solid rgba(14, 36, 64, 0.06);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+}
+
+@utility surface-glass {
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  border: 1px solid rgba(14, 36, 64, 0.06);
+}
+
+@utility glow-orange {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 8px 22px -8px rgba(232, 117, 68, 0.55),
+    0 2px 6px rgba(232, 117, 68, 0.20);
+}
+
+@utility hot-card {
+  background: linear-gradient(180deg, rgba(255, 245, 240, 0.6) 0%, #ffffff 60%);
+  border: 1px solid rgba(232, 117, 68, 0.22);
+  border-radius: 16px;
+  box-shadow: var(--shadow-hot);
+}
+
+/* Leaflet popup re-skin — past bij het surface-systeem */
+.leaflet-popup-content-wrapper {
+  border-radius: 12px !important;
+  padding: 4px !important;
+  box-shadow: 0 8px 24px rgba(14, 36, 64, 0.12) !important;
+  border: 1px solid rgba(14, 36, 64, 0.06) !important;
+}
+.leaflet-popup-tip {
+  box-shadow: 0 4px 8px rgba(14, 36, 64, 0.06) !important;
+}
+.leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.85) !important;
+  font-size: 10px !important;
+  border-radius: 6px 0 0 0 !important;
 }

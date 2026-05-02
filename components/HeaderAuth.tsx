@@ -14,7 +14,9 @@ export default function HeaderAuth({ user }: Props) {
 
   if (!user) {
     return (
-      <span className="text-xs text-pavo-gray-600">Powered by FactumAI</span>
+      <span className="hidden items-center gap-1.5 rounded-full border border-pavo-ink/[0.06] bg-white/60 px-2.5 py-1 text-[11px] font-medium text-pavo-gray-600 sm:inline-flex">
+        Powered by FactumAI
+      </span>
     );
   }
 
@@ -29,31 +31,52 @@ export default function HeaderAuth({ user }: Props) {
     }
   }
 
+  const display = user.fullName ?? user.email;
+
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2 md:gap-2.5">
       <NotificationBell enabled />
-      <div className="hidden text-right md:block">
-        <div className="text-xs font-medium text-pavo-gray-900">
-          {user.fullName ?? user.email}
-        </div>
-        <div className="text-[10px] uppercase tracking-wide text-pavo-gray-600">
-          {user.role}
-        </div>
+
+      <div className="hidden items-center gap-2 rounded-full border border-pavo-ink/[0.08] bg-white/70 py-1 pl-1 pr-2.5 backdrop-blur-sm md:inline-flex">
+        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-pavo-teal to-pavo-navy text-[11px] font-bold text-white">
+          {initials(display)}
+        </span>
+        <span className="flex flex-col leading-tight">
+          <span className="max-w-[170px] truncate text-[12px] font-semibold text-pavo-gray-900">
+            {display}
+          </span>
+          <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-pavo-gray-600">
+            {user.role}
+          </span>
+        </span>
       </div>
+
       <Link
         href="/users"
-        className="rounded-md border border-pavo-gray-100 bg-white px-2 py-1 text-xs text-pavo-gray-900 transition-colors hover:border-pavo-teal hover:text-pavo-teal md:hidden"
+        className="rounded-full border border-pavo-ink/[0.08] bg-white/70 px-2.5 py-1.5 text-[11px] font-semibold text-pavo-gray-900 transition-colors hover:border-pavo-teal/40 hover:text-pavo-teal md:hidden"
       >
         Users
       </Link>
+
       <button
         type="button"
         onClick={handleSignOut}
         disabled={busy}
-        className="rounded-md border border-pavo-gray-100 bg-white px-2.5 py-1 text-xs text-pavo-gray-900 transition-colors hover:border-pavo-teal hover:text-pavo-teal disabled:opacity-50"
+        className="rounded-full border border-pavo-ink/[0.08] bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-pavo-gray-900 transition-colors hover:border-pavo-teal/40 hover:text-pavo-teal disabled:opacity-50"
       >
         {busy ? "Uitloggen…" : "Uitloggen"}
       </button>
     </div>
   );
+}
+
+function initials(name: string) {
+  // Pak voorletters van de eerste twee woorden, of de eerste 2 chars
+  // van het email-localpart wanneer we alleen een email hebben.
+  const cleaned = name.includes("@") ? (name.split("@")[0] ?? name) : name;
+  const parts = cleaned.split(/[\s.\-_]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return cleaned.slice(0, 2).toUpperCase();
 }
