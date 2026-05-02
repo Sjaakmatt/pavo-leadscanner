@@ -32,11 +32,11 @@ export default async function Header() {
         <div className="flex items-center gap-3 md:gap-4">
           <Link
             href="/"
-            className="group inline-flex items-baseline gap-0.5"
+            className="group inline-flex items-start gap-0.5"
             aria-label="PAVO HR — naar dashboard"
           >
             <PavoWordmark />
-            <span className="ml-0.5 text-[10px] font-bold uppercase tracking-[0.06em] text-pavo-orange md:text-[11px]">
+            <span className="-ml-0.5 mt-0.5 text-[10px] font-bold uppercase leading-none tracking-[0.04em] text-pavo-orange md:text-[11px]">
               HR
             </span>
           </Link>
@@ -69,7 +69,7 @@ export default async function Header() {
 function PavoWordmark() {
   return (
     <svg
-      viewBox="0 0 130 32"
+      viewBox="0 0 100 32"
       className="h-7 w-auto md:h-8"
       aria-hidden
     >

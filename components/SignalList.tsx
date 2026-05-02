@@ -115,6 +115,20 @@ function SignalRow({
         <p className="text-[14px] leading-relaxed text-pavo-navy md:text-[15px]">
           {signaal.tekst}
         </p>
+
+        {signaal.bewijs && signaal.bewijs.length > 0 && (
+          <ul className="mt-2 space-y-1 border-l-2 border-pavo-ink/[0.08] pl-3">
+            {signaal.bewijs.slice(0, 3).map((quote, i) => (
+              <li
+                key={i}
+                className="text-xs italic leading-snug text-pavo-gray-600"
+              >
+                &ldquo;{quote}&rdquo;
+              </li>
+            ))}
+          </ul>
+        )}
+
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
           <span
             className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold ${
@@ -143,9 +157,37 @@ function SignalRow({
               · {BRON_DESCRIPTIE[signaal.bron]}
             </span>
           </span>
+          {signaal.bronUrl && (
+            <a
+              href={signaal.bronUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex items-center gap-0.5 font-medium text-pavo-teal underline-offset-2 hover:underline"
+            >
+              bron openen
+              <ExternalIcon className="h-3 w-3" />
+            </a>
+          )}
         </div>
       </div>
     </motion.li>
+  );
+}
+
+function ExternalIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M11 4h5v5M16 4l-7 7M9 6H5v9h9v-4" />
+    </svg>
   );
 }
 

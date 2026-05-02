@@ -233,28 +233,27 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 pb-16 pt-8 md:px-8 md:pt-10">
-      <section className="mb-6 flex items-end justify-between gap-4 md:mb-8">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-pavo-navy md:text-[28px]">
+    <div className="mx-auto max-w-7xl px-4 pb-16 pt-5 md:px-8 md:pt-6">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-xl font-semibold tracking-tight text-pavo-navy md:text-2xl">
             Leads
           </h1>
-          <p className="mt-1 text-sm text-pavo-gray-600">
+          <p className="hidden text-sm text-pavo-gray-600 md:block">
             Stel filters in en laat de agent passende bedrijven onderzoeken.
           </p>
         </div>
-        <div className="hidden items-center gap-1.5 rounded-full border border-pavo-teal/15 bg-pavo-teal/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-pavo-teal sm:inline-flex">
-          <SparkSmall />
-          Agent gereed
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="hidden items-center gap-1.5 rounded-full border border-pavo-teal/15 bg-pavo-teal/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-pavo-teal sm:inline-flex">
+            <SparkSmall />
+            Agent gereed
+          </span>
+          <BackgroundJobButton filters={filters} disabled={loading} />
+          <SavedSearchControls
+            filters={filters}
+            onLoad={(f) => setFilters(f)}
+          />
         </div>
-      </section>
-
-      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-        <BackgroundJobButton filters={filters} disabled={loading} />
-        <SavedSearchControls
-          filters={filters}
-          onLoad={(f) => setFilters(f)}
-        />
       </div>
 
       <FilterBar
