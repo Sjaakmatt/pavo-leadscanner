@@ -206,6 +206,31 @@ export default function FilterBar({
               De agent beperkt zich tot bedrijven binnen deze straal. Geen pin
               = heel Nederland.
             </p>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
+                Max basisprofielen
+              </label>
+              <input
+                type="number"
+                min={10}
+                max={500}
+                step={10}
+                value={filters.max_basisprofielen ?? 200}
+                onChange={(e) =>
+                  onChange({
+                    ...filters,
+                    max_basisprofielen: Number(e.target.value) || 200,
+                  })
+                }
+                className="w-full rounded-lg border border-pavo-gray-100 bg-white px-3 py-2 text-sm text-pavo-gray-900 transition-all duration-200 hover:border-pavo-teal focus:border-pavo-teal focus:outline-none"
+              />
+              <p className="mt-1 text-xs leading-relaxed text-pavo-gray-600">
+                Hard cap op betaalde KvK-calls per zoekopdracht (€0,02
+                per call). Default 200 = €4. Verlaag voor goedkoper, of
+                verhoog voor bredere coverage.
+              </p>
+            </div>
           </div>
         </div>
       </div>

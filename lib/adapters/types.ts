@@ -96,6 +96,13 @@ export type SearchFilters = {
   regio_center: LatLng | null;
   regio_straal_km: number;
   signaal_query: string;
+  /**
+   * Optionele runtime override op het max-aantal betaalde KvK-basisprofielen
+   * per zoekopdracht. Default uit env-var `MAX_BASISPROFIELEN_PER_SEARCH`
+   * (200). Wordt server-side gecapped op het hard-ceiling om kosten-uit-
+   * de-hand-lopen te voorkomen.
+   */
+  max_basisprofielen?: number;
 };
 
 export type SearchResult = {

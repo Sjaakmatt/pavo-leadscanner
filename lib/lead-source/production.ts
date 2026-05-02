@@ -66,13 +66,22 @@ const LEAD_DETAIL_TTL_DAYS = 7;
 const MAX_PARALLEL_SCRAPES = 5;
 const KVK_BASISPROFIEL_CONCURRENCY = 8;
 
-// Hard cap op het aantal betaalde basisprofiel-calls per zoekopdracht.
-// Met €0.02/call → 200 calls = €4 absolute ceiling. Override via
-// `MAX_BASISPROFIELEN_PER_SEARCH` env-var voor power-users.
-const MAX_BASISPROFIELEN_PER_SEARCH = (() => {
+// Hard cap-CEILING op het aantal betaalde basisprofiel-calls per zoek-
+// opdracht. Met €0.02/call → 200 calls = €4 absolute ceiling. Verhogen
+// kan via `MAX_BASISPROFIELEN_PER_SEARCH` env-var. Per-search runtime-
+// override gaat via SearchFilters.max_basisprofielen, maar wordt altijd
+// gecapped op dit ceiling.
+const MAX_BASISPROFIELEN_CEILING = (() => {
   const raw = Number(process.env.MAX_BASISPROFIELEN_PER_SEARCH ?? 200);
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 200;
 })();
+
+function resolveBasisBudget(override: number | undefined): number {
+  if (typeof override !== "number" || !Number.isFinite(override) || override <= 0) {
+    return MAX_BASISPROFIELEN_CEILING;
+  }
+  return Math.min(Math.floor(override), MAX_BASISPROFIELEN_CEILING);
+}
 
 const DEFAULT_RADIUS_KM = 25;
 // Cap op aantal plaatsen die we per search aflopen — grote radii leveren
@@ -227,12 +236,13 @@ export class ProductionLeadSource implements LeadSource {
       const knownKvks = new Set(cachedProfiles.map((p) => p.kvkNummer));
       const newProfiles: LocalKvkBasisprofiel[] = [];
       let basisprofielenSpent = 0;
+      const basisBudget = resolveBasisBudget(filters.max_basisprofielen);
       let kvkHitsTotal = cachedProfiles.length;
 
       if (remainingNeeded > 0) {
         for (const plaats of targetPlaatsen) {
           if (newProfiles.length >= remainingNeeded) break;
-          if (basisprofielenSpent >= MAX_BASISPROFIELEN_PER_SEARCH) break;
+          if (basisprofielenSpent >= basisBudget) break;
 
           // Eén bad plaats (404 omdat KvK 'm niet kent — bv. een gemeente-
           // naam in plaats van woonplaats) mag niet de hele search afkappen.
@@ -265,7 +275,7 @@ export class ProductionLeadSource implements LeadSource {
             kvks: candidates,
             sbiFilter: sbiCodes,
             fteFilter: filters.fte_klassen,
-            spendBudget: () => MAX_BASISPROFIELEN_PER_SEARCH - basisprofielenSpent,
+            spendBudget: () => basisBudget - basisprofielenSpent,
             matchesNeeded: () => remainingNeeded - newProfiles.length,
             onSpend: () => {
               basisprofielenSpent += 1;
