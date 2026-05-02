@@ -548,6 +548,15 @@ async function loadProfileFromCache(
  * vestiging registreren in een nabijgelegen woonplaats die niet in onze
  * target-set zit. Een name-match miste die — een geo-bbox dekt wél.
  *
+ * SBI wordt CLIENT-SIDE gefilterd via `hasSbiOverlap` (prefix-match), niet
+ * met Postgres `.overlaps()`. De UI-filter levert 2-cijferige prefixes
+ * ("41","42","43") aan terwijl `companies.sbi_codes` volledige codes bevat
+ * ("4120","4321"). Postgres array-overlap doet exact element-match en zou
+ * dus ELKE cached row uitsluiten zodra een specifieke branche wordt gekozen
+ * — symptoom: search met "Bouw & installatie" bouwde nooit cache op want
+ * elke run viel terug op betaalde basisprofiel-fetches. We lezen daarom
+ * alle kandidaten in de bbox + FTE-bucket, en knippen SBI eronder weg.
+ *
  * De companies-tabel wordt gevuld bij elke search die basisprofielen
  * fetcht; na een paar runs in een regio is dit zelfvoorzienend.
  */
@@ -587,9 +596,7 @@ async function loadCachedProfiles(
     return [];
   }
 
-  if (args.sbiCodes.length > 0) {
-    query = query.overlaps("sbi_codes", args.sbiCodes);
-  }
+  // SBI niet als Postgres-clause — zie functie-doc. Hieronder client-side.
   if (args.fteKlassen.length > 0) {
     query = query.in("fte_klasse", args.fteKlassen);
   }
@@ -600,10 +607,12 @@ async function loadCachedProfiles(
     return [];
   }
 
-  // Post-query haversine: bbox kan companies ~10% buiten de cirkel
-  // includeren. Final-haversine filter knipt die weg.
+  // Post-query: SBI-prefix + haversine. Bbox kan companies ~10% buiten de
+  // cirkel includeren. Final-haversine filter knipt die weg.
   const center = args.center;
   const radius = args.radiusKm;
+  const sbiFilter = args.sbiCodes;
+  const stats = { rows: 0, sbiOut: 0, geoOut: 0, kept: 0 };
   const filtered = ((data ?? []) as Array<{
     kvk: string;
     naam: string;
@@ -619,13 +628,33 @@ async function loadCachedProfiles(
     lat: number | null;
     lng: number | null;
   }>).filter((row) => {
-    if (!center) return true;
-    // Strict: bedrijven in de cache zonder lat/lng kunnen niet betrouwbaar
-    // tegen een straal getoetst worden — uitsluiten is veiliger dan
-    // mogelijk een Almere-bedrijf in een Westwoud-search te tonen.
-    if (row.lat === null || row.lng === null) return false;
-    return haversineKm(center, { lat: row.lat, lng: row.lng }) <= radius;
+    stats.rows += 1;
+    if (sbiFilter.length > 0 && !hasSbiOverlap(row.sbi_codes ?? [], sbiFilter)) {
+      stats.sbiOut += 1;
+      return false;
+    }
+    if (center) {
+      // Strict: bedrijven in de cache zonder lat/lng kunnen niet betrouwbaar
+      // tegen een straal getoetst worden — uitsluiten is veiliger dan
+      // mogelijk een Almere-bedrijf in een Westwoud-search te tonen.
+      if (row.lat === null || row.lng === null) {
+        stats.geoOut += 1;
+        return false;
+      }
+      if (haversineKm(center, { lat: row.lat, lng: row.lng }) > radius) {
+        stats.geoOut += 1;
+        return false;
+      }
+    }
+    stats.kept += 1;
+    return true;
   });
+
+  if (stats.rows > 0) {
+    console.log(
+      `[funnel] cache: rows=${stats.rows} sbi-out=${stats.sbiOut} geo-out=${stats.geoOut} kept=${stats.kept} sbiFilter=[${sbiFilter.join(",")}]`,
+    );
+  }
 
   return filtered.map((row) => ({
     kvkNummer: row.kvk,
