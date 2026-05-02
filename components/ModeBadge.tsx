@@ -27,16 +27,17 @@ export default function ModeBadge() {
   if (!info) return null;
   const missingMcp = info.mode === "prod" && !info.mcpConfigured;
   const label = missingMcp ? "PROD · MCP-MISSING" : info.mode.toUpperCase();
-  const color =
+  const styles =
     info.mode === "prod"
       ? missingMcp
-        ? "bg-amber-100 text-amber-900"
-        : "bg-emerald-100 text-emerald-900"
-      : "bg-slate-100 text-slate-700";
+        ? "border-amber-300/60 bg-amber-100/80 text-amber-900"
+        : "border-emerald-300/60 bg-emerald-100/80 text-emerald-900"
+      : "border-pavo-ink/[0.08] bg-white/70 text-pavo-gray-600";
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[10px] font-mono font-semibold ${color}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-mono font-semibold tracking-wide backdrop-blur-sm ${styles}`}
     >
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
       {label}
     </span>
   );
