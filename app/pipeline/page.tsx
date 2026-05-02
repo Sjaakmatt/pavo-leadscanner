@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 import {
   LEAD_STATUSES,
   type LeadStatus,
@@ -40,35 +40,30 @@ const STATUS_HEADER_COLOR: Record<LeadStatus, string> = {
   verloren: "border-pavo-gray-200 text-pavo-gray-600",
 };
 
+type FetchResult =
+  | { kind: "ok"; statuses: StatusRow[] }
+  | { kind: "unavailable"; reason: string };
+
+async function fetchPipeline(): Promise<FetchResult> {
+  const res = await fetch("/api/lead-status", { cache: "no-store" });
+  if (res.status === 503) {
+    const body = (await res.json()) as { error?: string };
+    return { kind: "unavailable", reason: body.error ?? "Pipeline niet beschikbaar" };
+  }
+  if (res.status === 401) {
+    return { kind: "unavailable", reason: "Niet ingelogd — log eerst in." };
+  }
+  if (!res.ok) return { kind: "unavailable", reason: `Server gaf status ${res.status}` };
+  const body = (await res.json()) as { statuses: StatusRow[] };
+  return { kind: "ok", statuses: body.statuses };
+}
+
 export default function PipelinePage() {
-  const [rows, setRows] = useState<StatusRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [unavailable, setUnavailable] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/lead-status", { cache: "no-store" });
-      if (res.status === 503) {
-        const body = (await res.json()) as { error?: string };
-        setUnavailable(body.error ?? "Pipeline niet beschikbaar");
-        return;
-      }
-      if (res.status === 401) {
-        setUnavailable("Niet ingelogd — log eerst in.");
-        return;
-      }
-      if (!res.ok) return;
-      const body = (await res.json()) as { statuses: StatusRow[] };
-      setRows(body.statuses);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  const result = useCachedFetch("/api/lead-status", fetchPipeline);
+  const data = result.kind === "ready" ? result.data : null;
+  const loading = result.kind === "loading";
+  const unavailable = data?.kind === "unavailable" ? data.reason : null;
+  const rows = data?.kind === "ok" ? data.statuses : [];
 
   const grouped = LEAD_STATUSES.map((s) => ({
     status: s,
@@ -98,7 +93,7 @@ export default function PipelinePage() {
         </div>
         <button
           type="button"
-          onClick={reload}
+          onClick={result.refetch}
           className="rounded-md border border-pavo-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-pavo-gray-900 hover:border-pavo-teal hover:text-pavo-teal"
         >
           Herladen

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 
 type SearchRow = {
   id: string;
@@ -47,35 +47,29 @@ function statusPillCls(status: string): string {
   return "bg-pavo-gray-100 text-pavo-gray-600";
 }
 
-export default function SearchesPage() {
-  const [rows, setRows] = useState<SearchRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+type FetchResult =
+  | { kind: "ok"; rows: SearchRow[] }
+  | { kind: "error"; message: string };
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetch("/api/searches", { cache: "no-store" })
-      .then(async (res) => {
-        if (cancelled) return;
-        if (res.status === 401 || res.status === 503) {
-          setError("Niet beschikbaar — log in om je geschiedenis te zien.");
-          return;
-        }
-        if (!res.ok) {
-          setError(`Status ${res.status}`);
-          return;
-        }
-        const body = (await res.json()) as { searches: SearchRow[] };
-        setRows(body.searches);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
+async function fetchSearches(): Promise<FetchResult> {
+  const res = await fetch("/api/searches", { cache: "no-store" });
+  if (res.status === 401 || res.status === 503) {
+    return {
+      kind: "error",
+      message: "Niet beschikbaar — log in om je geschiedenis te zien.",
     };
-  }, []);
+  }
+  if (!res.ok) return { kind: "error", message: `Status ${res.status}` };
+  const body = (await res.json()) as { searches: SearchRow[] };
+  return { kind: "ok", rows: body.searches };
+}
+
+export default function SearchesPage() {
+  const result = useCachedFetch("/api/searches", fetchSearches);
+  const data = result.kind === "ready" ? result.data : null;
+  const loading = result.kind === "loading";
+  const error = data?.kind === "error" ? data.message : null;
+  const rows = data?.kind === "ok" ? data.rows : [];
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-10">

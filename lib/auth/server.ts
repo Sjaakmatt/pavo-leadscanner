@@ -6,6 +6,7 @@
 // het ontbreken van een sessie betekent dan "open access" en de
 // middleware laat alle paden door.
 
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -61,7 +62,13 @@ export async function supabaseRouteClient(): Promise<SupabaseClient | null> {
   });
 }
 
-export async function getCurrentUser(): Promise<AppUser | null> {
+// Wrap in React.cache zodat meerdere componenten binnen dezelfde
+// request (Header + page + nested layouts) maar één keer de
+// auth+profile-roundtrip doen. Cache leeft per request, niet over
+// requests heen — geen security-risico.
+export const getCurrentUser = cache(_getCurrentUser);
+
+async function _getCurrentUser(): Promise<AppUser | null> {
   const sb = await supabaseRouteClient();
   if (!sb) return null;
   // Diagnostiek voor de auth-flow: tel cookies + log getUser-uitkomst.

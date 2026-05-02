@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 
 type Job = {
   id: string;
@@ -42,42 +43,42 @@ function fmtAge(iso: string): string {
   return new Date(iso).toLocaleDateString("nl-NL");
 }
 
-export default function SearchJobsPage() {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+type FetchResult =
+  | { kind: "ok"; jobs: Job[] }
+  | { kind: "error"; message: string };
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/search-jobs", { cache: "no-store" });
-      if (res.status === 401 || res.status === 503) {
-        setError("Niet beschikbaar");
-        return;
-      }
-      if (!res.ok) {
-        setError(`Status ${res.status}`);
-        return;
-      }
-      const body = (await res.json()) as { jobs: Job[] };
-      setJobs(body.jobs);
-    } finally {
-      setLoading(false);
-    }
+async function fetchJobs(): Promise<FetchResult> {
+  const res = await fetch("/api/search-jobs", { cache: "no-store" });
+  if (res.status === 401 || res.status === 503) {
+    return { kind: "error", message: "Niet beschikbaar" };
+  }
+  if (!res.ok) return { kind: "error", message: `Status ${res.status}` };
+  const body = (await res.json()) as { jobs: Job[] };
+  return { kind: "ok", jobs: body.jobs };
+}
+
+export default function SearchJobsPage() {
+  // Auto-refresh trigger — bumpt elke 10s zodat de cache-hook
+  // achtergrond-revalidatie doet (UI blijft tijdens reload zichtbaar).
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 10_000);
+    return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    reload();
-    // Auto-refresh elke 10s zolang er actieve jobs zijn.
-    const id = setInterval(reload, 10_000);
-    return () => clearInterval(id);
-  }, [reload]);
+  const result = useCachedFetch("/api/search-jobs", fetchJobs, {
+    refresh: tick,
+    maxAgeMs: 10_000,
+  });
+  const data = result.kind === "ready" ? result.data : null;
+  const loading = result.kind === "loading";
+  const error = data?.kind === "error" ? data.message : null;
+  const jobs = data?.kind === "ok" ? data.jobs : [];
 
   async function cancelJob(id: string) {
     if (!confirm("Job annuleren?")) return;
     await fetch(`/api/search-jobs/${id}`, { method: "DELETE" });
-    reload();
+    result.refetch();
   }
 
   if (error) {
@@ -105,7 +106,7 @@ export default function SearchJobsPage() {
         </div>
         <button
           type="button"
-          onClick={reload}
+          onClick={result.refetch}
           className="rounded-md border border-pavo-gray-100 bg-white px-3 py-1.5 text-xs font-medium text-pavo-gray-900 hover:border-pavo-teal hover:text-pavo-teal"
         >
           Herlaad
