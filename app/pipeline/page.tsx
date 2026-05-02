@@ -3,24 +3,16 @@
 import Link from "next/link";
 import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
 import {
+  fetchPipeline,
+  PIPELINE_KEY,
+  type StatusRow as RawStatusRow,
+} from "@/lib/hooks/fetchers";
+import {
   LEAD_STATUSES,
   type LeadStatus,
 } from "@/lib/lead-status/types";
 
-type StatusRow = {
-  kvk: string;
-  owner: string;
-  status: LeadStatus;
-  reden: string | null;
-  notitie: string | null;
-  updated_at: string;
-  updated_by: string | null;
-  companies: {
-    naam: string | null;
-    plaats: string | null;
-    fte_klasse: string | null;
-  } | null;
-};
+type StatusRow = RawStatusRow & { status: LeadStatus };
 
 const STATUS_LABELS: Record<LeadStatus, string> = {
   nieuw: "Nieuw",
@@ -40,30 +32,13 @@ const STATUS_HEADER_COLOR: Record<LeadStatus, string> = {
   verloren: "border-pavo-gray-200 text-pavo-gray-600",
 };
 
-type FetchResult =
-  | { kind: "ok"; statuses: StatusRow[] }
-  | { kind: "unavailable"; reason: string };
-
-async function fetchPipeline(): Promise<FetchResult> {
-  const res = await fetch("/api/lead-status", { cache: "no-store" });
-  if (res.status === 503) {
-    const body = (await res.json()) as { error?: string };
-    return { kind: "unavailable", reason: body.error ?? "Pipeline niet beschikbaar" };
-  }
-  if (res.status === 401) {
-    return { kind: "unavailable", reason: "Niet ingelogd — log eerst in." };
-  }
-  if (!res.ok) return { kind: "unavailable", reason: `Server gaf status ${res.status}` };
-  const body = (await res.json()) as { statuses: StatusRow[] };
-  return { kind: "ok", statuses: body.statuses };
-}
-
 export default function PipelinePage() {
-  const result = useCachedFetch("/api/lead-status", fetchPipeline);
-  const data = result.kind === "ready" ? result.data : null;
+  const result = useCachedFetch(PIPELINE_KEY, fetchPipeline);
+  const payload = result.kind === "ready" ? result.data : null;
   const loading = result.kind === "loading";
-  const unavailable = data?.kind === "unavailable" ? data.reason : null;
-  const rows = data?.kind === "ok" ? data.statuses : [];
+  const unavailable = payload?.kind === "error" ? payload.message : null;
+  const rows: StatusRow[] =
+    payload?.kind === "ok" ? (payload.data as StatusRow[]) : [];
 
   const grouped = LEAD_STATUSES.map((s) => ({
     status: s,

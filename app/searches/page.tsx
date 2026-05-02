@@ -2,18 +2,11 @@
 
 import Link from "next/link";
 import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
-
-type SearchRow = {
-  id: string;
-  filters: Record<string, unknown>;
-  status: string;
-  total_candidates: number | null;
-  total_leads_returned: number | null;
-  duration_ms: number | null;
-  total_cost_usd: number | null;
-  created_at: string;
-  completed_at: string | null;
-};
+import {
+  fetchSearches,
+  SEARCHES_KEY,
+  type SearchRow,
+} from "@/lib/hooks/fetchers";
 
 function fmtAge(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -47,29 +40,12 @@ function statusPillCls(status: string): string {
   return "bg-pavo-gray-100 text-pavo-gray-600";
 }
 
-type FetchResult =
-  | { kind: "ok"; rows: SearchRow[] }
-  | { kind: "error"; message: string };
-
-async function fetchSearches(): Promise<FetchResult> {
-  const res = await fetch("/api/searches", { cache: "no-store" });
-  if (res.status === 401 || res.status === 503) {
-    return {
-      kind: "error",
-      message: "Niet beschikbaar — log in om je geschiedenis te zien.",
-    };
-  }
-  if (!res.ok) return { kind: "error", message: `Status ${res.status}` };
-  const body = (await res.json()) as { searches: SearchRow[] };
-  return { kind: "ok", rows: body.searches };
-}
-
 export default function SearchesPage() {
-  const result = useCachedFetch("/api/searches", fetchSearches);
-  const data = result.kind === "ready" ? result.data : null;
+  const result = useCachedFetch(SEARCHES_KEY, fetchSearches);
+  const payload = result.kind === "ready" ? result.data : null;
   const loading = result.kind === "loading";
-  const error = data?.kind === "error" ? data.message : null;
-  const rows = data?.kind === "ok" ? data.rows : [];
+  const error = payload?.kind === "error" ? payload.message : null;
+  const rows: SearchRow[] = payload?.kind === "ok" ? payload.data : [];
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-10">

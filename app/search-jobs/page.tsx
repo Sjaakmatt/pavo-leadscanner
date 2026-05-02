@@ -3,21 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useCachedFetch } from "@/lib/hooks/use-cached-fetch";
-
-type Job = {
-  id: string;
-  naam: string | null;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled";
-  total_leads: number | null;
-  total_cost_usd: number | null;
-  error_message: string | null;
-  queued_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  use_batch: boolean;
-  filters: Record<string, unknown>;
-  search_query_id: string | null;
-};
+import { fetchJobs, JOBS_KEY, type Job } from "@/lib/hooks/fetchers";
 
 const STATUS_COLOR: Record<Job["status"], string> = {
   queued: "bg-pavo-gray-100 text-pavo-gray-600",
@@ -43,20 +29,6 @@ function fmtAge(iso: string): string {
   return new Date(iso).toLocaleDateString("nl-NL");
 }
 
-type FetchResult =
-  | { kind: "ok"; jobs: Job[] }
-  | { kind: "error"; message: string };
-
-async function fetchJobs(): Promise<FetchResult> {
-  const res = await fetch("/api/search-jobs", { cache: "no-store" });
-  if (res.status === 401 || res.status === 503) {
-    return { kind: "error", message: "Niet beschikbaar" };
-  }
-  if (!res.ok) return { kind: "error", message: `Status ${res.status}` };
-  const body = (await res.json()) as { jobs: Job[] };
-  return { kind: "ok", jobs: body.jobs };
-}
-
 export default function SearchJobsPage() {
   // Auto-refresh trigger — bumpt elke 10s zodat de cache-hook
   // achtergrond-revalidatie doet (UI blijft tijdens reload zichtbaar).
@@ -66,14 +38,14 @@ export default function SearchJobsPage() {
     return () => clearInterval(id);
   }, []);
 
-  const result = useCachedFetch("/api/search-jobs", fetchJobs, {
+  const result = useCachedFetch(JOBS_KEY, fetchJobs, {
     refresh: tick,
     maxAgeMs: 10_000,
   });
-  const data = result.kind === "ready" ? result.data : null;
+  const payload = result.kind === "ready" ? result.data : null;
   const loading = result.kind === "loading";
-  const error = data?.kind === "error" ? data.message : null;
-  const jobs = data?.kind === "ok" ? data.jobs : [];
+  const error = payload?.kind === "error" ? payload.message : null;
+  const jobs: Job[] = payload?.kind === "ok" ? payload.data : [];
 
   async function cancelJob(id: string) {
     if (!confirm("Job annuleren?")) return;

@@ -4,21 +4,11 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useCallback } from "react";
 import { prefetch } from "@/lib/hooks/use-cached-fetch";
+import { PREFETCH_FETCHERS } from "@/lib/hooks/fetchers";
 
 export type NavItem = {
   href: string;
   label: string;
-};
-
-// Welke API-call hoort bij welke tab — gebruikt voor on-hover prefetch
-// zodat data al onderweg is wanneer de gebruiker daadwerkelijk klikt.
-const PREFETCH_API: Record<string, string> = {
-  "/searches": "/api/searches",
-  "/pipeline": "/api/lead-status",
-  "/search-jobs": "/api/search-jobs",
-  "/users": "/api/users",
-  "/admin/searches": "/api/searches",
-  "/admin/calibration": "/api/calibration",
 };
 
 // Client-component voor de hoofdnavigatie zodat we het actieve tabblad
@@ -30,19 +20,13 @@ export default function HeaderNav({ items }: { items: NavItem[] }) {
 
   const onHover = useCallback(
     (href: string) => {
-      // 1. Next-route prefetch (default Link doet dit ook on viewport,
-      //    expliciete trigger op hover is nóg sneller).
+      // 1. Next-route prefetch — pakt de RSC payload alvast op.
       router.prefetch(href);
-      // 2. Data prefetch — we hydrateren de cache zodat de page-mount
-      //    direct rendert.
-      const apiUrl = PREFETCH_API[href];
-      if (apiUrl) {
-        prefetch(apiUrl, () =>
-          fetch(apiUrl, { cache: "no-store" }).then((r) =>
-            r.ok ? r.json() : Promise.reject(new Error(`status ${r.status}`)),
-          ),
-        );
-      }
+      // 2. Data prefetch — gebruikt EXACT dezelfde fetcher als de page-
+      //    component, anders staat er straks een raw response in cache
+      //    die de page niet kan unwrappen.
+      const entry = PREFETCH_FETCHERS[href];
+      if (entry) prefetch(entry.key, entry.fetcher);
     },
     [router],
   );
