@@ -11,7 +11,7 @@ type Props = {
 type Status = "loading" | "streaming" | "done" | "fallback";
 
 // Bump deze suffix als de briefing-prompt verandert — oude cached
-// briefings missen dan de nieuwste structuur (bijv. [N]-citaties).
+// briefings missen dan de nieuwste structuur.
 const CACHE_PREFIX = "pavo:brief:v3-bullets:";
 
 // Richer synthesis streamed from Claude. We cache per kvk in
@@ -83,28 +83,35 @@ export default function LeadBriefing({ kvk, fallbackObservatie }: Props) {
   }, [kvk]);
 
   return (
-    <section className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <LightbulbIcon className="h-4 w-4 text-pavo-orange" />
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
+    <section className="relative overflow-hidden rounded-2xl border border-pavo-orange/20 bg-gradient-to-br from-pavo-orange/[0.06] via-white to-white p-5 shadow-card md:p-7">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-pavo-orange/15 blur-3xl"
+      />
+
+      <div className="relative flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-pavo-orange to-pavo-coral shadow-[0_2px_8px_-2px_rgba(232,117,68,0.4)]">
+            <LightbulbIcon className="h-3.5 w-3.5 text-white" />
+          </span>
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-pavo-orange">
             Briefing van de agent
           </h2>
         </div>
         {status === "streaming" && (
-          <span className="flex items-center gap-1.5 text-xs text-pavo-gray-600">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-pavo-teal/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-pavo-teal">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-pavo-teal" />
             Live synthese
           </span>
         )}
         {status === "fallback" && (
-          <span className="text-xs text-pavo-gray-600">
-            Samenvatting uit snapshot
+          <span className="text-[10px] font-medium uppercase tracking-wide text-pavo-gray-600">
+            Snapshot
           </span>
         )}
       </div>
 
-      <div className="mt-3 rounded-lg bg-pavo-gray-50 p-4">
+      <div className="relative mt-4 rounded-xl bg-white/70 p-5 ring-1 ring-pavo-ink/[0.04] backdrop-blur-sm">
         <AnimatePresence mode="wait">
           {status === "loading" && (
             <motion.div
@@ -113,11 +120,11 @@ export default function LeadBriefing({ kvk, fallbackObservatie }: Props) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
-              className="space-y-2"
+              className="space-y-2.5"
             >
-              <div className="h-3 w-2/3 animate-pulse rounded bg-pavo-gray-100" />
-              <div className="h-3 w-full animate-pulse rounded bg-pavo-gray-100" />
-              <div className="h-3 w-5/6 animate-pulse rounded bg-pavo-gray-100" />
+              <div className="h-3.5 w-2/3 animate-pulse rounded-full bg-pavo-orange/10" />
+              <div className="h-3.5 w-full animate-pulse rounded-full bg-pavo-orange/10" />
+              <div className="h-3.5 w-5/6 animate-pulse rounded-full bg-pavo-orange/10" />
               <p className="pt-2 text-xs text-pavo-gray-600">
                 De agent schrijft een briefing…
               </p>
@@ -141,7 +148,7 @@ export default function LeadBriefing({ kvk, fallbackObservatie }: Props) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.15 }}
-              className="text-sm leading-relaxed text-pavo-gray-900"
+              className="text-sm leading-relaxed text-pavo-navy"
             >
               {fallbackObservatie}
             </motion.p>
@@ -181,7 +188,7 @@ function BriefingMarkdown({
     nodes.push(
       <p
         key={`p-${key++}`}
-        className="text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]"
+        className="text-[15px] leading-relaxed text-pavo-navy md:text-base"
       >
         {renderInline(paragraphBuffer.join(" "))}
       </p>,
@@ -194,13 +201,13 @@ function BriefingMarkdown({
     nodes.push(
       <ul
         key={`ul-${key++}`}
-        className="space-y-1.5 text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]"
+        className="space-y-2 text-[15px] leading-relaxed text-pavo-navy md:text-base"
       >
         {bulletBuffer.map((item, i) => (
-          <li key={i} className="flex gap-2">
+          <li key={i} className="flex gap-3">
             <span
               aria-hidden
-              className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-pavo-teal"
+              className="mt-[9px] h-1.5 w-1.5 shrink-0 rounded-full bg-pavo-orange"
             />
             <span className="min-w-0 flex-1">{renderInline(item)}</span>
           </li>
@@ -215,10 +222,15 @@ function BriefingMarkdown({
     nodes.push(
       <ol
         key={`ol-${key++}`}
-        className="list-decimal space-y-1.5 pl-5 text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]"
+        className="space-y-2 text-[15px] leading-relaxed text-pavo-navy md:text-base"
       >
         {numberedBuffer.map((item, i) => (
-          <li key={i}>{renderInline(item)}</li>
+          <li key={i} className="flex gap-3">
+            <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-pavo-orange/10 font-mono text-[10px] font-bold text-pavo-orange">
+              {i + 1}
+            </span>
+            <span>{renderInline(item)}</span>
+          </li>
         ))}
       </ol>,
     );
@@ -234,8 +246,9 @@ function BriefingMarkdown({
       nodes.push(
         <h3
           key={`h-${key++}`}
-          className="mt-4 text-xs font-semibold uppercase tracking-wide text-pavo-teal first:mt-0"
+          className="mt-5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-pavo-orange first:mt-0"
         >
+          <span className="h-px w-4 bg-pavo-orange/40" />
           {line.slice(3).trim()}
         </h3>,
       );
@@ -345,9 +358,9 @@ function CitationPill({ nums }: { nums: number[] }) {
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     // Korte highlight-flash
-    el.classList.add("ring-2", "ring-pavo-teal", "rounded-lg");
+    el.classList.add("ring-2", "ring-pavo-teal", "rounded-xl");
     setTimeout(() => {
-      el.classList.remove("ring-2", "ring-pavo-teal", "rounded-lg");
+      el.classList.remove("ring-2", "ring-pavo-teal", "rounded-xl");
     }, 1200);
   };
 
@@ -358,7 +371,7 @@ function CitationPill({ nums }: { nums: number[] }) {
           key={i}
           href={`#signaal-${n}`}
           onClick={(e) => handleClick(e, n)}
-          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded bg-pavo-teal/10 px-1 text-[10px] font-semibold text-pavo-teal transition-colors hover:bg-pavo-teal hover:text-white"
+          className="inline-flex h-[19px] min-w-[19px] items-center justify-center rounded-md bg-pavo-teal/10 px-1 text-[10px] font-bold text-pavo-teal transition-all duration-200 hover:scale-110 hover:bg-pavo-teal hover:text-white"
           title={`Spring naar signaal ${n}`}
         >
           {n}
@@ -374,7 +387,7 @@ function LightbulbIcon({ className = "" }: { className?: string }) {
       viewBox="0 0 20 20"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.6"
+      strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}

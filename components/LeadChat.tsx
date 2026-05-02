@@ -130,7 +130,7 @@ export default function LeadChat({ kvk, leadNaam, open, onClose }: Props) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-40 bg-pavo-gray-900/20 backdrop-blur-sm"
+            className="fixed inset-0 z-40 bg-pavo-navy/40 backdrop-blur-md"
             onClick={onClose}
           />
 
@@ -140,27 +140,33 @@ export default function LeadChat({ kvk, leadNaam, open, onClose }: Props) {
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
-            className="fixed right-0 top-0 z-50 flex h-dvh w-full flex-col bg-white shadow-2xl sm:w-[480px]"
+            transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+            className="fixed right-0 top-0 z-50 flex h-dvh w-full flex-col bg-pavo-cream shadow-2xl sm:w-[480px]"
             role="dialog"
             aria-label={`Chat met research-agent over ${leadNaam}`}
           >
-            <header className="flex items-start justify-between gap-3 border-b border-pavo-gray-100 px-5 py-4">
-              <div className="min-w-0">
+            <header className="relative flex items-start justify-between gap-3 border-b border-pavo-ink/[0.06] bg-gradient-to-br from-pavo-navy via-pavo-navy-soft to-pavo-teal-dark px-5 py-4 text-white">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-pavo-teal-bright/30 blur-3xl"
+              />
+              <div className="relative min-w-0">
                 <div className="flex items-center gap-2">
-                  <SparkIcon className="h-4 w-4 text-pavo-teal" />
-                  <h2 className="text-sm font-semibold text-pavo-navy">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/10 ring-1 ring-white/20">
+                    <SparkIcon className="h-3.5 w-3.5 text-white" />
+                  </span>
+                  <h2 className="text-sm font-semibold tracking-tight">
                     Vraag de research-agent
                   </h2>
                 </div>
-                <p className="mt-0.5 truncate text-xs text-pavo-gray-600">
-                  Over: {leadNaam}
+                <p className="mt-1 truncate text-xs text-white/70">
+                  Over: <span className="font-medium text-white/90">{leadNaam}</span>
                 </p>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="-m-1 rounded p-1 text-pavo-gray-600 transition-colors hover:bg-pavo-gray-50 hover:text-pavo-gray-900"
+                className="relative -m-1 rounded-lg p-1.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
                 aria-label="Chat sluiten"
               >
                 <CloseIcon className="h-5 w-5" />
@@ -169,18 +175,23 @@ export default function LeadChat({ kvk, leadNaam, open, onClose }: Props) {
 
             <div
               ref={scrollRef}
-              className="flex-1 space-y-4 overflow-y-auto px-5 py-4"
+              className="flex-1 space-y-4 overflow-y-auto px-5 py-5"
             >
               {messages.length === 0 && (
-                <div className="space-y-4">
-                  <div className="rounded-lg bg-pavo-gray-50 p-4 text-sm leading-relaxed text-pavo-gray-900">
-                    Ik heb de analyse van <strong>{leadNaam}</strong> paraat.
-                    Vraag me gerust door — over de signalen, archetype,
-                    passende PAVO-diensten of hoe je het eerste gesprek zou
-                    aanpakken.
+                <div className="space-y-5">
+                  <div className="rounded-2xl border border-pavo-ink/[0.06] bg-white p-4 text-sm leading-relaxed text-pavo-navy shadow-card">
+                    <span className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-pavo-teal/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-pavo-teal">
+                      Welkom
+                    </span>
+                    <p>
+                      Ik heb de analyse van <strong>{leadNaam}</strong> paraat.
+                      Vraag me gerust door — over de signalen, archetype,
+                      passende PAVO-diensten of hoe je het eerste gesprek zou
+                      aanpakken.
+                    </p>
                   </div>
                   <div>
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-pavo-gray-600">
                       Voorbeeld-vragen
                     </p>
                     <div className="flex flex-col gap-2">
@@ -191,9 +202,10 @@ export default function LeadChat({ kvk, leadNaam, open, onClose }: Props) {
                           onClick={() => {
                             setInput(q);
                           }}
-                          className="rounded-lg border border-pavo-gray-100 bg-white px-3 py-2 text-left text-sm text-pavo-gray-900 transition-all duration-200 hover:border-pavo-teal hover:text-pavo-teal"
+                          className="group flex items-center justify-between gap-2 rounded-xl border border-pavo-ink/[0.06] bg-white px-3.5 py-2.5 text-left text-sm font-medium text-pavo-navy transition-all duration-200 hover:-translate-y-px hover:border-pavo-teal/40 hover:shadow-card"
                         >
-                          {q}
+                          <span>{q}</span>
+                          <ArrowIcon className="h-3.5 w-3.5 shrink-0 text-pavo-gray-600 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-pavo-teal" />
                         </button>
                       ))}
                     </div>
@@ -216,7 +228,7 @@ export default function LeadChat({ kvk, leadNaam, open, onClose }: Props) {
               ))}
 
               {error && (
-                <div className="rounded-lg border border-pavo-orange/30 bg-pavo-orange/5 px-3 py-2 text-xs text-pavo-gray-900">
+                <div className="rounded-xl border border-pavo-orange/30 bg-pavo-orange/5 px-3 py-2 text-xs text-pavo-navy">
                   <strong className="text-pavo-orange">Fout: </strong>
                   {error}
                 </div>
@@ -228,9 +240,9 @@ export default function LeadChat({ kvk, leadNaam, open, onClose }: Props) {
                 e.preventDefault();
                 sendMessage();
               }}
-              className="border-t border-pavo-gray-100 p-3"
+              className="border-t border-pavo-ink/[0.06] bg-white p-3"
             >
-              <div className="flex items-end gap-2">
+              <div className="flex items-end gap-2 rounded-xl border border-pavo-ink/[0.08] bg-white p-1.5 transition-all duration-200 focus-within:border-pavo-teal focus-within:ring-4 focus-within:ring-pavo-teal/10">
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -243,24 +255,23 @@ export default function LeadChat({ kvk, leadNaam, open, onClose }: Props) {
                   rows={2}
                   placeholder="Vraag iets over deze lead…"
                   disabled={streaming}
-                  className="flex-1 resize-none rounded-lg border border-pavo-gray-100 bg-white px-3 py-2 text-sm text-pavo-gray-900 transition-all duration-200 placeholder:text-pavo-gray-600/60 focus:border-pavo-teal focus:outline-none disabled:opacity-60"
+                  className="flex-1 resize-none border-0 bg-transparent px-2.5 py-2 text-sm text-pavo-navy placeholder:text-pavo-gray-600/60 focus:outline-none disabled:opacity-60"
                 />
                 <button
                   type="submit"
                   disabled={streaming || !input.trim()}
-                  className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-pavo-teal px-4 text-sm font-semibold text-white transition-all duration-200 hover:bg-pavo-teal-dark disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-pavo-orange to-pavo-coral text-white shadow-[0_4px_12px_-4px_rgba(232,117,68,0.5)] transition-all duration-200 hover:shadow-[0_6px_18px_-4px_rgba(232,117,68,0.6)] disabled:cursor-not-allowed disabled:from-pavo-gray-100 disabled:to-pavo-gray-100 disabled:text-pavo-gray-600 disabled:shadow-none"
+                  aria-label="Verstuur"
                 >
                   {streaming ? (
-                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-[2px] border-white/30 border-t-white" />
                   ) : (
                     <SendIcon className="h-4 w-4" />
                   )}
-                  <span>Stuur</span>
                 </button>
               </div>
-              <p className="mt-1.5 text-[11px] text-pavo-gray-600">
-                Enter verstuurt · Shift+Enter voor nieuwe regel · Antwoorden
-                komen van Claude Sonnet 4.6
+              <p className="mt-2 px-1 text-[11px] text-pavo-gray-600">
+                Enter verstuurt · Shift+Enter voor nieuwe regel
               </p>
             </form>
           </motion.aside>
@@ -282,7 +293,7 @@ function MessageBubble({
   if (role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-lg rounded-br-sm bg-pavo-teal px-3 py-2 text-sm text-white">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-gradient-to-br from-pavo-teal to-pavo-navy px-3.5 py-2.5 text-sm leading-relaxed text-white shadow-[0_4px_12px_-4px_rgba(15,62,71,0.4)]">
           {content}
         </div>
       </div>
@@ -290,8 +301,11 @@ function MessageBubble({
   }
 
   return (
-    <div className="flex justify-start">
-      <div className="max-w-[90%] rounded-lg rounded-bl-sm border border-pavo-gray-100 bg-white px-3 py-2 text-sm text-pavo-gray-900 shadow-sm">
+    <div className="flex items-end justify-start gap-2">
+      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-pavo-orange to-pavo-coral shadow-[0_2px_8px_-2px_rgba(232,117,68,0.4)]">
+        <SparkIcon className="h-3 w-3 text-white" />
+      </span>
+      <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-pavo-ink/[0.06] bg-white px-3.5 py-2.5 text-sm text-pavo-navy shadow-card">
         {pending ? <TypingDots /> : <p className="whitespace-pre-wrap leading-relaxed">{content}</p>}
       </div>
     </div>
@@ -323,15 +337,11 @@ function SparkIcon({ className = "" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill="currentColor"
       className={className}
       aria-hidden
     >
-      <path d="M10 2v4M10 14v4M2 10h4M14 10h4M4.5 4.5l2.8 2.8M12.7 12.7l2.8 2.8M15.5 4.5l-2.8 2.8M7.3 12.7l-2.8 2.8" />
+      <path d="M10 1.5l1.4 4.2 4.2 1.4-4.2 1.4L10 12.7l-1.4-4.2L4.4 7.1 8.6 5.7 10 1.5zM15.5 12l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z" />
     </svg>
   );
 }
@@ -365,6 +375,23 @@ function SendIcon({ className = "" }: { className?: string }) {
       aria-hidden
     >
       <path d="M3 10 17 3l-5 14-2.5-6z" />
+    </svg>
+  );
+}
+
+function ArrowIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M4 10h12M11 5l5 5-5 5" />
     </svg>
   );
 }

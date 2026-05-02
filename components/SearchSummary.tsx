@@ -87,29 +87,37 @@ export default function SearchSummary({ filters, leads }: Props) {
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
-      className="rounded-lg border border-pavo-teal/20 bg-gradient-to-br from-pavo-teal/5 to-transparent p-5 md:p-6"
+      className="relative overflow-hidden rounded-2xl border border-pavo-teal/15 bg-gradient-to-br from-pavo-teal/[0.06] via-white to-pavo-mint/[0.04] p-5 md:p-7"
     >
-      <div className="flex items-center gap-2">
-        <SparkIcon className="h-4 w-4 text-pavo-teal" />
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-teal">
+      {/* Decoratief blob-licht */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-pavo-teal/15 blur-3xl"
+      />
+
+      <div className="relative flex items-center gap-2">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-pavo-teal to-pavo-navy shadow-[0_2px_8px_-2px_rgba(15,62,71,0.4)]">
+          <SparkIcon className="h-3.5 w-3.5 text-white" />
+        </span>
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-pavo-teal">
           Wat de agent opmerkt over deze set
         </h2>
         {status === "streaming" && (
-          <span className="ml-auto flex items-center gap-1.5 text-xs text-pavo-gray-600">
+          <span className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-pavo-teal/[0.08] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-pavo-teal">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-pavo-teal" />
             Live
           </span>
         )}
       </div>
 
-      <div className="mt-3 min-h-[2.5rem]">
+      <div className="relative mt-4 min-h-[2.5rem]">
         {status === "loading" ? (
-          <div className="space-y-1.5">
-            <div className="h-3 w-3/4 animate-pulse rounded bg-pavo-gray-100" />
-            <div className="h-3 w-2/3 animate-pulse rounded bg-pavo-gray-100" />
+          <div className="space-y-2">
+            <div className="h-3.5 w-3/4 animate-pulse rounded-full bg-pavo-teal/10" />
+            <div className="h-3.5 w-2/3 animate-pulse rounded-full bg-pavo-teal/10" />
           </div>
         ) : (
-          <p className="text-sm leading-relaxed text-pavo-gray-900 md:text-[15px]">
+          <p className="text-[15px] leading-relaxed text-pavo-navy md:text-base">
             {text}
             {status === "streaming" && (
               <span
@@ -128,15 +136,11 @@ function SparkIcon({ className = "" }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill="currentColor"
       className={className}
       aria-hidden
     >
-      <path d="M10 2v4M10 14v4M2 10h4M14 10h4M4.5 4.5l2.8 2.8M12.7 12.7l2.8 2.8M15.5 4.5l-2.8 2.8M7.3 12.7l-2.8 2.8" />
+      <path d="M10 1.5l1.4 4.2 4.2 1.4-4.2 1.4L10 12.7l-1.4-4.2L4.4 7.1 8.6 5.7 10 1.5zM15.5 12l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z" />
     </svg>
   );
 }

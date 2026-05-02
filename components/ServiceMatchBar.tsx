@@ -12,10 +12,12 @@ export default function ServiceMatchBar({
   const secundair = diensten.filter((d) => d.prioriteit === "secundair");
 
   return (
-    <section className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
-      <div className="flex items-center gap-2">
-        <BadgeIcon className="h-4 w-4 text-pavo-teal" />
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
+    <section className="rounded-2xl border border-pavo-ink/[0.06] bg-white p-5 shadow-card md:p-7">
+      <div className="flex items-center gap-2.5">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-pavo-teal/15 to-pavo-teal/5 text-pavo-teal">
+          <BadgeIcon className="h-3.5 w-3.5" />
+        </span>
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-pavo-teal">
           Relevante PAVO-diensten
         </h2>
       </div>
@@ -26,16 +28,18 @@ export default function ServiceMatchBar({
         </p>
       ) : (
         <>
-          <p className="mt-2 text-sm text-pavo-gray-600">
+          <p className="mt-3 text-sm leading-relaxed text-pavo-gray-600">
             De agent heeft de signalen gematcht tegen het PAVO-portfolio. De
             score geeft aan hoe sterk het patroon aansluit — niet hoe kansrijk
             een verkoopgesprek is.
           </p>
 
-          <div className="mt-5 space-y-6">
-            {primair.length > 0 && <Group title="Primair" items={primair} />}
+          <div className="mt-6 space-y-7">
+            {primair.length > 0 && (
+              <Group title="Primair" tone="primary" items={primair} />
+            )}
             {secundair.length > 0 && (
-              <Group title="Secundair" items={secundair} />
+              <Group title="Secundair" tone="secondary" items={secundair} />
             )}
           </div>
         </>
@@ -44,32 +48,57 @@ export default function ServiceMatchBar({
   );
 }
 
-function Group({ title, items }: { title: string; items: DienstMatch[] }) {
+function Group({
+  title,
+  tone,
+  items,
+}: {
+  title: string;
+  tone: "primary" | "secondary";
+  items: DienstMatch[];
+}) {
+  const isPrimary = tone === "primary";
   return (
     <div>
-      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
-        {title}
-      </h3>
+      <div className="mb-3 flex items-center gap-2">
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${
+            isPrimary ? "bg-pavo-orange" : "bg-pavo-teal/50"
+          }`}
+        />
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-pavo-gray-600">
+          {title}
+        </h3>
+      </div>
       <ul className="space-y-4">
-        {items.map((d) => (
+        {items.map((d, i) => (
           <li key={d.code}>
-            <div className="mb-1.5 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="inline-flex min-w-[36px] justify-center rounded-md bg-pavo-teal/10 px-2 py-0.5 text-xs font-semibold text-pavo-teal">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 text-sm">
+                <span className="inline-flex min-w-[40px] justify-center rounded-md bg-pavo-teal/10 px-2 py-0.5 font-mono text-[10px] font-bold text-pavo-teal">
                   {d.code}
                 </span>
-                <span className="font-medium text-pavo-gray-900">{d.naam}</span>
+                <span className="font-semibold text-pavo-navy">{d.naam}</span>
               </div>
-              <span className="text-sm font-semibold tabular-nums text-pavo-navy">
-                {d.score}%
+              <span className="font-bold tabular-nums text-pavo-navy">
+                {d.score}
+                <span className="text-xs font-medium text-pavo-gray-600">%</span>
               </span>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-pavo-gray-100">
+            <div className="relative h-2 w-full overflow-hidden rounded-full bg-pavo-frost">
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${d.score}%` }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-                className="h-full rounded-full bg-pavo-teal"
+                transition={{
+                  duration: 0.9,
+                  delay: i * 0.07,
+                  ease: "easeOut",
+                }}
+                className={`h-full rounded-full ${
+                  isPrimary
+                    ? "bg-gradient-to-r from-pavo-orange to-pavo-coral"
+                    : "bg-gradient-to-r from-pavo-teal to-pavo-teal-bright"
+                }`}
               />
             </div>
           </li>

@@ -8,7 +8,7 @@ const BRON_DESCRIPTIE: Record<Bron, string> = {
   KvK: "openbaar handelsregister",
   "KvK-historie": "historische mutaties (18 mnd)",
   "KvK-deponering": "jaarrekening-deponering",
-  Vacatures: "sitemap + JSON-LD scrape van bedrijfssite",
+  Vacatures: "vacature-aggregator",
   bedrijfswebsite: "eigen bedrijfssite (gescand)",
   "Rechtspraak.nl": "gepubliceerde uitspraken",
   NLA: "Nederlandse Arbeidsinspectie",
@@ -23,19 +23,21 @@ export default function SignalList({ signalen }: { signalen: Signaal[] }) {
   return (
     <section
       id="signalen"
-      className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6"
+      className="rounded-2xl border border-pavo-ink/[0.06] bg-white p-5 shadow-card md:p-7"
     >
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <SearchIcon className="h-4 w-4 text-pavo-teal" />
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-pavo-teal/15 to-pavo-teal/5 text-pavo-teal">
+            <SearchIcon className="h-3.5 w-3.5" />
+          </span>
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-pavo-teal">
             Onderliggende signalen
           </h2>
         </div>
         {signalen.length > 0 && (
-          <span className="text-xs text-pavo-gray-600">
+          <span className="rounded-full bg-pavo-frost px-2.5 py-0.5 text-[11px] font-medium text-pavo-gray-600">
             {signalen.length}{" "}
-            {signalen.length === 1 ? "bron geraadpleegd" : "bronnen geraadpleegd"}
+            {signalen.length === 1 ? "bron" : "bronnen"}
           </span>
         )}
       </div>
@@ -46,20 +48,31 @@ export default function SignalList({ signalen }: { signalen: Signaal[] }) {
         </p>
       ) : (
         <>
-          <p className="mt-2 text-xs text-pavo-gray-600">
-            De nummers worden in de briefing hierboven geciteerd als{" "}
-            <CitationBadge inline>1</CitationBadge>.{" "}
-            <span className="font-medium text-pavo-gray-900">Feitelijk</span>:
-            register-data of aggregators die je kunt verifiëren.{" "}
-            <span className="font-medium text-pavo-gray-900">
-              Interpretatief
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-pavo-frost/50 px-3.5 py-2.5 text-xs text-pavo-gray-600">
+            <p className="leading-relaxed">
+              Nummers worden in de briefing geciteerd als{" "}
+              <CitationBadge inline>1</CitationBadge>.
+            </p>
+            <span className="hidden h-3 w-px bg-pavo-ink/[0.10] md:inline-block" />
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded bg-pavo-teal/10 px-1.5 py-0.5 font-medium text-pavo-teal">
+                <CheckIcon className="h-2.5 w-2.5" />
+                Feitelijk
+              </span>
+              <span>= verifieerbaar register</span>
             </span>
-            : gepubliceerde content waar de agent iets uit afleidt.
-          </p>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 rounded bg-pavo-orange/10 px-1.5 py-0.5 font-medium text-pavo-orange">
+                <EyeIcon className="h-2.5 w-2.5" />
+                Interpretatief
+              </span>
+              <span>= afgeleid uit content</span>
+            </span>
+          </div>
 
-          <ol className="mt-4 space-y-3">
+          <ol className="mt-5 space-y-3">
             {signalen.map((s, i) => (
-              <SignalRow key={i} signaal={s} index={i + 1} delay={i * 0.1} />
+              <SignalRow key={i} signaal={s} index={i + 1} delay={i * 0.07} />
             ))}
           </ol>
         </>
@@ -86,33 +99,25 @@ function SignalRow({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, delay, ease: "easeOut" }}
-      className="flex items-start gap-3"
+      className="group flex items-start gap-3 rounded-xl border border-transparent p-3 transition-colors hover:border-pavo-ink/[0.05] hover:bg-pavo-frost/40"
     >
-      <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-pavo-teal text-xs font-semibold text-white">
+      <span
+        className={`mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold shadow-[0_2px_6px_-2px_rgba(15,62,71,0.3)] ${
+          isFeitelijk
+            ? "bg-gradient-to-br from-pavo-teal to-pavo-navy text-white"
+            : "bg-gradient-to-br from-pavo-orange to-pavo-coral text-white"
+        }`}
+      >
         {index}
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="text-sm leading-relaxed text-pavo-gray-900">
+        <p className="text-[14px] leading-relaxed text-pavo-navy md:text-[15px]">
           {signaal.tekst}
         </p>
-
-        {signaal.bewijs && signaal.bewijs.length > 0 && (
-          <ul className="mt-2 space-y-1 border-l-2 border-pavo-gray-100 pl-3">
-            {signaal.bewijs.slice(0, 3).map((quote, i) => (
-              <li
-                key={i}
-                className="text-xs italic leading-snug text-pavo-gray-600"
-              >
-                &ldquo;{quote}&rdquo;
-              </li>
-            ))}
-          </ul>
-        )}
-
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
           <span
-            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${
+            className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-semibold ${
               isFeitelijk
                 ? "bg-pavo-teal/10 text-pavo-teal"
                 : "bg-pavo-orange/10 text-pavo-orange"
@@ -131,42 +136,16 @@ function SignalRow({
             {sterkte}
           </span>
           <span className="text-pavo-gray-600">
-            <span className="font-medium text-pavo-gray-900">
+            <span className="font-semibold text-pavo-navy">
               {signaal.bron}
             </span>{" "}
-            — {BRON_DESCRIPTIE[signaal.bron]}
+            <span className="text-pavo-gray-600">
+              · {BRON_DESCRIPTIE[signaal.bron]}
+            </span>
           </span>
-          {signaal.bronUrl && (
-            <a
-              href={signaal.bronUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="inline-flex items-center gap-0.5 text-pavo-teal underline-offset-2 hover:underline"
-            >
-              bron openen
-              <ExternalIcon className="h-3 w-3" />
-            </a>
-          )}
         </div>
       </div>
     </motion.li>
-  );
-}
-
-function ExternalIcon({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M11 4h5v5M16 4l-7 7M9 6H5v9h9v-4" />
-    </svg>
   );
 }
 
@@ -179,7 +158,7 @@ export function CitationBadge({
 }) {
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-md bg-pavo-teal/10 font-semibold text-pavo-teal ${
+      className={`inline-flex items-center justify-center rounded-md bg-pavo-teal/10 font-bold text-pavo-teal ${
         inline ? "px-1.5 py-0.5 text-[11px]" : "min-w-[22px] px-1 py-0.5 text-[11px]"
       }`}
     >
