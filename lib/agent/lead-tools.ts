@@ -20,6 +20,23 @@ import { NewsMcp, requireNewsUrl } from "@/lib/mcp/news";
 import { supabaseServer } from "@/lib/supabase/client";
 import { buildTenantContext } from "@/lib/mcp/tenant";
 
+// Customer-friendly NL labels voor de chat-UI. Tool-namen zijn intern
+// technisch (snake_case); we tonen aan de gebruiker een actie-zin in
+// het Nederlands ("Vacatures ophalen van de website…" i.p.v.
+// "scrape_vacancies…").
+export const TOOL_LABELS_NL: Record<string, string> = {
+  get_kvk_basisprofiel: "KvK-basisprofiel ophalen",
+  get_kvk_snapshot_history: "Historische KvK-snapshots vergelijken",
+  scrape_vacancies: "Live vacatures ophalen van de bedrijfssite",
+  search_court_cases: "Rechtspraak.nl doorzoeken",
+  search_news: "Bedrijfsnieuws doorzoeken",
+  get_lead_signals_raw: "Onderliggende signaaldata ophalen",
+};
+
+export function toolLabel(name: string): string {
+  return TOOL_LABELS_NL[name] ?? name;
+}
+
 // Belangrijk: ALLE input-velden zijn optioneel. De chat-call gaat over één
 // specifieke lead — kvk, naam en website worden automatisch ingevuld vanuit
 // de lead-context (companies-tabel) als de agent ze niet meegeeft. De agent

@@ -6,6 +6,11 @@ import {
   buildSystemPrompt,
   getClient,
 } from "@/lib/claude";
+import {
+  hashLeadInputs,
+  loadCachedBriefing,
+  saveCachedBriefing,
+} from "@/lib/agent/briefing-cache";
 
 export const runtime = "nodejs";
 
@@ -18,6 +23,23 @@ export async function GET(
   const lead = await getLeadSource().getLead(kvk);
   if (!lead) {
     return new Response("Lead not found", { status: 404 });
+  }
+
+  const sigHash = hashLeadInputs(lead);
+  const encoder = new TextEncoder();
+
+  // Cache-hit: serveer cached markdown zonder LLM-call. Streamt nog
+  // steeds (alle in één chunk) zodat de UI dezelfde rendering-pad
+  // gebruikt.
+  const cached = await loadCachedBriefing(kvk, sigHash).catch(() => null);
+  if (cached) {
+    return new Response(cached.briefing_md, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Briefing-Cache": "hit",
+      },
+    });
   }
 
   let client;
@@ -44,15 +66,26 @@ export async function GET(
     messages: [{ role: "user", content: BRIEFING_USER_PROMPT }],
   });
 
-  const encoder = new TextEncoder();
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let captured = "";
       try {
         stream.on("text", (delta) => {
+          captured += delta;
           controller.enqueue(encoder.encode(delta));
         });
         await stream.finalMessage();
         controller.close();
+
+        // Best-effort persist — faalt deze write stilletjes, dan loopt
+        // de UI gewoon door en probeert volgende open opnieuw.
+        void saveCachedBriefing(kvk, captured, sigHash, CHAT_MODEL).catch(
+          (err) => {
+            console.warn(
+              `[briefing-cache] save faalde voor ${kvk}: ${String(err)}`,
+            );
+          },
+        );
       } catch (err) {
         const msg =
           err instanceof Error ? err.message : "Unknown error during streaming";
@@ -70,6 +103,7 @@ export async function GET(
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Accel-Buffering": "no",
+      "X-Briefing-Cache": "miss",
     },
   });
 }

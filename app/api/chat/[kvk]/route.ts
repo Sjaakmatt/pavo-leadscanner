@@ -15,6 +15,7 @@ import {
   executeLeadTool,
   loadLeadContext,
   newToolBudget,
+  toolLabel,
 } from "@/lib/agent/lead-tools";
 
 export const runtime = "nodejs";
@@ -125,7 +126,7 @@ export async function POST(
           const toolResults: ContentBlockParam[] = [];
           for (const block of toolUseBlocks) {
             controller.enqueue(
-              encoder.encode(`\n\n[🔧 ${block.name}…]\n`),
+              encoder.encode(`\n\n[🔧 ${toolLabel(block.name)}…]\n`),
             );
             const result = await executeLeadTool(block, budget, leadCtx);
             toolResults.push({
