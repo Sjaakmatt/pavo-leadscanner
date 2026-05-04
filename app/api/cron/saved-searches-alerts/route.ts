@@ -5,6 +5,7 @@ import { factum } from "@/lib/factum/client";
 import { email } from "@/lib/email/client";
 import { savedSearchEmail } from "@/lib/email/templates";
 import type { SearchFilters, Lead } from "@/lib/adapters/types";
+import { requireCronAuth } from "@/lib/cron/auth";
 
 // Vercel cron — runt periodiek over alle saved-searches met
 // alert_enabled=true en dropt een notificatie voor iedere HOT lead die
@@ -26,13 +27,8 @@ type SavedSearchRow = {
 };
 
 export async function GET(req: NextRequest) {
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${expected}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const authError = requireCronAuth(req);
+  if (authError) return authError;
 
   const supabase = tryGetSupabase();
   if (!supabase) {

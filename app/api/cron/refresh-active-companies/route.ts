@@ -9,6 +9,7 @@ import { runScrapeBatch, type ScrapeMcps } from "@/lib/orchestrator";
 import { buildTenantContext } from "@/lib/mcp/tenant";
 import { CostTracker, withSearchScope } from "@/lib/classification/cost";
 import { factum } from "@/lib/factum/client";
+import { requireCronAuth } from "@/lib/cron/auth";
 
 // Vercel cron — refresht raw-payloads voor de N actiefste companies
 // zodat handmatige searches near-instant uit de mcp_raw_responses cache
@@ -30,13 +31,8 @@ const MAX_PER_RUN = 20;
 const CONCURRENCY = 5;
 
 export async function GET(req: NextRequest) {
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${expected}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const authError = requireCronAuth(req);
+  if (authError) return authError;
 
   const supabase = tryGetSupabase();
   if (!supabase) {

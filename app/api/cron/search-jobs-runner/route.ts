@@ -3,6 +3,7 @@ import { tryGetSupabase } from "@/lib/supabase/client";
 import { ProductionLeadSource } from "@/lib/lead-source";
 import { factum } from "@/lib/factum/client";
 import type { SearchFilters } from "@/lib/adapters/types";
+import { requireCronAuth } from "@/lib/cron/auth";
 
 // Vercel cron — elke 2 minuten. Pakt MAX 1 queued job en draait 'm
 // volledig synchroon binnen deze cron-tick. Het next.config maxDuration
@@ -14,13 +15,8 @@ import type { SearchFilters } from "@/lib/adapters/types";
 export const maxDuration = 800;
 
 export async function GET(req: NextRequest) {
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${expected}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const authError = requireCronAuth(req);
+  if (authError) return authError;
   const supabase = tryGetSupabase();
   if (!supabase) {
     return NextResponse.json({

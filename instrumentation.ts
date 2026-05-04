@@ -15,15 +15,9 @@ export async function register() {
   await factum.connect({
     version: process.env.npm_package_version ?? "0.2.0",
     hostname: process.env.HOSTNAME ?? process.env.VERCEL_URL,
-    runtime: `node-${process.versions.node}`,
+    runtime: "nodejs",
   });
   await factum.logEvent("deploy", "PAVO leadscanner gestart", {
     mode: process.env.MODE ?? "demo",
   });
-
-  const shutdown = (reason: string) => {
-    void factum.disconnect(reason);
-  };
-  process.once("SIGTERM", () => shutdown("SIGTERM"));
-  process.once("SIGINT", () => shutdown("SIGINT"));
 }

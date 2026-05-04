@@ -1,5 +1,6 @@
 import { getLeadSource } from "@/lib/lead-source";
 import type { SearchFilters, SearchProgressEvent } from "@/lib/adapters/types";
+import { parseSearchFilters, validationErrorMessage } from "@/lib/adapters/validation";
 
 // Server-Sent Events variant van /api/search. De ProductionLeadSource
 // emitteert `SearchProgressEvent`s tijdens de flow; wij serialiseren ze
@@ -27,7 +28,12 @@ export const maxDuration = 800;
 export async function POST(req: Request) {
   const url = new URL(req.url);
   const refresh = url.searchParams.get("refresh") === "true";
-  const filters = (await req.json()) as SearchFilters;
+  let filters: SearchFilters;
+  try {
+    filters = parseSearchFilters(await req.json());
+  } catch (err) {
+    return new Response(validationErrorMessage(err), { status: 400 });
+  }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({

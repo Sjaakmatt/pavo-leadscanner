@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { tryGetSupabase } from "@/lib/supabase/client";
 import type { SearchFilters } from "@/lib/adapters/types";
 import { resolveOwnerScope } from "@/lib/auth/server";
+import { parseSearchFilters, validationErrorMessage } from "@/lib/adapters/validation";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,15 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  let filters: SearchFilters;
+  try {
+    filters = parseSearchFilters(body.filters);
+  } catch (err) {
+    return NextResponse.json(
+      { error: validationErrorMessage(err) },
+      { status: 400 },
+    );
+  }
 
   const supabase = tryGetSupabase();
   if (!supabase) {
@@ -72,7 +82,7 @@ export async function POST(req: Request) {
         owner_id: scope.ownerId,
         org_id: scope.orgId,
         naam: body.naam,
-        filters: body.filters as unknown as object,
+        filters: filters as unknown as object,
         alert_enabled: !!body.alert_enabled,
       },
     ])

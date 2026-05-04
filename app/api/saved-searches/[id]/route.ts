@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { tryGetSupabase } from "@/lib/supabase/client";
 import { resolveOwnerScope } from "@/lib/auth/server";
+import { parseSearchFilters, validationErrorMessage } from "@/lib/adapters/validation";
 
 export const runtime = "nodejs";
 
@@ -37,7 +38,14 @@ export async function PATCH(
     update.alert_enabled = body.alert_enabled;
   }
   if (body.filters && typeof body.filters === "object") {
-    update.filters = body.filters;
+    try {
+      update.filters = parseSearchFilters(body.filters) as unknown as object;
+    } catch (err) {
+      return NextResponse.json(
+        { error: validationErrorMessage(err) },
+        { status: 400 },
+      );
+    }
   }
 
   let baseQuery = supabase.from("saved_searches").update(update).eq("id", id);

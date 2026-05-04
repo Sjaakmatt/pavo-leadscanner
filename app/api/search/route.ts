@@ -3,6 +3,7 @@ import { getLeadSource } from "@/lib/lead-source";
 import { factum } from "@/lib/factum/client";
 import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "@/lib/factum/roi";
 import type { SearchFilters } from "@/lib/adapters/types";
+import { parseSearchFilters, validationErrorMessage } from "@/lib/adapters/validation";
 import { buildSearchSteps } from "@/lib/filter";
 
 export async function POST(req: Request) {
@@ -11,7 +12,14 @@ export async function POST(req: Request) {
   try {
     const url = new URL(req.url);
     const refresh = url.searchParams.get("refresh") === "true";
-    filters = (await req.json()) as SearchFilters;
+    try {
+      filters = parseSearchFilters(await req.json());
+    } catch (err) {
+      return NextResponse.json(
+        { error: validationErrorMessage(err) },
+        { status: 400 },
+      );
+    }
     const source = getLeadSource();
     const result = await source.runSearch(filters, { refresh });
     const steps = buildSearchSteps(

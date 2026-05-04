@@ -19,7 +19,7 @@
   --color-cold-bg: #E9ECEF;
   --color-cold-text: #495057;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   /* === NIEUWE TOKENS — additief, breken niets === */
   --color-pavo-teal-bright: #2A8FA3;
