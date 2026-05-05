@@ -58,12 +58,14 @@ export type FactumBatch = {
 
 const REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_HEARTBEAT_MS = 60_000;
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
 
 class FactumClient {
   private readonly baseUrl: string | null;
   private readonly apiKey: string | null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private connected = false;
+  private rateLimitedUntil = 0;
 
   constructor() {
     const raw = process.env.FACTUM_DASHBOARD_URL ?? "";
@@ -77,8 +79,9 @@ class FactumClient {
 
   private async request(path: string, body?: unknown): Promise<Response | null> {
     if (!this.enabled) return null;
+    if (Date.now() < this.rateLimitedUntil) return null;
     try {
-      return await fetch(`${this.baseUrl}${path}`, {
+      const res = await fetch(`${this.baseUrl}${path}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
@@ -87,6 +90,13 @@ class FactumClient {
         body: JSON.stringify(body ?? {}),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
+      if (res.status === 429) {
+        this.rateLimitedUntil = Date.now() + readRetryAfterMs(res);
+        console.warn(
+          `[factum] ${path} rate-limited; pauzeert dashboard-calls tot ${new Date(this.rateLimitedUntil).toISOString()}`,
+        );
+      }
+      return res;
     } catch (err) {
       console.warn(`[factum] ${path} failed: ${String(err)}`);
       return null;
@@ -101,11 +111,13 @@ class FactumClient {
 
     const data = (await res.json().catch(() => ({}))) as ConnectResponse;
     const interval = data.config?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_MS;
-    this.heartbeatTimer = setInterval(() => {
-      void this.heartbeat();
-    }, interval);
-    // Niet de Node-event-loop blokkeren tijdens shutdown.
-    this.heartbeatTimer.unref?.();
+    if (shouldStartIntervalHeartbeat()) {
+      this.heartbeatTimer = setInterval(() => {
+        void this.heartbeat();
+      }, interval);
+      // Niet de Node-event-loop blokkeren tijdens shutdown.
+      this.heartbeatTimer.unref?.();
+    }
   }
 
   async heartbeat(
@@ -153,6 +165,26 @@ class FactumClient {
       reason ? { reason } : {},
     );
   }
+}
+
+function readRetryAfterMs(res: Response): number {
+  const header = res.headers.get("retry-after");
+  if (!header) return DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.max(1_000, seconds * 1_000);
+  }
+  const date = Date.parse(header);
+  if (Number.isFinite(date)) {
+    return Math.max(1_000, date - Date.now());
+  }
+  return DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+}
+
+function shouldStartIntervalHeartbeat(): boolean {
+  if (process.env.FACTUM_ENABLE_INTERVAL_HEARTBEAT === "true") return true;
+  if (process.env.FACTUM_ENABLE_INTERVAL_HEARTBEAT === "false") return false;
+  return !process.env.VERCEL;
 }
 
 declare global {
