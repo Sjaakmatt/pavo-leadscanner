@@ -1,0 +1,123 @@
+<!--
+  Magic-link e-mail template voor Supabase Auth.
+
+  Plak deze HTML in: Supabase Dashboard → Authentication →
+  Email Templates → Magic Link.
+
+  De `{{ .Token }}`-placeholder rendert de 6-cijferige OTP-code die
+  /login als fallback accepteert wanneer de magic-link niet werkt
+  (bv. Outlook Safe-Links, cross-browser open). Zonder deze placeholder
+  faalt de fallback-flow stilletjes.
+-->
+<!DOCTYPE html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login bij PAVO HR</title>
+  </head>
+
+  <body style="margin:0; padding:0; background:#f3f2ef; font-family:Arial, Helvetica, sans-serif; color:#29495a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f2ef; padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px; background:#ffffff; border-radius:18px; overflow:hidden; box-shadow:0 10px 28px rgba(41,73,90,0.12);">
+
+            <!-- Header -->
+            <tr>
+              <td style="background:#e7e5e1; padding:34px 34px 26px 34px;">
+                <div style="font-size:13px; letter-spacing:0.08em; text-transform:uppercase; color:#6f8792; font-weight:700;">
+                  PAVO HR
+                </div>
+
+                <h1 style="margin:14px 0 0 0; font-size:34px; line-height:1.12; color:#29495a; font-weight:800;">
+                  Veilig inloggen
+                </h1>
+
+                <p style="margin:12px 0 0 0; font-size:17px; line-height:1.55; color:#4f6974;">
+                  Klik op de knop hieronder of voer de 6-cijferige code in om direct in te loggen.
+                </p>
+              </td>
+            </tr>
+
+            <!-- Accent line -->
+            <tr>
+              <td>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td width="33.3%" style="height:5px; background:#29495a;"></td>
+                    <td width="33.3%" style="height:5px; background:#3f8da3;"></td>
+                    <td width="33.3%" style="height:5px; background:#df866f;"></td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Content -->
+            <tr>
+              <td style="padding:34px;">
+                <p style="margin:0 0 18px 0; font-size:16px; line-height:1.65; color:#29495a;">
+                  Je hebt een loginlink aangevraagd voor je PAVO HR omgeving.
+                  Deze link en code zijn persoonlijk en werken tijdelijk.
+                </p>
+
+                <table role="presentation" cellspacing="0" cellpadding="0" style="margin:28px 0;">
+                  <tr>
+                    <td align="center" bgcolor="#29495a" style="border-radius:999px;">
+                      <a href="{{ .ConfirmationURL }}"
+                         style="display:inline-block; padding:15px 28px; font-size:16px; line-height:1; font-weight:700; color:#ffffff; text-decoration:none; border-radius:999px;">
+                        Inloggen bij PAVO HR
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- OTP-code fallback -->
+                <p style="margin:28px 0 10px 0; font-size:15px; line-height:1.55; color:#4f6974;">
+                  Werkt de knop niet? Voer dan deze 6-cijferige code in op het inlogscherm:
+                </p>
+
+                <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
+                  <tr>
+                    <td style="padding:18px 24px; background:#f3f2ef; border:1px solid #ebe8e2; border-radius:14px;">
+                      <span style="display:inline-block; font-family:'Courier New', Courier, monospace; font-size:30px; font-weight:700; letter-spacing:0.35em; color:#29495a;">
+                        {{ .Token }}
+                      </span>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 18px 0; font-size:15px; line-height:1.65; color:#4f6974;">
+                  Of kopieer deze link in je browser:
+                </p>
+
+                <p style="margin:0; padding:14px 16px; background:#f3f2ef; border-radius:12px; font-size:13px; line-height:1.55; color:#4f6974; word-break:break-all;">
+                  {{ .ConfirmationURL }}
+                </p>
+
+                <p style="margin:24px 0 0 0; font-size:14px; line-height:1.6; color:#7b8f98;">
+                  Heb je deze login niet zelf aangevraagd? Dan kun je deze e-mail negeren.
+                </p>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="padding:24px 34px 30px 34px; background:#f7f6f3; border-top:1px solid #ebe8e2;">
+                <p style="margin:0; font-size:13px; line-height:1.6; color:#7b8f98;">
+                  PAVO HR<br />
+                  Praktisch, duidelijk en persoonlijk op het gebied van HR.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+
+          <p style="margin:18px 0 0 0; font-size:12px; line-height:1.5; color:#9aa8ad;">
+            Deze e-mail is automatisch verzonden. Reageer niet op dit bericht.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

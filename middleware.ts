@@ -67,6 +67,12 @@ export async function middleware(req: NextRequest) {
   // zonder magic-link-flow. Wel firewallen we prod-data API's zodat geen
   // Supabase-data uit eerdere prod-runs doorlekt.
   if (mode === "demo") {
+    // Auth-routes zijn betekenisloos in demo. Iemand die /login of
+    // /auth/callback aanroept (bv. via een oude bookmark of cached
+    // redirect) sturen we direct door naar de homepage.
+    if (pathname === "/login" || pathname.startsWith("/auth/")) {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
     if (isProdOnlyApi(pathname)) {
       return NextResponse.json(
         {
