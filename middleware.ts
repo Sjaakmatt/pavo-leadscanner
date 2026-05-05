@@ -63,32 +63,36 @@ export async function middleware(req: NextRequest) {
   const mode = (process.env.MODE ?? "demo").toLowerCase();
   const pathname = req.nextUrl.pathname;
 
-  // Demo-mode firewall: alleen op het API-niveau. Pages blijven renderen
-  // (klant kan op alle tabs klikken), maar prod-data API's geven een
-  // empty-array response zodat geen Supabase-data uit eerdere prod-runs
-  // doorlekt. Pages tonen dan hun bestaande "geen data"-state.
-  if (mode === "demo" && isProdOnlyApi(pathname)) {
-    return NextResponse.json(
-      {
-        error: "Niet beschikbaar in demo-mode",
-        // Empty containers in elke shape die client-fetchers verwachten
-        // — voorkomt 'Cannot read .length of undefined'-crashes.
-        searches: [],
-        jobs: [],
-        items: [],
-        notifications: [],
-        users: [],
-        profiles: [],
-        leads: [],
-        statuses: [],
-        history: [],
-        saved_searches: [],
-        company: null,
-        organization: null,
-        costs: { totalUsd: 0, lines: [] },
-      },
-      { status: 200 },
-    );
+  // Demo-mode: GEEN auth-vereiste — klant moet direct naar binnen kunnen
+  // zonder magic-link-flow. Wel firewallen we prod-data API's zodat geen
+  // Supabase-data uit eerdere prod-runs doorlekt.
+  if (mode === "demo") {
+    if (isProdOnlyApi(pathname)) {
+      return NextResponse.json(
+        {
+          error: "Niet beschikbaar in demo-mode",
+          // Empty containers in elke shape die client-fetchers verwachten
+          // — voorkomt 'Cannot read .length of undefined'-crashes.
+          searches: [],
+          jobs: [],
+          items: [],
+          notifications: [],
+          users: [],
+          profiles: [],
+          leads: [],
+          statuses: [],
+          history: [],
+          saved_searches: [],
+          company: null,
+          organization: null,
+          costs: { totalUsd: 0, lines: [] },
+        },
+        { status: 200 },
+      );
+    }
+    // Pages renderen vrij door zonder auth-check — Header.tsx + pages
+    // tonen empty-states / mock-data gracefully.
+    return NextResponse.next();
   }
 
   // Auth uit als Supabase niet geconfigureerd is.
