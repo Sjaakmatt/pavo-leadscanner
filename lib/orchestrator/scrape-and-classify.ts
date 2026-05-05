@@ -29,7 +29,7 @@ import {
 import type { Signaal } from "@/lib/scoring/types";
 import { persistRaw, readRaw, type CachedToolName } from "./raw-cache";
 import { upsertWebsiteContacts } from "@/lib/lead-source/contacts";
-import { inferWebsiteUrl } from "./website-inference";
+import { inferWebsiteUrl, resolveWebsiteUrl } from "./website-inference";
 import type {
   WebsiteScrapeResult,
   VacatureRawResult,
@@ -92,14 +92,34 @@ export async function scrapeAndClassifyCompany(
     parentCallId: parentCtx.toolCallId,
   });
 
-  // Website-inference: als KvK-basisprofiel geen websiteUrl had, probeer
-  // 'm af te leiden uit de bedrijfsnaam ("Joz B.V." → joz.nl). Best-effort
-  // — geen match → website + vacatures tasks worden geskipt zoals voorheen.
-  // Persist terug naar companies-tabel zodat volgende search dit niet
-  // opnieuw hoeft te doen.
+  // Website-resolutie: valideer KvK-URL en probeer www/non-www fallback.
+  // Als KvK geen websiteUrl had, leid 'm af uit de bedrijfsnaam
+  // ("Joz B.V." → joz.nl). Persist terug naar companies zodat volgende
+  // searches direct de werkende variant gebruiken.
   let resolvedWebsiteUrl = company.websiteUrl;
   let inferredWebsiteUrl: string | undefined;
-  if (!resolvedWebsiteUrl) {
+  if (resolvedWebsiteUrl) {
+    try {
+      const resolved = await resolveWebsiteUrl(resolvedWebsiteUrl);
+      if (resolved) {
+        if (resolved !== resolvedWebsiteUrl) {
+          console.log(
+            `[orchestrator] resolved website variant for ${company.kvk}: ${resolvedWebsiteUrl} -> ${resolved}`,
+          );
+          void persistWebsiteUrl(supabase, company.kvk, resolved);
+        }
+        resolvedWebsiteUrl = resolved;
+      } else {
+        console.warn(
+          `[orchestrator] website niet bereikbaar voor ${company.kvk}: ${resolvedWebsiteUrl}`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[orchestrator] resolveWebsiteUrl faalde voor ${company.kvk}: ${String(err)}`,
+      );
+    }
+  } else {
     try {
       const inferred = await inferWebsiteUrl(company.naam);
       if (inferred) {
@@ -110,13 +130,7 @@ export async function scrapeAndClassifyCompany(
         );
         // Best-effort persist; faalt deze update dan loopt de pipeline
         // gewoon door — next-run probeert opnieuw.
-        void supabase
-          .from("companies")
-          .update({
-            website_url: inferred,
-            last_updated_at: new Date().toISOString(),
-          })
-          .eq("kvk", company.kvk);
+        void persistWebsiteUrl(supabase, company.kvk, inferred);
       }
     } catch (err) {
       console.warn(
@@ -295,6 +309,23 @@ export async function scrapeAndClassifyCompany(
       console.warn(`[orchestrator] ${tool} faalde voor ${kvk}:`, err);
       return null;
     }
+  }
+}
+
+async function persistWebsiteUrl(
+  supabase: SupabaseClient,
+  kvk: string,
+  websiteUrl: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("companies")
+    .update({
+      website_url: websiteUrl,
+      last_updated_at: new Date().toISOString(),
+    })
+    .eq("kvk", kvk);
+  if (error) {
+    console.warn(`[orchestrator] website_url update faalde voor ${kvk}: ${error.message}`);
   }
 }
 

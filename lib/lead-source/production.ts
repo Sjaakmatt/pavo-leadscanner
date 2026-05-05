@@ -235,6 +235,7 @@ export class ProductionLeadSource implements LeadSource {
 
       const knownKvks = new Set(cachedProfiles.map((p) => p.kvkNummer));
       const newProfiles: LocalKvkBasisprofiel[] = [];
+      const fetchedProfiles: LocalKvkBasisprofiel[] = [];
       let basisprofielenSpent = 0;
       const basisBudget = resolveBasisBudget(filters.max_basisprofielen);
       let kvkHitsTotal = cachedProfiles.length;
@@ -280,6 +281,9 @@ export class ProductionLeadSource implements LeadSource {
             onSpend: () => {
               basisprofielenSpent += 1;
             },
+            onProfile: (profile) => {
+              fetchedProfiles.push(toLocalProfile(profile, null));
+            },
             onMatch: (profile) => {
               newProfiles.push(toLocalProfile(profile, null));
               emit({ type: "kvk", totalCandidates: kvkHitsTotal });
@@ -311,8 +315,17 @@ export class ProductionLeadSource implements LeadSource {
       timing.geo_ms = Date.now() - geoStart;
       emit({ type: "geo", remaining: geoFiltered.length });
 
-      // 5) Companies upserten (incl. lat/lng zodat next-run skipt PDOK)
-      await upsertCompanies(supabase, geoFiltered, coordsByPlaats);
+      // 5) Companies upserten (incl. lat/lng zodat next-run skipt PDOK).
+      // Persist alle opgehaalde basisprofielen, ook als ze later door SBI,
+      // FTE of geo niet als lead doorgaan. Betaalde KvK-data mag niet
+      // verdampen omdat een bedrijf deze run geen goede PAVO-lead is.
+      await upsertCompanies(
+        supabase,
+        uniqueProfiles([...geoFiltered.map((x) => x.profile), ...fetchedProfiles]).map(
+          (profile) => ({ profile }),
+        ),
+        coordsByPlaats,
+      );
 
       // 6) Scrape-targets bepalen (cache-respect, tenzij refresh)
       const candidateKvks = geoFiltered.map((x) => x.profile.kvkNummer);
@@ -699,6 +712,7 @@ async function fetchBasisprofielenWithFilter(args: {
   spendBudget: () => number;
   matchesNeeded: () => number;
   onSpend: () => void;
+  onProfile?: (profile: McpKvkBasisprofiel) => void;
   onMatch: (profile: McpKvkBasisprofiel) => void;
   concurrency: number;
 }): Promise<void> {
@@ -734,6 +748,7 @@ async function fetchBasisprofielenWithFilter(args: {
             stats.nullProfile += 1;
             continue;
           }
+          args.onProfile?.(profile);
           if (sbiFilter.length > 0 && !hasSbiOverlap(profile.sbiCodes, sbiFilter)) {
             stats.rejectedSbi += 1;
             continue;
@@ -755,6 +770,12 @@ async function fetchBasisprofielenWithFilter(args: {
   console.log(
     `[funnel] basisprofiel: queued=${kvks.length} fetched=${stats.fetched} null=${stats.nullProfile} sbi-out=${stats.rejectedSbi} fte-out=${stats.rejectedFte} fte-unknown-out=${stats.rejectedFteUnknown} err=${stats.fetchErr} matched=${stats.matched} sbiFilter=[${sbiFilter.join(",")}] fteFilter=[${fteFilter.join(",")}]`,
   );
+}
+
+function uniqueProfiles(
+  profiles: LocalKvkBasisprofiel[],
+): LocalKvkBasisprofiel[] {
+  return [...new Map(profiles.map((profile) => [profile.kvkNummer, profile])).values()];
 }
 
 function hasSbiOverlap(profileSbi: string[], filterSbi: string[]): boolean {

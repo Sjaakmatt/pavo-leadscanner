@@ -1,0 +1,115 @@
+{
+  "scraper": "02-rechtspraak",
+  "startedAt": "2026-04-24T15:44:22.616Z",
+  "finishedAt": "2026-04-24T15:44:50.605Z",
+  "companiesAttempted": 3,
+  "companiesSucceeded": 3,
+  "totalSignals": 0,
+  "verdict": "productie_klaar",
+  "verdict_toelichting": "API + HTML-parse werkt (100%). 0/3 bedrijven met minimaal één zaak.",
+  "totalCost": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "estimatedUsd": 0
+  },
+  "results": [
+    {
+      "company": {
+        "id": "kuin",
+        "naam": "Kuin Aannemingsbedrijf",
+        "zoeknamen": [
+          "Kuin Aannemingsbedrijf",
+          "Aannemingsbedrijf Kuin",
+          "Kuin B.V."
+        ],
+        "url": "https://kuinbv.nl",
+        "verwachteFte": 50,
+        "sector": "Bouw",
+        "cluster": 2,
+        "notitie": "West-Friese bouwer"
+      },
+      "success": true,
+      "durationMs": 9652,
+      "hitCount": 0,
+      "signals": [],
+      "cost": {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "estimatedUsd": 0
+      },
+      "debug": {
+        "reason": "geen treffers in arbeidsrecht",
+        "namesTried": [
+          "Kuin Aannemingsbedrijf",
+          "Aannemingsbedrijf Kuin",
+          "Kuin B.V."
+        ]
+      }
+    },
+    {
+      "company": {
+        "id": "joz",
+        "naam": "JOZ",
+        "zoeknamen": [
+          "JOZ B.V.",
+          "JOZ Westwoud",
+          "JOZ stalreiniging"
+        ],
+        "url": "https://joz.nl",
+        "verwachteFte": 95,
+        "sector": "Agri-tech productie",
+        "cluster": 2,
+        "notitie": "Machinebouwer voor veehouderij"
+      },
+      "success": true,
+      "durationMs": 12097,
+      "hitCount": 0,
+      "signals": [],
+      "cost": {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "estimatedUsd": 0
+      },
+      "debug": {
+        "reason": "geen treffers in arbeidsrecht",
+        "namesTried": [
+          "JOZ",
+          "JOZ B.V.",
+          "JOZ Westwoud",
+          "JOZ stalreiniging"
+        ]
+      }
+    },
+    {
+      "company": {
+        "id": "tpahga",
+        "naam": "TPAHG architecten",
+        "zoeknamen": [
+          "TPAHG architecten",
+          "TPAHG"
+        ],
+        "url": "https://www.tpahga.nl",
+        "verwachteFte": 23,
+        "sector": "Architectuur",
+        "cluster": 3,
+        "notitie": "Klein architectenbureau"
+      },
+      "success": true,
+      "durationMs": 6239,
+      "hitCount": 0,
+      "signals": [],
+      "cost": {
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "estimatedUsd": 0
+      },
+      "debug": {
+        "reason": "geen treffers in arbeidsrecht",
+        "namesTried": [
+          "TPAHG architecten",
+          "TPAHG"
+        ]
+      }
+    }
+  ]
+}

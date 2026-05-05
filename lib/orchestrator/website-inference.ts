@@ -35,6 +35,20 @@ export async function inferWebsiteUrl(
   return null;
 }
 
+/**
+ * Valideer een bekende website-URL en probeer de www/non-www variant als
+ * de geregistreerde URL niet bereikbaar is.
+ */
+export async function resolveWebsiteUrl(
+  websiteUrl: string,
+): Promise<string | null> {
+  const candidates = generateUrlVariants(websiteUrl);
+  for (const url of candidates) {
+    if (await probeUrl(url, PROBE_TIMEOUT_MS)) return url;
+  }
+  return null;
+}
+
 export function generateCandidates(naam: string): string[] {
   if (!naam) return [];
   // Strip company-vormen + lowercase + verwijder leestekens
@@ -73,6 +87,36 @@ export function generateCandidates(naam: string): string[] {
     }
   }
   return out;
+}
+
+export function generateUrlVariants(websiteUrl: string): string[] {
+  const parsed = parseWebsiteUrl(websiteUrl);
+  if (!parsed) return [];
+
+  const variants = [parsed];
+  if (parsed.hostname.startsWith("www.")) {
+    const withoutWww = new URL(parsed.toString());
+    withoutWww.hostname = parsed.hostname.slice(4);
+    variants.push(withoutWww);
+  } else {
+    const withWww = new URL(parsed.toString());
+    withWww.hostname = `www.${parsed.hostname}`;
+    variants.push(withWww);
+  }
+
+  return [...new Set(variants.map((url) => url.toString()))];
+}
+
+function parseWebsiteUrl(websiteUrl: string): URL | null {
+  try {
+    return new URL(websiteUrl);
+  } catch {
+    try {
+      return new URL(`https://${websiteUrl}`);
+    } catch {
+      return null;
+    }
+  }
 }
 
 async function probeUrl(url: string, timeoutMs: number): Promise<boolean> {
