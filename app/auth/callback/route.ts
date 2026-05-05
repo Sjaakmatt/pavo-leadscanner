@@ -51,9 +51,25 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    console.warn(`[auth/callback] exchange failed: ${error.message}`);
+    // PKCE-verifier ontbreekt = magic-link werd in een andere browser/
+    // device geopend dan waar 'm is aangevraagd, of een link-scanner
+    // (Outlook/Defender Safe Links) heeft de code al opgebrand.
+    // Geef de gebruiker een werkbaar alternatief: de 6-cijferige code.
+    const isVerifierMissing =
+      error.message.toLowerCase().includes("code verifier") ||
+      error.message.toLowerCase().includes("invalid request") ||
+      incomingCookies.length === 0;
+    console.warn(
+      `[auth/callback] exchange failed: ${error.message} verifierMissing=${isVerifierMissing}`,
+    );
     const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("error", error.message);
+    loginUrl.searchParams.set(
+      "error",
+      isVerifierMissing
+        ? "Magic-link kan niet worden geverifieerd in deze browser. Open de link in dezelfde browser waar je 'm aangevraagd hebt, óf vul hieronder de 6-cijferige code in die in dezelfde e-mail staat."
+        : error.message,
+    );
+    loginUrl.searchParams.set("showCode", "1");
     return NextResponse.redirect(loginUrl);
   }
   console.log(
