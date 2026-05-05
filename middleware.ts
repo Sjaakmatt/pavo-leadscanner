@@ -28,6 +28,10 @@ const PUBLIC_PATHS = [
 // API-paden die in demo-mode geblokkeerd worden zodat prod-data niet
 // zichtbaar is. /api/search en /api/lead/[kvk] werken WEL in demo (die
 // gebruiken getLeadSource() en pakken automatisch de mock).
+//
+// /api/search-summary, /api/compare en /api/brief blijven NIET in deze
+// lijst — dat zijn stateless aggregators die op input werken (huidige
+// leads/filters), niet op stored prod-data.
 const PROD_ONLY_API_PREFIXES = [
   "/api/searches",
   "/api/search-jobs",
@@ -38,9 +42,7 @@ const PROD_ONLY_API_PREFIXES = [
   "/api/organization",
   "/api/costs",
   "/api/users",
-  "/api/compare",
   "/api/export",
-  "/api/search-summary",
 ];
 
 function isPublic(pathname: string): boolean {
@@ -69,13 +71,21 @@ export async function middleware(req: NextRequest) {
     return NextResponse.json(
       {
         error: "Niet beschikbaar in demo-mode",
+        // Empty containers in elke shape die client-fetchers verwachten
+        // — voorkomt 'Cannot read .length of undefined'-crashes.
         searches: [],
         jobs: [],
         items: [],
         notifications: [],
         users: [],
+        profiles: [],
         leads: [],
+        statuses: [],
+        history: [],
+        saved_searches: [],
         company: null,
+        organization: null,
+        costs: { totalUsd: 0, lines: [] },
       },
       { status: 200 },
     );
