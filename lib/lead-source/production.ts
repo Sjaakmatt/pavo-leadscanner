@@ -181,7 +181,7 @@ export class ProductionLeadSource implements LeadSource {
           )
         : [];
       console.log(
-        `[funnel] plaatsen=[${targetPlaatsen.join(",")}] center=${filters.regio_center ? `${filters.regio_center.lat.toFixed(2)},${filters.regio_center.lng.toFixed(2)}` : "none"} radius=${filters.regio_straal_km ?? DEFAULT_RADIUS_KM}km branche="${filters.branche}" sbi=[${sbiCodes.join(",")}] fte=[${filters.fte_klassen.join(",")}]`,
+        `[funnel] plaatsen=${formatPlaatsenForLog(targetPlaatsen)} center=${filters.regio_center ? `${filters.regio_center.lat.toFixed(2)},${filters.regio_center.lng.toFixed(2)}` : "none"} radius=${filters.regio_straal_km ?? DEFAULT_RADIUS_KM}km branche="${filters.branche}" sbi=[${sbiCodes.join(",")}] fte=[${filters.fte_klassen.join(",")}]`,
       );
 
       if (targetPlaatsen.length === 0 && filters.regio_center) {
@@ -257,7 +257,7 @@ export class ProductionLeadSource implements LeadSource {
           });
         } catch (err) {
           console.warn(
-            `[funnel] kvk_zoeken faalde voor plaatsen=[${targetPlaatsen.join(",")}]: ${String(err)}`,
+            `[funnel] kvk_zoeken faalde voor plaatsen=${formatPlaatsenForLog(targetPlaatsen)}: ${String(err)}`,
           );
           if (isRateLimitError(err)) {
             emit({
@@ -718,6 +718,12 @@ function filterProfiles(
 
 function isRateLimitError(err: unknown): boolean {
   return /\b(429|too many requests)\b/i.test(String(err));
+}
+
+function formatPlaatsenForLog(plaatsen: string[]): string {
+  const preview = plaatsen.slice(0, 20).join(",");
+  const suffix = plaatsen.length > 20 ? `,+${plaatsen.length - 20} meer` : "";
+  return `{count=${plaatsen.length}, values=[${preview}${suffix}]}`;
 }
 
 /**

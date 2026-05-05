@@ -84,6 +84,7 @@ function isRetryableHttp(status: number): boolean {
 }
 
 function isRetryableToolError(message: string): boolean {
+  if (/tenant resolution failed/i.test(message)) return false;
   return /\b(429|too many requests)\b/i.test(message);
 }
 
