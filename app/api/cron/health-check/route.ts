@@ -1,13 +1,14 @@
-// Dagelijkse health-check op cron_runs. Stuurt Slack-webhook bij ≥1
-// failed run binnen het venster van 24 uur. Idempotent: meerdere runs
-// per dag zijn OK, ze sturen alleen nogmaals een Slack-melding (handig
-// als ops 'm gemist heeft).
+// Dagelijkse health-check op cron_runs. Pusht een dag-summary naar het
+// FactumAI-dashboard (escalation-event bij failures) en optioneel een
+// Slack-webhook voor directe paging. Idempotent: meerdere runs per dag
+// zijn OK.
 //
 // Roosters via Vercel cron in vercel.json:
 //   { "path": "/api/cron/health-check", "schedule": "0 8 * * *" }
 
 import { NextResponse } from "next/server";
 import { tryGetSupabase } from "@/lib/supabase/client";
+import { factum } from "@/lib/factum/client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,21 +50,37 @@ export async function GET(req: Request) {
   const summary = failures
     .map(
       (f) =>
-        `• *${f.cron_name}* — ${(f.error_message ?? "geen bericht").slice(0, 200)}`,
+        `• ${f.cron_name} — ${(f.error_message ?? "geen bericht").slice(0, 200)}`,
     )
     .join("\n");
-  const text = `🚨 *${failures.length} cron-failures in laatste ${WINDOW_HOURS}u*\n${summary}`;
 
-  await sendSlack(text);
+  // Push escalation-event naar FactumAI-dashboard — daar zie je 'm
+  // tussen alle andere agent-events. Alle observability gaat door
+  // dezelfde funnel.
+  void factum.logEvent(
+    "escalation",
+    `${failures.length} cron-failures in laatste ${WINDOW_HOURS}u`,
+    {
+      windowHours: WINDOW_HOURS,
+      failureCount: failures.length,
+      failures: failures.map((f) => ({
+        cron_name: f.cron_name,
+        error: (f.error_message ?? "").slice(0, 500),
+        when: f.created_at,
+      })),
+    },
+  );
+
+  // Optioneel: Slack-webhook voor real-time paging. Ontbreekt 'ie dan
+  // is FactumAI de enige notificatie-route.
+  await sendSlack(`🚨 ${failures.length} cron-failures (laatste ${WINDOW_HOURS}u)\n${summary}`);
+
   return NextResponse.json({ ok: true, failures: failures.length, alerted: true });
 }
 
 async function sendSlack(text: string): Promise<void> {
   const webhook = process.env.SLACK_WEBHOOK_URL;
-  if (!webhook) {
-    console.warn("[health-check] SLACK_WEBHOOK_URL ontbreekt — alert niet verstuurd");
-    return;
-  }
+  if (!webhook) return;
   try {
     await fetch(webhook, {
       method: "POST",

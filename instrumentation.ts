@@ -7,12 +7,6 @@
 // client zelf niets, dus de agent blijft volledig stand-alone.
 
 export async function register() {
-  if (process.env.NEXT_RUNTIME === "nodejs") {
-    await import("./sentry.server.config");
-  }
-  if (process.env.NEXT_RUNTIME === "edge") {
-    await import("./sentry.edge.config");
-  }
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
   const { factum } = await import("@/lib/factum/client");
@@ -28,11 +22,23 @@ export async function register() {
   });
 }
 
-// Sentry-required hook voor server-side error capture in App Router.
+// Server-side error capture in App Router. Stuurt elke gevangen
+// request-error door naar het FactumAI-dashboard zodat alle observability
+// op één plek terechtkomt.
 export async function onRequestError(
-  ...args: Parameters<typeof import("@sentry/nextjs").captureRequestError>
+  err: unknown,
+  request: { path?: string; method?: string },
+  context: { routerKind?: string; routePath?: string },
 ) {
-  if (!process.env.SENTRY_DSN) return;
-  const Sentry = await import("@sentry/nextjs");
-  Sentry.captureRequestError(...args);
+  const { factum } = await import("@/lib/factum/client");
+  if (!factum.enabled) return;
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  void factum.logEvent("error", `Next.js: ${message}`, {
+    path: request.path,
+    method: request.method,
+    routerKind: context.routerKind,
+    routePath: context.routePath,
+    stack: stack?.slice(0, 4_000),
+  });
 }

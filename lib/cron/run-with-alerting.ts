@@ -1,6 +1,6 @@
 // Wrapper voor cron-routes. Vangt errors, logt naar cron_runs (zodat
-// /api/cron/health-check ze kan aggregeren) en stuurt door naar Sentry
-// als die geconfigureerd is.
+// /api/cron/health-check ze kan aggregeren) en pusht een error-event
+// naar het FactumAI-dashboard zodat alles op één plek zichtbaar is.
 //
 // Gebruik in een cron-route:
 //   export async function GET(req: Request) {
@@ -12,6 +12,7 @@
 
 import { NextResponse } from "next/server";
 import { tryGetSupabase } from "@/lib/supabase/client";
+import { factum } from "@/lib/factum/client";
 
 export async function runCronWithAlerting<T>(
   name: string,
@@ -31,7 +32,11 @@ export async function runCronWithAlerting<T>(
     if (stack) console.error(stack);
 
     void recordRun(name, "failed", durationMs, message);
-    void reportToSentry(name, err);
+    void factum.logEvent("error", `Cron ${name} faalde: ${message}`, {
+      cron: name,
+      durationMs,
+      stack: stack?.slice(0, 4_000),
+    });
     return NextResponse.json(
       { ok: false, durationMs, error: message },
       { status: 500 },
@@ -64,14 +69,4 @@ async function recordRun(
         );
       }
     });
-}
-
-async function reportToSentry(name: string, err: unknown): Promise<void> {
-  if (!process.env.SENTRY_DSN) return;
-  try {
-    const Sentry = await import("@sentry/nextjs");
-    Sentry.captureException(err, { tags: { cron: name } });
-  } catch {
-    // Sentry niet geladen — silently skip.
-  }
 }
