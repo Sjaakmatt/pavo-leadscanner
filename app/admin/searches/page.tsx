@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { tryGetSupabase } from "@/lib/supabase/client";
 import { authConfigured, getCurrentUser } from "@/lib/auth/server";
+import { currentMode } from "@/lib/lead-source";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,19 @@ function fmtUsd(n: number | null): string {
 }
 
 export default async function AdminSearchesPage() {
+  if (currentMode() === "demo") {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-10">
+        <h1 className="text-2xl font-semibold text-pavo-navy">
+          Search-observability
+        </h1>
+        <p className="mt-3 text-sm text-pavo-gray-600">
+          Niet beschikbaar in demo-mode — observability toont alleen
+          live prod-runs.
+        </p>
+      </div>
+    );
+  }
   if (!authConfigured()) {
     return (
       <div className="mx-auto max-w-5xl px-4 py-10">
