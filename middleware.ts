@@ -43,15 +43,6 @@ const PROD_ONLY_API_PREFIXES = [
   "/api/search-summary",
 ];
 
-// Pages die alleen zinvol zijn in prod-mode. Demo-mode redirect → '/'.
-const PROD_ONLY_PAGE_PREFIXES = [
-  "/searches",
-  "/search-jobs",
-  "/pipeline",
-  "/users",
-  "/admin",
-];
-
 function isPublic(pathname: string): boolean {
   return PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(`${p}.`),
@@ -64,33 +55,30 @@ function isProdOnlyApi(pathname: string): boolean {
   );
 }
 
-function isProdOnlyPage(pathname: string): boolean {
-  return PROD_ONLY_PAGE_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`),
-  );
-}
-
 export async function middleware(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const mode = (process.env.MODE ?? "demo").toLowerCase();
   const pathname = req.nextUrl.pathname;
 
-  // Demo-mode firewall: blokkeer alle prod-data API's en redirect prod-
-  // only pages. Werkt onafhankelijk van auth-config.
-  if (mode === "demo") {
-    if (isProdOnlyApi(pathname)) {
-      return NextResponse.json(
-        { error: "Niet beschikbaar in demo-mode", searches: [], jobs: [], items: [] },
-        { status: 200 },
-      );
-    }
-    if (isProdOnlyPage(pathname)) {
-      const home = req.nextUrl.clone();
-      home.pathname = "/";
-      home.searchParams.set("demo", "1");
-      return NextResponse.redirect(home);
-    }
+  // Demo-mode firewall: alleen op het API-niveau. Pages blijven renderen
+  // (klant kan op alle tabs klikken), maar prod-data API's geven een
+  // empty-array response zodat geen Supabase-data uit eerdere prod-runs
+  // doorlekt. Pages tonen dan hun bestaande "geen data"-state.
+  if (mode === "demo" && isProdOnlyApi(pathname)) {
+    return NextResponse.json(
+      {
+        error: "Niet beschikbaar in demo-mode",
+        searches: [],
+        jobs: [],
+        items: [],
+        notifications: [],
+        users: [],
+        leads: [],
+        company: null,
+      },
+      { status: 200 },
+    );
   }
 
   // Auth uit als Supabase niet geconfigureerd is.

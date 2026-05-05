@@ -3,32 +3,24 @@ import ModeBadge from "./ModeBadge";
 import HeaderAuth from "./HeaderAuth";
 import HeaderNav, { type NavItem } from "./HeaderNav";
 import { authConfigured, getCurrentUser } from "@/lib/auth/server";
-import { currentMode } from "@/lib/lead-source";
 
 export default async function Header() {
   const user = authConfigured() ? await getCurrentUser() : null;
-  const mode = currentMode();
-  // In demo-mode tonen we alleen de Leads-tab. Andere tabs leunen op
-  // prod-data uit Supabase die we voor demo-klanten niet willen lekken —
-  // middleware blokkeert de URL's sowieso, maar de tabs verbergen
-  // voorkomt verwarring.
-  const showProdTabs = mode === "prod";
 
-  // Bouw de nav-lijst op basis van auth/role — exact zoals voorheen,
-  // alleen netjes als data-array zodat HeaderNav de active-state kan
-  // renderen. In demo-mode blijft de array leeg → HeaderNav rendert niet.
-  const items: NavItem[] = showProdTabs
-    ? [
-        { href: "/", label: "Leads" },
-        { href: "/searches", label: "Geschiedenis" },
-        { href: "/pipeline", label: "Pipeline" },
-        { href: "/search-jobs", label: "Jobs" },
-      ]
-    : [];
-  if (showProdTabs && user) {
+  // Tabs blijven in zowel demo als prod zichtbaar zodat de UI niet
+  // verwarrend springt. In demo-mode geven de prod-only API's empty
+  // arrays terug (zie middleware) zodat geen prod-data lekt; pages tonen
+  // dan hun bestaande "geen data"-state.
+  const items: NavItem[] = [
+    { href: "/", label: "Leads" },
+    { href: "/searches", label: "Geschiedenis" },
+    { href: "/pipeline", label: "Pipeline" },
+    { href: "/search-jobs", label: "Jobs" },
+  ];
+  if (user) {
     items.push({ href: "/users", label: "Gebruikers" });
   }
-  if (showProdTabs && user?.role === "admin") {
+  if (user?.role === "admin") {
     items.push(
       { href: "/admin/searches", label: "Observability" },
       { href: "/admin/calibration", label: "Calibration" },
@@ -49,7 +41,7 @@ export default async function Header() {
               HR
             </span>
           </Link>
-          {user?.orgNaam && showProdTabs && (
+          {user?.orgNaam && (
             <span
               className="hidden rounded-full border border-pavo-ink/[0.08] bg-white/70 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.10em] text-pavo-gray-600 md:inline-flex"
               title="Jouw organisatie"
@@ -63,7 +55,7 @@ export default async function Header() {
           <HeaderAuth user={user} />
         </div>
       </div>
-      {showProdTabs && items.length > 0 && (user || authConfigured()) && (
+      {(user || authConfigured()) && (
         <div className="border-t border-pavo-ink/[0.04]">
           <HeaderNav items={items} />
         </div>
