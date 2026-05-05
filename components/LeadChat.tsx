@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { stripToolTranscripts } from "@/lib/agent/output-sanitize";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -87,14 +88,20 @@ export default function LeadChat({ kvk, leadNaam, open, onClose }: Props) {
         acc += decoder.decode(value, { stream: true });
         setMessages((curr) => {
           const next = [...curr];
-          next[next.length - 1] = { role: "assistant", content: acc };
+          next[next.length - 1] = {
+            role: "assistant",
+            content: stripToolTranscripts(acc),
+          };
           return next;
         });
       }
       acc += decoder.decode();
       setMessages((curr) => {
         const next = [...curr];
-        next[next.length - 1] = { role: "assistant", content: acc };
+        next[next.length - 1] = {
+          role: "assistant",
+          content: stripToolTranscripts(acc),
+        };
         return next;
       });
     } catch (err) {

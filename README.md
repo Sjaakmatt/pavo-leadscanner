@@ -55,7 +55,7 @@ UI → /api/search → getLeadSource()
                    ├── demo → MockLeadSource (data/leads.json)
                    └── prod → ProductionLeadSource
                                ├── BedrijvenMcp (HTTP → :8110)
-                               │    ├── kvk_zoeken                    (SBI + provincies)
+                               │    ├── kvk_zoeken                    (per woonplaats binnen radius)
                                │    ├── kvk_basisprofiel              (parallel per kandidaat)
                                │    ├── pdok_geocode                  (per unieke plaats)
                                │    └── get_company_website_content   (Playwright + web_fetch)

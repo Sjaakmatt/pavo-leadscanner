@@ -14,7 +14,7 @@ export const searchFiltersSchema = z.object({
   regio_center: latLngSchema.nullable().default(null),
   regio_straal_km: z.number().finite().min(1).max(250).default(25),
   signaal_query: z.string().trim().max(240).default(""),
-  max_basisprofielen: z.number().int().min(1).max(1000).optional(),
+  max_basisprofielen: z.number().int().min(1).max(500).optional(),
 });
 
 export function parseSearchFilters(input: unknown): SearchFilters {

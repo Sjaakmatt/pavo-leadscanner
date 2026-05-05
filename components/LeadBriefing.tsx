@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { stripToolTranscripts } from "@/lib/agent/output-sanitize";
 
 type Props = {
   kvk: string;
@@ -12,7 +13,7 @@ type Status = "loading" | "streaming" | "done" | "fallback";
 
 // Bump deze suffix als de briefing-prompt verandert — oude cached
 // briefings missen dan de nieuwste structuur.
-const CACHE_PREFIX = "pavo:brief:v3-bullets:";
+const CACHE_PREFIX = "pavo:brief:v4-no-tools:";
 
 // Richer synthesis streamed from Claude. We cache per kvk in
 // sessionStorage so flipping between leads feels instant and a demo
@@ -30,7 +31,7 @@ export default function LeadBriefing({ kvk, fallbackObservatie }: Props) {
         ? window.sessionStorage.getItem(CACHE_PREFIX + kvk)
         : null;
     if (cached) {
-      setText(cached);
+      setText(stripToolTranscripts(cached));
       setStatus("done");
       return;
     }
@@ -59,15 +60,16 @@ export default function LeadBriefing({ kvk, fallbackObservatie }: Props) {
           if (done) break;
           if (cancelled) return;
           acc += decoder.decode(value, { stream: true });
-          setText(acc);
+          setText(stripToolTranscripts(acc));
         }
         acc += decoder.decode();
         if (cancelled) return;
-        setText(acc);
+        const cleaned = stripToolTranscripts(acc);
+        setText(cleaned);
         setStatus("done");
 
-        if (typeof window !== "undefined" && acc.length > 0) {
-          window.sessionStorage.setItem(CACHE_PREFIX + kvk, acc);
+        if (typeof window !== "undefined" && cleaned.length > 0) {
+          window.sessionStorage.setItem(CACHE_PREFIX + kvk, cleaned);
         }
       } catch (err) {
         if ((err as Error).name === "AbortError") return;

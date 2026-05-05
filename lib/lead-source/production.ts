@@ -8,8 +8,7 @@
 //   2. Supabase companies-cache → bestaande SBI+FTE-matches in target-plaatsen
 //   3. mcp-bedrijven.kvk_zoeken per plaats (gratis) → onbekende kvk-nummers
 //   4. mcp-bedrijven.kvk_basisprofiel (€0.02 per call, hard cap via
-//      MAX_BASISPROFIELEN_PER_SEARCH) → SBI + FTE per kandidaat;
-//      filter daarop
+//      MAX_BASISPROFIELEN_PER_SEARCH) → dataset opbouwen; filter daarop
 //   5. mcp-bedrijven.pdok_geocode               (per onbekende plaats voor fijn-haversine)
 //   6. Upsert companies-row + bestuurders + kvk_snapshots
 //   7. Per match parallel via orchestrator:
@@ -22,7 +21,7 @@
 //   9. scored_leads + search_queries afronden
 //
 // Budget-guard:
-//  - MAX_BASISPROFIELEN_PER_SEARCH (default 200) → ~€4 absolute cap
+//  - MAX_BASISPROFIELEN_PER_SEARCH (default 500) → ~€10 absolute cap
 //  - MAX_COST_PER_SEARCH_USD voor scrape-/classify-stap (LLM-tokens via CostTracker)
 // Bij eerste zoekopdracht in een nieuwe regio is dit de duurste run; alle
 // volgende runs hitten de Supabase-cache → praktisch gratis.
@@ -67,13 +66,13 @@ const MAX_PARALLEL_SCRAPES = 5;
 const KVK_BASISPROFIEL_CONCURRENCY = 8;
 
 // Hard cap-CEILING op het aantal betaalde basisprofiel-calls per zoek-
-// opdracht. Met €0.02/call → 200 calls = €4 absolute ceiling. Verhogen
+// opdracht. Met €0.02/call → 500 calls = €10 absolute ceiling. Verhogen
 // kan via `MAX_BASISPROFIELEN_PER_SEARCH` env-var. Per-search runtime-
 // override gaat via SearchFilters.max_basisprofielen, maar wordt altijd
 // gecapped op dit ceiling.
 const MAX_BASISPROFIELEN_CEILING = (() => {
-  const raw = Number(process.env.MAX_BASISPROFIELEN_PER_SEARCH ?? 200);
-  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 200;
+  const raw = Number(process.env.MAX_BASISPROFIELEN_PER_SEARCH ?? 500);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 500;
 })();
 
 function resolveBasisBudget(override: number | undefined): number {
@@ -84,12 +83,8 @@ function resolveBasisBudget(override: number | undefined): number {
 }
 
 const DEFAULT_RADIUS_KM = 25;
-// Cap op aantal plaatsen die we per search aflopen — grote radii leveren
-// anders te veel plaatsen op die elk weer hun eigen Zoeken-call doen.
-const MAX_PLAATSEN_PER_SEARCH = 12;
 // Maximum hits die we uit één Zoeken-call accepteren. KvK v2 max = 100.
 const ZOEKEN_PAGE_SIZE = 100;
-const LIMIT_PER_SEARCH = 50;
 
 function noopEmit(_event: SearchProgressEvent): void {}
 
@@ -175,7 +170,6 @@ export class ProductionLeadSource implements LeadSource {
         ? await plaatsenWithinRadius(
             filters.regio_center,
             filters.regio_straal_km ?? DEFAULT_RADIUS_KM,
-            { maxPlaatsen: MAX_PLAATSEN_PER_SEARCH },
           )
         : [];
       console.log(
@@ -214,35 +208,35 @@ export class ProductionLeadSource implements LeadSource {
       }
 
       // 2) Cache-first: companies-tabel bevat al SBI + FTE per kvk uit
-      // eerdere searches. Pak alle matches in target-plaatsen meteen.
-      const cachedProfiles = await loadCachedProfiles(supabase, {
+      // eerdere searches. Pak de hele bekende regio-dataset en filter
+      // daarna client-side op SBI/FTE, zodat eerder afgewezen bedrijven
+      // niet opnieuw betaalde basisprofiel-calls kosten.
+      const cachedDataset = await loadCachedProfiles(supabase, {
         plaatsen: targetPlaatsen,
         center: filters.regio_center,
         radiusKm: filters.regio_straal_km ?? DEFAULT_RADIUS_KM,
+      });
+      const cachedProfiles = filterProfiles(cachedDataset, {
         sbiCodes,
         fteKlassen: filters.fte_klassen,
       });
       emit({
         type: "stage",
         stage: "basisprofielen",
-        message: `Cache: ${cachedProfiles.length} bekende matches; KvK doorzoeken voor nieuwe…`,
+        message: `Cache: ${cachedDataset.length} bekende bedrijven (${cachedProfiles.length} match); KvK doorzoeken tot max ${resolveBasisBudget(filters.max_basisprofielen)} basisprofielen…`,
       });
 
       // 3) Zoeken-v2 per plaats (gratis) → onbekende kvk-nummers, dan
-      //    basisprofiel per kandidaat (€0.02) met SBI+FTE-filter en
-      //    early-stop zodra `LIMIT_PER_SEARCH` nieuwe matches gevonden.
-      const remainingNeeded = Math.max(0, LIMIT_PER_SEARCH - cachedProfiles.length);
-
-      const knownKvks = new Set(cachedProfiles.map((p) => p.kvkNummer));
-      const newProfiles: LocalKvkBasisprofiel[] = [];
+      //    basisprofiel per kandidaat (€0.02) tot het betaalbudget raakt.
+      //    Daarna gebruiken we de opgebouwde dataset voor SBI/FTE/geo-filter.
+      const knownKvks = new Set(cachedDataset.map((p) => p.kvkNummer));
       const fetchedProfiles: LocalKvkBasisprofiel[] = [];
       let basisprofielenSpent = 0;
       const basisBudget = resolveBasisBudget(filters.max_basisprofielen);
-      let kvkHitsTotal = cachedProfiles.length;
+      let kvkHitsTotal = cachedDataset.length;
 
-      if (remainingNeeded > 0) {
+      if (basisBudget > 0) {
         for (const plaats of targetPlaatsen) {
-          if (newProfiles.length >= remainingNeeded) break;
           if (basisprofielenSpent >= basisBudget) break;
 
           // Eén bad plaats (404 omdat KvK 'm niet kent — bv. een gemeente-
@@ -277,15 +271,13 @@ export class ProductionLeadSource implements LeadSource {
             sbiFilter: sbiCodes,
             fteFilter: filters.fte_klassen,
             spendBudget: () => basisBudget - basisprofielenSpent,
-            matchesNeeded: () => remainingNeeded - newProfiles.length,
             onSpend: () => {
               basisprofielenSpent += 1;
             },
             onProfile: (profile) => {
               fetchedProfiles.push(toLocalProfile(profile, null));
             },
-            onMatch: (profile) => {
-              newProfiles.push(toLocalProfile(profile, null));
+            onMatch: () => {
               emit({ type: "kvk", totalCandidates: kvkHitsTotal });
             },
             concurrency: KVK_BASISPROFIEL_CONCURRENCY,
@@ -295,7 +287,12 @@ export class ProductionLeadSource implements LeadSource {
 
       timing.kvk_ms = Date.now() - kvkStart;
       timing.basisprofiel_ms = timing.kvk_ms;
-      const enriched = [...cachedProfiles, ...newProfiles].map((profile) => ({
+      const fullDataset = uniqueProfiles([...cachedDataset, ...fetchedProfiles]);
+      const matchedProfiles = filterProfiles(fullDataset, {
+        sbiCodes,
+        fteKlassen: filters.fte_klassen,
+      });
+      const enriched = matchedProfiles.map((profile) => ({
         hit: null as KvkZoekHit | null,
         profile,
       }));
@@ -304,13 +301,17 @@ export class ProductionLeadSource implements LeadSource {
       await updateStep(supabase, searchQueryId, "Regio-filter toepassen");
       emit({ type: "stage", stage: "geo", message: "Regio-filter toepassen…" });
       const geoStart = Date.now();
-      const { kept: geoFiltered, coords: coordsByPlaats } = await applyGeoFilter(
+      const coordsByPlaats = await loadCoordsByPlaats(
         this.bedrijven,
         searchCtx,
+        fullDataset,
+        supabase,
+      );
+      const geoFiltered = applyGeoFilter(
         enriched,
         filters.regio_center,
         filters.regio_straal_km ?? DEFAULT_RADIUS_KM,
-        supabase,
+        coordsByPlaats,
       );
       timing.geo_ms = Date.now() - geoStart;
       emit({ type: "geo", remaining: geoFiltered.length });
@@ -321,9 +322,7 @@ export class ProductionLeadSource implements LeadSource {
       // verdampen omdat een bedrijf deze run geen goede PAVO-lead is.
       await upsertCompanies(
         supabase,
-        uniqueProfiles([...geoFiltered.map((x) => x.profile), ...fetchedProfiles]).map(
-          (profile) => ({ profile }),
-        ),
+        fullDataset.map((profile) => ({ profile })),
         coordsByPlaats,
       );
 
@@ -561,14 +560,10 @@ async function loadProfileFromCache(
  * vestiging registreren in een nabijgelegen woonplaats die niet in onze
  * target-set zit. Een name-match miste die — een geo-bbox dekt wél.
  *
- * SBI wordt CLIENT-SIDE gefilterd via `hasSbiOverlap` (prefix-match), niet
- * met Postgres `.overlaps()`. De UI-filter levert 2-cijferige prefixes
- * ("41","42","43") aan terwijl `companies.sbi_codes` volledige codes bevat
- * ("4120","4321"). Postgres array-overlap doet exact element-match en zou
- * dus ELKE cached row uitsluiten zodra een specifieke branche wordt gekozen
- * — symptoom: search met "Bouw & installatie" bouwde nooit cache op want
- * elke run viel terug op betaalde basisprofiel-fetches. We lezen daarom
- * alle kandidaten in de bbox + FTE-bucket, en knippen SBI eronder weg.
+ * Deze functie retourneert de volledige bekende dataset in het zoekgebied.
+ * SBI/FTE-filtering gebeurt daarna client-side via `filterProfiles()`.
+ * Daardoor kunnen eerder opgehaalde, maar toen afgewezen, basisprofielen
+ * opnieuw meedoen zonder nogmaals een betaalde KvK-call.
  *
  * De companies-tabel wordt gevuld bij elke search die basisprofielen
  * fetcht; na een paar runs in een regio is dit zelfvoorzienend.
@@ -579,8 +574,6 @@ async function loadCachedProfiles(
     plaatsen: string[];
     center: LatLng | null;
     radiusKm: number;
-    sbiCodes: string[];
-    fteKlassen: FteKlasse[];
   },
 ): Promise<LocalKvkBasisprofiel[]> {
   let query = supabase
@@ -609,23 +602,17 @@ async function loadCachedProfiles(
     return [];
   }
 
-  // SBI niet als Postgres-clause — zie functie-doc. Hieronder client-side.
-  if (args.fteKlassen.length > 0) {
-    query = query.in("fte_klasse", args.fteKlassen);
-  }
-
   const { data, error } = await query;
   if (error) {
     console.warn(`loadCachedProfiles: ${error.message}`);
     return [];
   }
 
-  // Post-query: SBI-prefix + haversine. Bbox kan companies ~10% buiten de
-  // cirkel includeren. Final-haversine filter knipt die weg.
+  // Post-query: haversine. Bbox kan companies ~10% buiten de cirkel
+  // includeren. Final-haversine filter knipt die weg.
   const center = args.center;
   const radius = args.radiusKm;
-  const sbiFilter = args.sbiCodes;
-  const stats = { rows: 0, sbiOut: 0, geoOut: 0, kept: 0 };
+  const stats = { rows: 0, geoOut: 0, kept: 0 };
   const filtered = ((data ?? []) as Array<{
     kvk: string;
     naam: string;
@@ -642,10 +629,6 @@ async function loadCachedProfiles(
     lng: number | null;
   }>).filter((row) => {
     stats.rows += 1;
-    if (sbiFilter.length > 0 && !hasSbiOverlap(row.sbi_codes ?? [], sbiFilter)) {
-      stats.sbiOut += 1;
-      return false;
-    }
     if (center) {
       // Strict: bedrijven in de cache zonder lat/lng kunnen niet betrouwbaar
       // tegen een straal getoetst worden — uitsluiten is veiliger dan
@@ -665,7 +648,7 @@ async function loadCachedProfiles(
 
   if (stats.rows > 0) {
     console.log(
-      `[funnel] cache: rows=${stats.rows} sbi-out=${stats.sbiOut} geo-out=${stats.geoOut} kept=${stats.kept} sbiFilter=[${sbiFilter.join(",")}]`,
+      `[funnel] cache dataset: rows=${stats.rows} geo-out=${stats.geoOut} kept=${stats.kept}`,
     );
   }
 
@@ -698,10 +681,31 @@ async function loadCachedProfiles(
   }));
 }
 
+function filterProfiles(
+  profiles: LocalKvkBasisprofiel[],
+  filters: { sbiCodes: string[]; fteKlassen: FteKlasse[] },
+): LocalKvkBasisprofiel[] {
+  return profiles.filter((profile) => {
+    if (
+      filters.sbiCodes.length > 0 &&
+      !hasSbiOverlap(profile.sbiCodes, filters.sbiCodes)
+    ) {
+      return false;
+    }
+    if (
+      filters.fteKlassen.length > 0 &&
+      !matchesFteKlasse(profile.fteKlasse, filters.fteKlassen)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
 /**
  * Parallel basisprofiel-fetch met SBI+FTE-filter en budget-guard.
- * Stopt zodra `matchesNeeded()` 0 is of `spendBudget()` 0 is — early-stop
- * werkt zelfs als andere workers dat trigger raken.
+ * Alle succesvolle profielen gaan via `onProfile` de persistente dataset in;
+ * alleen filter-matches gaan via `onMatch` door naar scrape/scoring.
  */
 async function fetchBasisprofielenWithFilter(args: {
   bedrijven: BedrijvenMcp;
@@ -710,7 +714,6 @@ async function fetchBasisprofielenWithFilter(args: {
   sbiFilter: string[];
   fteFilter: FteKlasse[];
   spendBudget: () => number;
-  matchesNeeded: () => number;
   onSpend: () => void;
   onProfile?: (profile: McpKvkBasisprofiel) => void;
   onMatch: (profile: McpKvkBasisprofiel) => void;
@@ -736,7 +739,6 @@ async function fetchBasisprofielenWithFilter(args: {
     { length: Math.min(args.concurrency, queue.length) },
     async () => {
       while (queue.length > 0) {
-        if (args.matchesNeeded() <= 0) return;
         if (args.spendBudget() <= 0) return;
         const kvk = queue.shift();
         if (!kvk) return;
@@ -834,20 +836,18 @@ function toLocalProfile(
   };
 }
 
-async function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
+async function loadCoordsByPlaats(
   bedrijven: BedrijvenMcp,
   ctx: TenantContext,
-  enriched: T[],
-  center: LatLng | null,
-  radiusKm: number,
+  profiles: LocalKvkBasisprofiel[],
   supabase: SupabaseClient,
-): Promise<{ kept: T[]; coords: Map<string, LatLng> }> {
+): Promise<Map<string, LatLng>> {
   const coordsByPlaats = new Map<string, LatLng>();
-  if (enriched.length === 0) {
-    return { kept: enriched, coords: coordsByPlaats };
+  if (profiles.length === 0) {
+    return coordsByPlaats;
   }
   const uniquePlaatsen = [
-    ...new Set(enriched.map((x) => x.profile.plaats).filter((p): p is string => !!p)),
+    ...new Set(profiles.map((profile) => profile.plaats).filter((p): p is string => !!p)),
   ];
 
   // 1) Lees gecachte coords uit companies — al lang bekende plaatsen
@@ -876,15 +876,22 @@ async function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
         const geo = await bedrijven.pdokGeocode(ctx, p);
         if (geo) coordsByPlaats.set(p, { lat: geo.lat, lng: geo.lng });
       } catch {
-        // skip — bedrijf wordt straks geheel uit het filter weggelaten
-        // alleen als we WEL center hebben en geen coords.
+        // skip — bij regio-searches worden bedrijven zonder coords later
+        // strikt uit de leadset gelaten.
       }
     }),
   );
 
-  if (!center) {
-    return { kept: enriched, coords: coordsByPlaats };
-  }
+  return coordsByPlaats;
+}
+
+function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
+  enriched: T[],
+  center: LatLng | null,
+  radiusKm: number,
+  coordsByPlaats: Map<string, LatLng>,
+): T[] {
+  if (!center) return enriched;
   // Strict mode wanneer regio_center is gezet: bedrijven zonder plaats
   // OF zonder gecachete/PDOK-coords kunnen niet geverifieerd worden tegen
   // de straal. De vorige "graceful keep" fallback (return true) liet
@@ -893,13 +900,12 @@ async function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
   // gaf 12 Almere-leads (~45km verderop) omdat coords voor "Almere"
   // onterecht ontbraken in de cache. Nu: liever uitsluiten dan een verre
   // lead opnemen.
-  const kept = enriched.filter(({ profile }) => {
+  return enriched.filter(({ profile }) => {
     if (!profile.plaats) return false;
     const coords = coordsByPlaats.get(profile.plaats);
     if (!coords) return false;
     return haversineKm(center, coords) <= radiusKm;
   });
-  return { kept, coords: coordsByPlaats };
 }
 
 async function upsertCompanies<T extends { profile: LocalKvkBasisprofiel }>(
@@ -948,21 +954,25 @@ async function upsertCompanies<T extends { profile: LocalKvkBasisprofiel }>(
 
   // Append KvK-snapshot — lichtgewicht historie zodat we later
   // FTE-mutaties of bestuurders-veranderingen kunnen detecteren.
-  const snapshotRows = enriched.map(({ profile }) => ({
-    kvk: profile.kvkNummer,
-    raw_data: profile.raw as object,
-    fte_klasse: profile.fteKlasse,
-    bestuurders: profile.bestuurders as object,
-    vestigingen: profile.vestigingen as object,
-  }));
+  const snapshotRows = enriched
+    .filter(({ profile }) => profile.raw !== null && profile.raw !== undefined)
+    .map(({ profile }) => ({
+      kvk: profile.kvkNummer,
+      raw_data: profile.raw as object,
+      fte_klasse: profile.fteKlasse,
+      bestuurders: profile.bestuurders as object,
+      vestigingen: profile.vestigingen as object,
+    }));
   // We slaan max 1 snapshot per dag op (unique constraint op
   // (kvk, snapshot_at) maakt dit best-effort). On-conflict do nothing
   // wordt door supabase-js niet direct ondersteund; we slikken errors.
-  const { error: snapErr } = await supabase
-    .from("kvk_snapshots")
-    .insert(snapshotRows);
-  if (snapErr && !snapErr.message.includes("duplicate")) {
-    console.warn(`kvk_snapshots insert: ${snapErr.message}`);
+  if (snapshotRows.length > 0) {
+    const { error: snapErr } = await supabase
+      .from("kvk_snapshots")
+      .insert(snapshotRows);
+    if (snapErr && !snapErr.message.includes("duplicate")) {
+      console.warn(`kvk_snapshots insert: ${snapErr.message}`);
+    }
   }
 }
 

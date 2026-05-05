@@ -278,13 +278,17 @@ export async function plaatsenWithinRadius(
   radiusKm: number,
   opts: { maxPlaatsen?: number } = {},
 ): Promise<string[]> {
-  const max = opts.maxPlaatsen ?? 12;
   const all = await loadAllPlaatsen();
   const withDistance = all
     .map((p) => ({ naam: p.naam, dist: haversineKm(center, p.coords) }))
     .filter((p) => p.dist <= radiusKm)
     .sort((a, b) => a.dist - b.dist);
-  return withDistance.slice(0, max).map((p) => p.naam);
+  const max = opts.maxPlaatsen;
+  const limited =
+    typeof max === "number" && Number.isFinite(max) && max > 0
+      ? withDistance.slice(0, Math.floor(max))
+      : withDistance;
+  return limited.map((p) => p.naam);
 }
 
 /** Synchrone variant op de statische fallback — voor tests of code-paden
@@ -294,12 +298,16 @@ export function plaatsenWithinRadiusStatic(
   radiusKm: number,
   opts: { maxPlaatsen?: number } = {},
 ): string[] {
-  const max = opts.maxPlaatsen ?? 12;
   const withDistance = PLAATSEN_STATIC.map((p) => ({
     naam: p.naam,
     dist: haversineKm(center, p.coords),
   }))
     .filter((p) => p.dist <= radiusKm)
     .sort((a, b) => a.dist - b.dist);
-  return withDistance.slice(0, max).map((p) => p.naam);
+  const max = opts.maxPlaatsen;
+  const limited =
+    typeof max === "number" && Number.isFinite(max) && max > 0
+      ? withDistance.slice(0, Math.floor(max))
+      : withDistance;
+  return limited.map((p) => p.naam);
 }

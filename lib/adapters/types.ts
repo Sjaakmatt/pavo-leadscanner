@@ -99,7 +99,7 @@ export type SearchFilters = {
   /**
    * Optionele runtime override op het max-aantal betaalde KvK-basisprofielen
    * per zoekopdracht. Default uit env-var `MAX_BASISPROFIELEN_PER_SEARCH`
-   * (200). Wordt server-side gecapped op het hard-ceiling om kosten-uit-
+   * (500). Wordt server-side gecapped op het hard-ceiling om kosten-uit-
    * de-hand-lopen te voorkomen.
    */
   max_basisprofielen?: number;

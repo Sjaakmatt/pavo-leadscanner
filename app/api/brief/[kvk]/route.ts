@@ -11,6 +11,7 @@ import {
   loadCachedBriefing,
   saveCachedBriefing,
 } from "@/lib/agent/briefing-cache";
+import { stripToolTranscripts } from "@/lib/agent/output-sanitize";
 
 export const runtime = "nodejs";
 
@@ -33,7 +34,7 @@ export async function GET(
   // gebruikt.
   const cached = await loadCachedBriefing(kvk, sigHash).catch(() => null);
   if (cached) {
-    return new Response(cached.briefing_md, {
+    return new Response(stripToolTranscripts(cached.briefing_md), {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-store",
@@ -51,7 +52,7 @@ export async function GET(
     });
   }
 
-  const system = buildSystemPrompt(lead);
+  const system = buildSystemPrompt(lead, null, { toolsEnabled: false });
 
   const stream = client.messages.stream({
     model: CHAT_MODEL,
@@ -72,14 +73,15 @@ export async function GET(
       try {
         stream.on("text", (delta) => {
           captured += delta;
-          controller.enqueue(encoder.encode(delta));
         });
         await stream.finalMessage();
+        const cleaned = stripToolTranscripts(captured);
+        controller.enqueue(encoder.encode(cleaned));
         controller.close();
 
         // Best-effort persist — faalt deze write stilletjes, dan loopt
         // de UI gewoon door en probeert volgende open opnieuw.
-        void saveCachedBriefing(kvk, captured, sigHash, CHAT_MODEL).catch(
+        void saveCachedBriefing(kvk, cleaned, sigHash, CHAT_MODEL).catch(
           (err) => {
             console.warn(
               `[briefing-cache] save faalde voor ${kvk}: ${String(err)}`,

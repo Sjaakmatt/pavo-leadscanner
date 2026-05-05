@@ -89,7 +89,12 @@ export function getClient(): Anthropic {
 // Builds the system prompt. Its bytes are stable per-lead, so a cache
 // breakpoint here gives us ~90% input-token discount on follow-up
 // questions about the same lead.
-export function buildSystemPrompt(lead: Lead, websiteUrl: string | null = null): string {
+export function buildSystemPrompt(
+  lead: Lead,
+  websiteUrl: string | null = null,
+  opts: { toolsEnabled?: boolean } = {},
+): string {
+  const toolsEnabled = opts.toolsEnabled ?? true;
   const diensten = Object.entries(meta.diensten)
     .map(([code, naam]) => `- ${code}: ${naam}`)
     .join("\n");
@@ -119,6 +124,21 @@ export function buildSystemPrompt(lead: Lead, websiteUrl: string | null = null):
     ? `Archetype: ${lead.archetype.code} — ${lead.archetype.naam}\n${lead.archetype.beschrijving}`
     : "Geen significant archetype gedetecteerd.";
 
+  const toolsSection = toolsEnabled
+    ? `# Live tools — gebruik proactief
+Ik heb via native tool-use live-toegang tot zes data-bronnen. Roep ze aan wanneer een vraag verder gaat dan de snapshot hieronder, of wanneer de gebruiker een claim wil verifiëren.
+
+- \`get_kvk_basisprofiel(kvk)\` — verse KvK-feiten (FTE-klasse, vestigingen, bestuurders, rechtsvorm, oprichtingsdatum). €0,02 per call.
+- \`get_kvk_snapshot_history(kvk)\` — historische KvK-snapshots uit eerdere scans. Voor "is X gegroeid?", "wanneer is bestuurder gewisseld?".
+- \`scrape_vacancies(url)\` — live vacature-scrape van een bedrijfssite. Voor "welke vacatures staan er nu open?".
+- \`search_court_cases(company_names, legal_area?)\` — Rechtspraak.nl. Voor juridische conflicten / arbeidsrechtzaken.
+- \`search_news(company_name)\` — Google News RSS. Voor recent-events.
+- \`get_lead_signals_raw(kvk, ttl_days?)\` — alle ruwe signal-records uit de database (incl. bron-URL en bewijs-tekst). Voor "wat is exact het bewijs?", "welke datum?".
+
+Wanneer NIET aanroepen: voor algemene PAVO-portfolio-vragen, archetype-uitleg, of als de snapshot al volledig antwoord geeft. Gebruik uitsluitend native tool-use. Schrijf nooit tool calls, tool responses, XML-tags, JSON tool payloads of ruwe tool-output in je antwoord. Geef altijd korte status ("Even checken in KvK…") als je een tool inzet, en synthese de tool-output ipv hem rauw te dumpen.`
+    : `# Geen live tools beschikbaar in deze call
+Gebruik uitsluitend de lead-data snapshot hieronder. Schrijf nooit alsof je live tools aanroept. Schrijf geen tool calls, tool responses, XML-tags, JSON tool payloads of ruwe tool-output in je antwoord. Als bewijs ontbreekt, benoem dat als nuance.`;
+
   return `Je bent de PAVO Research Agent. Je hebt zojuist een MKB-lead geanalyseerd voor FactumAI en PAVO HR (pavohr.nl). Je beantwoordt vervolgvragen van de PAVO-consultant over deze specifieke lead.
 
 # Stijl
@@ -133,17 +153,7 @@ ${diensten}
 # PAVO-archetypes (patronen die we herkennen)
 ${archetypes}
 
-# Live tools — gebruik proactief
-Ik heb via tool-use live-toegang tot zes data-bronnen. Roep ze aan wanneer een vraag verder gaat dan de snapshot hieronder, of wanneer de gebruiker een claim wil verifiëren.
-
-- \`get_kvk_basisprofiel(kvk)\` — verse KvK-feiten (FTE-klasse, vestigingen, bestuurders, rechtsvorm, oprichtingsdatum). €0,02 per call.
-- \`get_kvk_snapshot_history(kvk)\` — historische KvK-snapshots uit eerdere scans. Voor "is X gegroeid?", "wanneer is bestuurder gewisseld?".
-- \`scrape_vacancies(url)\` — live vacature-scrape van een bedrijfssite. Voor "welke vacatures staan er nu open?".
-- \`search_court_cases(company_names, legal_area?)\` — Rechtspraak.nl. Voor juridische conflicten / arbeidsrechtzaken.
-- \`search_news(company_name)\` — Google News RSS. Voor recent-events.
-- \`get_lead_signals_raw(kvk, ttl_days?)\` — alle ruwe signal-records uit de database (incl. bron-URL en bewijs-tekst). Voor "wat is exact het bewijs?", "welke datum?".
-
-Wanneer NIET aanroepen: voor algemene PAVO-portfolio-vragen, archetype-uitleg, of als de snapshot al volledig antwoord geeft. Geef altijd korte status ("Even checken in KvK…") als je een tool inzet, en synthese de tool-output ipv hem rauw te dumpen.
+${toolsSection}
 
 # Lead-data (snapshot)
 Naam: ${lead.naam}
