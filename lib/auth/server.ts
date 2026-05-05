@@ -161,10 +161,20 @@ async function ensureProfile(
   userEmail: string | undefined,
   userMeta: Record<string, unknown> | undefined,
 ): Promise<ProfileRow | null> {
+  // Verbose logging op elke stap zodat we via Vercel-logs precies zien
+  // waar deze flow strandt. Filter logs op `[ensureProfile]` om de hele
+  // sequentie voor één request te volgen.
+  console.log(`[ensureProfile] start userId=${userId} email=${userEmail ?? "?"}`);
+
   // Lazy import om circulaire dependency te voorkomen.
   const { tryGetSupabase } = await import("@/lib/supabase/client");
   const admin = tryGetSupabase();
-  if (!admin) return null;
+  if (!admin) {
+    console.warn(
+      `[ensureProfile] tryGetSupabase() = null — SUPABASE_SERVICE_ROLE_KEY ontbreekt waarschijnlijk`,
+    );
+    return null;
+  }
 
   const fullName =
     (userMeta?.full_name as string | undefined) ?? userEmail ?? "Onbekend";
@@ -173,40 +183,57 @@ async function ensureProfile(
   // maak een nieuwe 'PAVO' org aan en zet deze user als admin.
   let orgId: string | null = null;
   let role: "admin" | "member" = "member";
-  const { data: orgs } = await admin
+  const { data: orgs, error: orgsErr } = await admin
     .from("organizations")
-    .select("id")
+    .select("id, naam")
     .order("created_at", { ascending: true })
     .limit(1);
+  if (orgsErr) {
+    console.warn(
+      `[ensureProfile] organizations-lookup faalde: code=${orgsErr.code} message=${orgsErr.message} details=${orgsErr.details ?? "none"}`,
+    );
+    return null;
+  }
   if (orgs && orgs.length > 0) {
-    orgId = (orgs[0] as { id: string }).id;
+    orgId = (orgs[0] as { id: string; naam?: string }).id;
+    console.log(
+      `[ensureProfile] bestaande org gevonden id=${orgId} naam=${(orgs[0] as { naam?: string }).naam ?? "?"}`,
+    );
   } else {
-    // Eerste user op een lege install — maak org + maak deze admin.
+    console.log(`[ensureProfile] geen org — nieuwe 'PAVO' org aanmaken`);
     const { data: newOrg, error: orgErr } = await admin
       .from("organizations")
       .insert({ naam: "PAVO", slug: "pavo" })
       .select("id")
       .single();
     if (orgErr || !newOrg) {
-      console.warn(`[ensureProfile] org-insert faalde: ${orgErr?.message}`);
+      console.warn(
+        `[ensureProfile] org-insert faalde: code=${orgErr?.code} message=${orgErr?.message} details=${orgErr?.details ?? "none"} hint=${orgErr?.hint ?? "none"}`,
+      );
       return null;
     }
     orgId = (newOrg as { id: string }).id;
     role = "admin";
+    console.log(`[ensureProfile] nieuwe org gemaakt id=${orgId}, user wordt admin`);
   }
 
   // Eerste profile-rij ever? Dan toch admin maken.
-  const { count } = await admin
+  const { count, error: countErr } = await admin
     .from("profiles")
     .select("id", { count: "exact", head: true });
-  if ((count ?? 0) === 0) {
+  if (countErr) {
+    console.warn(
+      `[ensureProfile] profiles-count faalde: code=${countErr.code} message=${countErr.message}`,
+    );
+    // Niet fataal — gewoon doorgaan met member-default.
+  } else if ((count ?? 0) === 0) {
+    console.log(`[ensureProfile] geen profiles-rijen → user wordt admin`);
     role = "admin";
   }
 
-  // upsert i.p.v. insert: idempotent én race-safe. Bij parallele
-  // self-heal-calls (twee tabs tegelijk) was de oude insert vatbaar voor
-  // duplicate-key errors die we daarna swallowed (incomplete fix). Met
-  // upsert + onConflict='id' is de eerste call de enige effectieve.
+  console.log(
+    `[ensureProfile] upsert profile userId=${userId} role=${role} orgId=${orgId}`,
+  );
   const { error: insertErr } = await admin
     .from("profiles")
     .upsert(
@@ -220,18 +247,37 @@ async function ensureProfile(
       { onConflict: "id", ignoreDuplicates: true },
     );
   if (insertErr) {
-    console.warn(`[ensureProfile] profile-upsert faalde: ${insertErr.message}`);
+    console.warn(
+      `[ensureProfile] profile-upsert faalde: code=${insertErr.code} message=${insertErr.message} details=${insertErr.details ?? "none"} hint=${insertErr.hint ?? "none"}`,
+    );
     return null;
   }
+  console.log(`[ensureProfile] upsert OK, re-fetch profile`);
 
   // Re-fetch met org join zodat we dezelfde shape teruggeven als
   // de happy-path query in getCurrentUser().
-  const { data } = await admin
+  const { data, error: fetchErr } = await admin
     .from("profiles")
     .select("id, email, full_name, role, org_id, organizations:org_id(naam)")
     .eq("id", userId)
     .maybeSingle();
-  return (data as unknown as ProfileRow) ?? null;
+  if (fetchErr) {
+    console.warn(
+      `[ensureProfile] re-fetch faalde: code=${fetchErr.code} message=${fetchErr.message}`,
+    );
+    return null;
+  }
+  if (!data) {
+    console.warn(
+      `[ensureProfile] re-fetch returned null — upsert leek te slagen maar er is geen rij. RLS-probleem?`,
+    );
+    return null;
+  }
+  const resolved = data as unknown as ProfileRow;
+  console.log(
+    `[ensureProfile] success — profile resolved voor ${userId} (org=${resolved.org_id})`,
+  );
+  return resolved;
 }
 
 export async function requireUser(): Promise<AppUser> {
