@@ -57,6 +57,7 @@ import { matchesSignaalQuery } from "@/lib/adapters/mock";
 import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "@/lib/factum/roi";
 import { SCORING_VERSION } from "@/lib/scoring/version";
 import { CostTracker, withSearchScope } from "@/lib/classification/cost";
+import { logObs } from "@/lib/observability/logger";
 import { upsertKvkBestuurders } from "@/lib/lead-source/contacts";
 import { getCurrentUser, authConfigured } from "@/lib/auth/server";
 
@@ -301,6 +302,18 @@ export class ProductionLeadSource implements LeadSource {
 
       timing.kvk_ms = Date.now() - kvkStart;
       timing.basisprofiel_ms = timing.kvk_ms;
+      void logObs({
+        type: "info",
+        category: "search_stage",
+        message: `Stage kvk · candidates=${cachedDataset.length + fetchedProfiles.length} duration=${timing.kvk_ms}ms`,
+        orgId,
+        metadata: {
+          stage: "kvk",
+          cached: cachedDataset.length,
+          fetched: fetchedProfiles.length,
+          duration_ms: timing.kvk_ms,
+        },
+      });
       const fullDataset = uniqueProfiles([...cachedDataset, ...fetchedProfiles]);
       const matchedProfiles = filterProfiles(fullDataset, {
         sbiCodes,
@@ -329,6 +342,17 @@ export class ProductionLeadSource implements LeadSource {
       );
       timing.geo_ms = Date.now() - geoStart;
       emit({ type: "geo", remaining: geoFiltered.length });
+      void logObs({
+        type: "info",
+        category: "search_stage",
+        message: `Stage geo · remaining=${geoFiltered.length} duration=${timing.geo_ms}ms`,
+        orgId,
+        metadata: {
+          stage: "geo",
+          remaining: geoFiltered.length,
+          duration_ms: timing.geo_ms,
+        },
+      });
 
       // 5) Companies upserten (incl. lat/lng zodat next-run skipt PDOK).
       // Persist alle opgehaalde basisprofielen, ook als ze later door SBI,
@@ -389,6 +413,19 @@ export class ProductionLeadSource implements LeadSource {
         },
       });
       timing.scrape_ms = Date.now() - scrapeStart;
+      void logObs({
+        type: "info",
+        category: "search_stage",
+        message: `Stage scrape · scraped=${scraped}/${handles.length} duration=${timing.scrape_ms}ms`,
+        orgId,
+        metadata: {
+          stage: "scrape",
+          scraped,
+          total: handles.length,
+          duration_ms: timing.scrape_ms,
+          cost_usd: tracker.snapshot().totalUsd,
+        },
+      });
 
       // 7) Scoring per bedrijf — emit per lead zodra hij klaar is
       //    zodat de UI niet hoeft te wachten op alles
@@ -403,10 +440,39 @@ export class ProductionLeadSource implements LeadSource {
         const lead = scoreToLead(profile, score, stored);
         leads.push(lead);
         scoredCount += 1;
+        // AI-decision logging (Art. 22 GDPR + AI Act art. 12). Bevat geen
+        // bedrijfsnaam — alleen kvk + warmte + reden + signaal-categorieen.
+        void logObs({
+          type: "info",
+          category: "llm_decision",
+          message: `Score · kvk=${profile.kvkNummer} warmte=${score.warmte}`,
+          orgId,
+          metadata: {
+            kvk: profile.kvkNummer,
+            warmte: score.warmte,
+            warmte_reden: score.warmte_reden,
+            totale_score: score.totale_score,
+            archetype: score.archetype,
+            signaal_categorieen: stored.map((s) => s.categorie),
+            cold_redenen: score.cold_redenen,
+          },
+        });
         emit({ type: "lead", lead });
         emit({ type: "score", scored: scoredCount, total: geoFiltered.length });
       }
       timing.score_ms = Date.now() - scoreStart;
+      void logObs({
+        type: "info",
+        category: "search_stage",
+        message: `Stage score · n=${scoredCount} duration=${timing.score_ms}ms`,
+        orgId,
+        metadata: {
+          stage: "score",
+          scored: scoredCount,
+          total: geoFiltered.length,
+          duration_ms: timing.score_ms,
+        },
+      });
 
       // 8) Persist scored_leads (alle gescoorde leads — query-filter
       //    is een UI-presentation-laag, niet een data-uitsluiting).

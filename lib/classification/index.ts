@@ -289,6 +289,7 @@ async function classify(
   // Cost-tracking — Anthropic SDK levert usage-counts mee. We pakken
   // de relevante velden + record naar de active tracker (best-effort,
   // sla niet over als persist faalt).
+  const durationMs = Date.now() - startedAt;
   if (scope) {
     const usage = (response.usage ?? {}) as AnthropicUsage;
     const run = {
@@ -296,11 +297,31 @@ async function classify(
       kvk: company.kvk,
       bronType,
       model,
-      durationMs: Date.now() - startedAt,
+      durationMs,
       usage,
     };
     const cost = scope.tracker.record(run);
     void persistRun(run, cost);
+    // Push LLM-call naar dashboard zodat we model/tokens/kosten kunnen
+    // observen op klant- en agent-niveau (AI Act art. 12 logging).
+    const { logObs } = await import("@/lib/observability/logger");
+    void logObs({
+      type: "info",
+      category: "llm",
+      message: `Claude ${bronType} · kvk=${company.kvk}`,
+      orgId: scope.orgId ?? null,
+      metadata: {
+        model,
+        bronType,
+        kvk: company.kvk,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_tokens: usage.cache_read_input_tokens,
+        cache_create_tokens: usage.cache_creation_input_tokens,
+        cost_usd: cost,
+        duration_ms: durationMs,
+      },
+    });
   }
 
   // flatMap i.p.v. een type-predicate: de SDK's TextBlock heeft een

@@ -165,6 +165,18 @@ async function ensureProfile(
   // waar deze flow strandt. Filter logs op `[ensureProfile]` om de hele
   // sequentie voor één request te volgen.
   console.log(`[ensureProfile] start userId=${userId} email=${userEmail ?? "?"}`);
+  // Audit-event — auto-heal creëert org-binding zonder klassieke
+  // sign-up flow. Voor GDPR-traceability moet dit altijd terug te
+  // vinden zijn.
+  const { logObs } = await import("@/lib/observability/logger");
+  void logObs({
+    type: "info",
+    category: "auth",
+    message: `Profile auto-heal gestart`,
+    audit: true,
+    userId,
+    metadata: { has_email: !!userEmail },
+  });
 
   // Lazy import om circulaire dependency te voorkomen.
   const { tryGetSupabase } = await import("@/lib/supabase/client");

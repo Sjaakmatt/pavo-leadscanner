@@ -124,8 +124,11 @@ export class McpHttpClient {
         false,
       );
     }
+    const startedAt = Date.now();
     let lastErr: unknown;
+    let attempts = 0;
     for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+      attempts = attempt;
       try {
         const result = await this.attemptCallTool(
           toolName,
@@ -134,6 +137,7 @@ export class McpHttpClient {
           responseSchema,
         );
         this.breaker.onSuccess();
+        void this.logCall(toolName, tenantContext, startedAt, attempts, null);
         return result;
       } catch (err) {
         lastErr = err;
@@ -152,7 +156,41 @@ export class McpHttpClient {
     if (lastErr instanceof McpCallError ? lastErr.retryable : true) {
       this.breaker.onFailure();
     }
+    void this.logCall(toolName, tenantContext, startedAt, attempts, lastErr);
     throw lastErr;
+  }
+
+  private async logCall(
+    toolName: string,
+    tenantContext: TenantContext,
+    startedAt: number,
+    attempts: number,
+    err: unknown,
+  ): Promise<void> {
+    try {
+      const { logObs } = await import("@/lib/observability/logger");
+      const orgId =
+        (tenantContext as { organizationId?: string }).organizationId ?? null;
+      await logObs({
+        type: err ? "warning" : "info",
+        category: "mcp",
+        message: `MCP ${toolName} ${err ? "FAIL" : "OK"} · ${this.clientName}`,
+        orgId,
+        metadata: {
+          tool: toolName,
+          mcp_url: this.baseUrl,
+          duration_ms: Date.now() - startedAt,
+          attempts,
+          error: err
+            ? err instanceof Error
+              ? err.message
+              : String(err)
+            : undefined,
+        },
+      });
+    } catch {
+      // observability mag de hot-path nooit ophouden
+    }
   }
 
   private async attemptCallTool<T>(

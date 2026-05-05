@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getLeadSource } from "@/lib/lead-source";
 import { factum } from "@/lib/factum/client";
+import { logObs, logError } from "@/lib/observability/logger";
 import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "@/lib/factum/roi";
 import type { SearchFilters } from "@/lib/adapters/types";
 import { parseSearchFilters, validationErrorMessage } from "@/lib/adapters/validation";
@@ -11,6 +12,8 @@ import { checkSearchRateLimit } from "@/lib/rate-limit/search";
 export async function POST(req: Request) {
   const startedAt = Date.now();
   let filters: SearchFilters | null = null;
+  let orgId: string | null = null;
+  let userId: string | null = null;
   try {
     const url = new URL(req.url);
     const refresh = url.searchParams.get("refresh") === "true";
@@ -26,8 +29,18 @@ export async function POST(req: Request) {
     // Rate-limit per organisatie (alleen wanneer auth + org bekend zijn).
     if (authConfigured()) {
       const me = await getCurrentUser();
-      const limit = await checkSearchRateLimit(me?.orgId ?? null);
+      orgId = me?.orgId ?? null;
+      userId = me?.id ?? null;
+      const limit = await checkSearchRateLimit(orgId);
       if (!limit.allowed) {
+        void logObs({
+          type: "warning",
+          category: "search",
+          message: `Rate-limit geraakt · ${limit.count}/${limit.cap}`,
+          orgId,
+          userId,
+          metadata: { count: limit.count, cap: limit.cap },
+        });
         return NextResponse.json(
           {
             error: `Daglimiet bereikt (${limit.count}/${limit.cap} zoekopdrachten). Probeer morgen opnieuw.`,
@@ -53,10 +66,13 @@ export async function POST(req: Request) {
     );
 
     const durationMs = Date.now() - startedAt;
-    void factum.logEvent(
-      "task_completed",
-      `Lead-search · ${filters.branche} (${result.leads.length} leads)`,
-      {
+    void logObs({
+      type: "task_completed",
+      category: "search",
+      message: `Lead-search · branche=${filters.branche} n=${result.leads.length}`,
+      orgId,
+      userId,
+      metadata: {
         branche: filters.branche,
         fte_klassen: filters.fte_klassen,
         regio_straal_km: filters.regio_straal_km,
@@ -66,7 +82,7 @@ export async function POST(req: Request) {
         durationMs,
         mode: process.env.MODE ?? "demo",
       },
-    );
+    });
     void factum.pushMetrics({
       tasksCompleted: 1,
       avgResponseTimeMs: durationMs,
@@ -81,15 +97,15 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const durationMs = Date.now() - startedAt;
-    void factum.logEvent(
-      "task_failed",
-      `Lead-search faalde: ${String(err)}`,
-      {
+    void logError("search", "Lead-search faalde", err, {
+      orgId,
+      userId,
+      metadata: {
         branche: filters?.branche,
         durationMs,
         mode: process.env.MODE ?? "demo",
       },
-    );
+    });
     void factum.pushMetrics({ tasksFailed: 1 });
     return NextResponse.json(
       {
