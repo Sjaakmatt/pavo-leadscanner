@@ -72,8 +72,8 @@ export default function SearchJobsPage() {
             Achtergrond-zoekopdrachten
           </h1>
           <p className="mt-1 text-sm text-pavo-gray-600">
-            Grote searches lopen via een cron-worker. Pagina ververst
-            automatisch elke 10s zolang er jobs draaien.
+            Grote zoekopdrachten lopen via een geplande achtergrond-taak.
+            Pagina ververst automatisch elke 10s zolang er taken draaien.
           </p>
         </div>
         <button

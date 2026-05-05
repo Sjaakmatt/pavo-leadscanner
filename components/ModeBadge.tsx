@@ -26,7 +26,7 @@ export default function ModeBadge() {
 
   if (!info) return null;
   const missingMcp = info.mode === "prod" && !info.mcpConfigured;
-  const label = missingMcp ? "PROD · MCP-MISSING" : info.mode.toUpperCase();
+  const label = missingMcp ? "PROD · verbinding ontbreekt" : info.mode.toUpperCase();
   const styles =
     info.mode === "prod"
       ? missingMcp

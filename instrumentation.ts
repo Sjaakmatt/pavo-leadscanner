@@ -7,6 +7,12 @@
 // client zelf niets, dus de agent blijft volledig stand-alone.
 
 export async function register() {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    await import("./sentry.server.config");
+  }
+  if (process.env.NEXT_RUNTIME === "edge") {
+    await import("./sentry.edge.config");
+  }
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
   const { factum } = await import("@/lib/factum/client");
@@ -20,4 +26,13 @@ export async function register() {
   await factum.logEvent("deploy", "PAVO leadscanner gestart", {
     mode: process.env.MODE ?? "demo",
   });
+}
+
+// Sentry-required hook voor server-side error capture in App Router.
+export async function onRequestError(
+  ...args: Parameters<typeof import("@sentry/nextjs").captureRequestError>
+) {
+  if (!process.env.SENTRY_DSN) return;
+  const Sentry = await import("@sentry/nextjs");
+  Sentry.captureRequestError(...args);
 }

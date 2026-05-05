@@ -111,7 +111,7 @@ export default function CompanyDataCard({ kvk }: { kvk: string }) {
         {company.sbi_codes && company.sbi_codes.length > 0 && (
           <div className="md:col-span-2">
             <dt className="text-[10px] font-semibold uppercase tracking-wide text-pavo-gray-600">
-              SBI-codes
+              SBI-codes (sectorcodes)
             </dt>
             <dd className="mt-0.5 flex flex-wrap gap-1.5">
               {company.sbi_codes.map((code) => (

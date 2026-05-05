@@ -10,6 +10,7 @@ import { buildTenantContext } from "@/lib/mcp/tenant";
 import { CostTracker, withSearchScope } from "@/lib/classification/cost";
 import { factum } from "@/lib/factum/client";
 import { requireCronAuth } from "@/lib/cron/auth";
+import { runCronWithAlerting } from "@/lib/cron/run-with-alerting";
 
 // Vercel cron — refresht raw-payloads voor de N actiefste companies
 // zodat handmatige searches near-instant uit de mcp_raw_responses cache
@@ -41,6 +42,14 @@ export async function GET(req: NextRequest) {
       reason: "Supabase niet geconfigureerd",
     });
   }
+  return runCronWithAlerting("refresh-active-companies", () =>
+    runRefresh(supabase),
+  );
+}
+
+async function runRefresh(
+  supabase: NonNullable<ReturnType<typeof tryGetSupabase>>,
+) {
 
   // Eerst de scored_leads filteren op recent + warm/hot, dan join met
   // companies om te kijken welke aan refresh toe zijn.
@@ -53,11 +62,7 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(500);
   if (!scored || scored.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      refreshed: 0,
-      reason: "Geen recente HOT/WARM leads om te refreshen",
-    });
+    return { refreshed: 0, reason: "Geen recente HOT/WARM leads om te refreshen" };
   }
   const candidateKvks = Array.from(
     new Set(scored.map((r) => r.kvk as string)),
@@ -83,29 +88,15 @@ export async function GET(req: NextRequest) {
   }>;
 
   if (todo.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      refreshed: 0,
-      reason: "Iedereen recent ge-refresht",
-    });
+    return { refreshed: 0, reason: "Iedereen recent ge-refresht" };
   }
 
-  // Bouw MCPs op — best-effort: als een env-var ontbreekt slaan we
-  // 'm gewoon over zonder te crashen.
-  let mcps: ScrapeMcps;
-  try {
-    mcps = {
-      bedrijven: new BedrijvenMcp(new McpHttpClient(requireBedrijvenUrl())),
-      vacatures: new VacaturesMcp(new McpHttpClient(requireVacaturesUrl())),
-      juridisch: new JuridischMcp(new McpHttpClient(requireJuridischUrl())),
-      news: new NewsMcp(new McpHttpClient(requireNewsUrl())),
-    };
-  } catch (err) {
-    return NextResponse.json(
-      { error: `MCP-config ontbreekt: ${String(err)}` },
-      { status: 500 },
-    );
-  }
+  const mcps: ScrapeMcps = {
+    bedrijven: new BedrijvenMcp(new McpHttpClient(requireBedrijvenUrl())),
+    vacatures: new VacaturesMcp(new McpHttpClient(requireVacaturesUrl())),
+    juridisch: new JuridischMcp(new McpHttpClient(requireJuridischUrl())),
+    news: new NewsMcp(new McpHttpClient(requireNewsUrl())),
+  };
 
   const handles = todo.map((c) => ({
     kvk: c.kvk,
@@ -146,11 +137,10 @@ export async function GET(req: NextRequest) {
     { durationMs, cost, count: todo.length },
   );
 
-  return NextResponse.json({
-    ok: true,
+  return {
     refreshed: todo.length,
     durationMs,
     cost,
     budgetExceeded: cost.budgetExceeded,
-  });
+  };
 }
