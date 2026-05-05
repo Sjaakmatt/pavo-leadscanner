@@ -269,9 +269,9 @@ const PLAATSEN_STATIC: ReadonlyArray<PlaatsRecord> = [
  * `center` ligt, gesorteerd op afstand. Geschikt om door te geven aan
  * `kvk_zoeken({plaatsen})`.
  *
- * Cap op `maxPlaatsen` (default 12) zodat een grote radius niet leidt tot
- * een KvK-search die zelf weer 50+ plaatsen probeert af te lopen — kosten
- * blijven zo voorspelbaar.
+ * Optionele cap op `maxPlaatsen` voor omgevingen die een harde bovengrens
+ * willen op de plaatslijst. Standaard worden alle plaatsen binnen de radius
+ * teruggegeven.
  */
 export async function plaatsenWithinRadius(
   center: LatLng,

@@ -86,6 +86,13 @@ const DEFAULT_RADIUS_KM = 25;
 // Maximum hits die we uit één Zoeken-call accepteren. KvK v2 max = 100.
 const ZOEKEN_PAGE_SIZE = 100;
 
+const MAX_ZOEKPLAATSEN_PER_SEARCH = (() => {
+  const raw = process.env.MAX_ZOEKPLAATSEN_PER_SEARCH;
+  if (!raw) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
+})();
+
 function noopEmit(_event: SearchProgressEvent): void {}
 
 export class ProductionLeadSource implements LeadSource {
@@ -170,6 +177,7 @@ export class ProductionLeadSource implements LeadSource {
         ? await plaatsenWithinRadius(
             filters.regio_center,
             filters.regio_straal_km ?? DEFAULT_RADIUS_KM,
+            { maxPlaatsen: MAX_ZOEKPLAATSEN_PER_SEARCH },
           )
         : [];
       console.log(
@@ -226,36 +234,42 @@ export class ProductionLeadSource implements LeadSource {
         message: `Cache: ${cachedDataset.length} bekende bedrijven (${cachedProfiles.length} match); KvK doorzoeken tot max ${resolveBasisBudget(filters.max_basisprofielen)} basisprofielen…`,
       });
 
-      // 3) Zoeken-v2 per plaats (gratis) → onbekende kvk-nummers, dan
-      //    basisprofiel per kandidaat (€0.02) tot het betaalbudget raakt.
-      //    Daarna gebruiken we de opgebouwde dataset voor SBI/FTE/geo-filter.
+      // 3) Zoeken-v2 voor alle target-plaatsen in één gratis call →
+      //    onbekende kvk-nummers, dan basisprofiel per kandidaat (€0.02)
+      //    tot het betaalbudget raakt. Daarna gebruiken we de opgebouwde
+      //    dataset voor SBI/FTE/geo-filter.
       const knownKvks = new Set(cachedDataset.map((p) => p.kvkNummer));
       const fetchedProfiles: LocalKvkBasisprofiel[] = [];
       let basisprofielenSpent = 0;
       const basisBudget = resolveBasisBudget(filters.max_basisprofielen);
       let kvkHitsTotal = cachedDataset.length;
 
-      if (basisBudget > 0) {
-        for (const plaats of targetPlaatsen) {
-          if (basisprofielenSpent >= basisBudget) break;
-
-          // Eén bad plaats (404 omdat KvK 'm niet kent — bv. een gemeente-
-          // naam in plaats van woonplaats) mag niet de hele search afkappen.
-          // PDOK kan in zeldzame gevallen plaats-aliassen teruggeven die
-          // KvK niet herkent; we slaan 'm dan over en gaan door.
-          let hits: Awaited<ReturnType<typeof this.bedrijven.kvkZoeken>>;
-          try {
-            hits = await this.bedrijven.kvkZoeken(searchCtx, {
-              plaatsen: [plaats],
-              type: "hoofdvestiging",
-              limit: ZOEKEN_PAGE_SIZE,
+      if (basisBudget > 0 && targetPlaatsen.length > 0) {
+        // KvK Zoeken accepteert meerdere plaatsen in één call. Dat houdt de
+        // gratis afbakening op één MCP/dashboard call per search-run; daarna
+        // bepalen basisprofiel-calls pas het betaalde budget.
+        let hits: Awaited<ReturnType<typeof this.bedrijven.kvkZoeken>>;
+        try {
+          hits = await this.bedrijven.kvkZoeken(searchCtx, {
+            plaatsen: targetPlaatsen,
+            type: "hoofdvestiging",
+            limit: ZOEKEN_PAGE_SIZE,
+          });
+        } catch (err) {
+          console.warn(
+            `[funnel] kvk_zoeken faalde voor plaatsen=[${targetPlaatsen.join(",")}]: ${String(err)}`,
+          );
+          if (isRateLimitError(err)) {
+            emit({
+              type: "stage",
+              stage: "kvk",
+              message: "KvK tijdelijk rate-limited; zoekopdracht gebruikt de cache en stopt met nieuwe KvK-calls.",
             });
-          } catch (err) {
-            console.warn(
-              `[funnel] kvk_zoeken faalde voor plaats="${plaats}": ${String(err)}`,
-            );
-            continue;
           }
+          hits = [];
+        }
+
+        if (hits.length > 0) {
           kvkHitsTotal += hits.length;
           emit({ type: "kvk", totalCandidates: kvkHitsTotal });
 
@@ -702,6 +716,10 @@ function filterProfiles(
   });
 }
 
+function isRateLimitError(err: unknown): boolean {
+  return /\b(429|too many requests)\b/i.test(String(err));
+}
+
 /**
  * Parallel basisprofiel-fetch met SBI+FTE-filter en budget-guard.
  * Alle succesvolle profielen gaan via `onProfile` de persistente dataset in;
@@ -735,10 +753,12 @@ async function fetchBasisprofielenWithFilter(args: {
     fetchErr: 0,
     matched: 0,
   };
+  let stoppedByRateLimit = false;
   const workers = Array.from(
     { length: Math.min(args.concurrency, queue.length) },
     async () => {
       while (queue.length > 0) {
+        if (stoppedByRateLimit) return;
         if (args.spendBudget() <= 0) return;
         const kvk = queue.shift();
         if (!kvk) return;
@@ -762,13 +782,20 @@ async function fetchBasisprofielenWithFilter(args: {
           }
           stats.matched += 1;
           args.onMatch(profile);
-        } catch {
+        } catch (err) {
           stats.fetchErr += 1;
+          if (isRateLimitError(err)) {
+            stoppedByRateLimit = true;
+            queue.length = 0;
+          }
         }
       }
     },
   );
   await Promise.all(workers);
+  if (stoppedByRateLimit) {
+    console.warn("[funnel] basisprofiel-fetch gestopt door 429 rate-limit");
+  }
   console.log(
     `[funnel] basisprofiel: queued=${kvks.length} fetched=${stats.fetched} null=${stats.nullProfile} sbi-out=${stats.rejectedSbi} fte-out=${stats.rejectedFte} fte-unknown-out=${stats.rejectedFteUnknown} err=${stats.fetchErr} matched=${stats.matched} sbiFilter=[${sbiFilter.join(",")}] fteFilter=[${fteFilter.join(",")}]`,
   );

@@ -83,6 +83,10 @@ function isRetryableHttp(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
+function isRetryableToolError(message: string): boolean {
+  return /\b(429|too many requests)\b/i.test(message);
+}
+
 async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -213,7 +217,8 @@ export class McpHttpClient {
     // met een plain-text error message — geen JSON. Surface de tekst zodat
     // upstream issues (bv. KvK 520) niet als "Ongeldige JSON" verschijnen.
     if (json.result?.isError === true) {
-      throw new McpCallError(textBlock.text || "MCP tool error", toolName);
+      const message = textBlock.text || "MCP tool error";
+      throw new McpCallError(message, toolName, isRetryableToolError(message));
     }
     let parsed: unknown;
     try {
