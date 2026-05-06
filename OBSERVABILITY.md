@@ -238,3 +238,30 @@ Voor de dashboard-implementatie geldt klaar = al deze checks groen:
 6. **Erasure-endpoint** — admin-only, audit-trail
 7. **DPA + privacy-statement** — documenteer publiek
 8. **Acceptance-tests** — alle checks uit §7 groen
+
+---
+
+## 9. Implementatie-status (fase 1 — 2026-05)
+
+Fase 1 = fundament. Stappen 1, 2, 5 en de agent-zijde van §1 zijn af.
+
+**Dashboard-zijde (factumai-dashboard):**
+- [x] `AgentEvent` schema-migratie (`category`, `orgId`, `userId`, `agentSlug`, `audit`, `expiresAt`) + indices
+- [x] Ingest-endpoints (`/api/v1/ingest/event`, `/api/v1/ingest/batch`) accepteren + valideren de nieuwe velden
+- [x] `expiresAt` wordt server-side gezet via `computeExpiresAt(category, audit)` (90/180/365 dagen-ladder)
+- [x] Retention-cron veegt `AgentEvent` rijen waar `expiresAt < NOW()` bovenop bestaande table-level retention
+- [x] `docs/AGENT-INTEGRATION.md` documenteert nieuwe contract
+
+**Agent-zijde (pavo-leadscanner):**
+- [x] `lib/factum/client.ts` ondersteunt `category` + `audit` als top-level options op `logEvent`
+- [x] `lib/observability/logger.ts::logObs` stuurt category + audit top-level (niet meer in metadata) en blijft `org_id` / `user_id` / `agent_id` in metadata stempelen
+- [x] `instrumentation.ts` deploy + onRequestError lopen via `logObs` / `logError` met `category: "system"`
+- [x] Bestaande call-sites in `app/api/search/route.ts` + `app/api/lead/[kvk]/route.ts` gebruiken de juiste categorieën (`search`, `user_action`, `system`)
+
+**Backwards-compat:** legacy events zonder category blijven werken op het
+dashboard — die landen onder `category = NULL` met 90d default-TTL via
+de retention-cron.
+
+**Volgende fasen:**
+- Fase 2: read-API's (`GET /api/v1/orgs/{id}/events`, `GET /api/v1/agents/{id}/events` + health) en agent-niveau UI tabs (§4.B)
+- Fase 3: klant-niveau UI (§4.A), aggregaten, CSV-export, RBAC-gated compliance-tab, erasure-endpoint, DPA-documentatie
