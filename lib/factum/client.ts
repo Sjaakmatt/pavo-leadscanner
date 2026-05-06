@@ -4,6 +4,12 @@
 // dus zonder enige extra config.
 //
 // API-spec: docs/AGENT-INTEGRATION.md in factumai-dashboard.
+//
+// Fase 1 toevoeging: events kunnen nu een `category` en `audit` flag
+// meekrijgen bovenop het bestaande type/message contract. Het dashboard
+// gebruikt die om events te filteren per tab (search/llm/mcp/...) en om
+// per-row TTL-retention toe te passen (zie OBSERVABILITY.md §3 + §6).
+// Concrete invoer loopt via `lib/observability/logger.ts::logObs`.
 
 export type FactumEventType =
   | "task_completed"
@@ -14,6 +20,26 @@ export type FactumEventType =
   | "info"
   | "deploy"
   | "activity_summary";
+
+// Spiegel van EVENT_CATEGORIES in factumai-dashboard. Ongeldige waardes
+// worden door de ingest geweigerd (HTTP 400) op /api/v1/ingest/event.
+export type FactumEventCategory =
+  | "search"
+  | "search_stage"
+  | "scoring"
+  | "llm"
+  | "llm_decision"
+  | "mcp"
+  | "auth"
+  | "user_action"
+  | "cron"
+  | "compliance"
+  | "system";
+
+export interface FactumLogOptions {
+  category?: FactumEventCategory;
+  audit?: boolean;
+}
 
 type ConnectMeta = {
   version?: string;
@@ -45,6 +71,8 @@ export type FactumHeartbeat = {
 
 export type FactumBatchEvent = {
   type: FactumEventType;
+  category?: FactumEventCategory;
+  audit?: boolean;
   message: string;
   metadata?: Record<string, unknown>;
   timestamp?: string;
@@ -126,12 +154,23 @@ class FactumClient {
     await this.request("/api/v1/ingest/heartbeat", { status });
   }
 
+  /**
+   * Log een event richting het dashboard. `options.category` en
+   * `options.audit` worden top-level meegestuurd (niet in metadata),
+   * zodat de dashboard ingest ze direct kan promoveren naar kolommen
+   * + per-row TTL kan zetten. Legacy callers zonder options blijven
+   * werken — die landen dan onder `category = NULL` met 90d default-TTL.
+   */
   async logEvent(
     type: FactumEventType,
     message: string,
     metadata?: Record<string, unknown>,
+    options: FactumLogOptions = {},
   ): Promise<void> {
-    await this.request("/api/v1/ingest/event", { type, message, metadata });
+    const body: Record<string, unknown> = { type, message, metadata };
+    if (options.category) body.category = options.category;
+    if (options.audit) body.audit = true;
+    await this.request("/api/v1/ingest/event", body);
   }
 
   async pushMetrics(metrics: FactumMetrics): Promise<void> {

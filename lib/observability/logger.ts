@@ -17,6 +17,13 @@
 // - LLM-beslissingen die natuurlijke personen evalueren krijgen
 //   `category: "llm_decision"` met model + reasoning-summary
 //   (geen full prompt) zodat we Art. 22 GDPR + AI Act art. 12 dekken.
+//
+// Fase 1 update (2026-05): `category` + `audit` worden nu top-level
+// meegestuurd via factum.logEvent(...{category,audit}) zodat het
+// dashboard ze direct kan promoveren naar AgentEvent.category /
+// AgentEvent.audit en per-row TTL kan zetten via computeExpiresAt.
+// Identifiers (org_id / user_id / agent_id) blijven in metadata — die
+// worden door de ingest server-side gepromoveerd naar kolommen.
 
 import { factum, type FactumEventType } from "@/lib/factum/client";
 
@@ -63,6 +70,13 @@ const PII_KEYS = new Set([
   "adres",
   "address",
 ]);
+
+/**
+ * Stable agent-identifier. Komt mee in metadata.agent_id en wordt door
+ * de dashboard ingest gepromoveerd naar AgentEvent.agentSlug zodat
+ * cross-deployment views (één agent over alle klanten) werken.
+ */
+export const AGENT_SLUG = "pavo-leadscanner";
 
 /**
  * Strip PII + secrets uit metadata. Modificeert recursief.
@@ -112,19 +126,24 @@ export async function logObs(payload: LogPayload): Promise<void> {
     unknown
   >;
 
-  const enriched: Record<string, unknown> = {
+  // Identifiers in metadata — worden door dashboard ingest gepromoveerd
+  // naar AgentEvent.{orgId,userId,agentSlug}. Gebeurt server-side zodat
+  // legacy clients zonder agent_id-veld nog steeds werken.
+  const enrichedMetadata: Record<string, unknown> = {
     ...sanitizedMetadata,
-    category: payload.category,
     org_id: payload.orgId ?? null,
     user_id: payload.userId ?? null,
-    audit: payload.audit === true ? true : undefined,
-    agent_id: "pavo-leadscanner",
+    agent_id: AGENT_SLUG,
   };
 
   await factum.logEvent(
     payload.type,
     truncate(redactSecrets(payload.message)),
-    enriched,
+    enrichedMetadata,
+    {
+      category: payload.category,
+      audit: payload.audit === true,
+    },
   );
 }
 
