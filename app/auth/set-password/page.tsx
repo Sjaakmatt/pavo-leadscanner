@@ -62,8 +62,10 @@ function SetPasswordForm() {
       setError("Wachtwoorden komen niet overeen.");
       return;
     }
-    if (!/^\d{6}$/.test(code.trim())) {
-      setError("Vul de 6-cijferige code uit je e-mail in.");
+    if (!/^\d{6,10}$/.test(code.trim())) {
+      setError(
+        "Vul de cijfer-code uit je e-mail in (typisch 6 tot 8 cijfers).",
+      );
       return;
     }
 
@@ -126,17 +128,17 @@ function SetPasswordForm() {
 
           <label className="block">
             <span className="block text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
-              6-cijferige code
+              Code uit je e-mail
             </span>
             <input
               type="text"
               required
               inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={6}
+              maxLength={10}
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              placeholder="123456"
+              placeholder="bv. 12345678"
               disabled={status === "submitting"}
               className="mt-1.5 w-full rounded-lg border border-pavo-gray-100 bg-white px-3 py-2 text-center text-lg font-mono tracking-[0.4em] text-pavo-gray-900 placeholder:text-pavo-gray-600/60 focus:border-pavo-teal focus:outline-none disabled:opacity-60"
             />
