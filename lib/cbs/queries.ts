@@ -7,13 +7,13 @@
 // "2024KW04" (kwartaal) of "2024JJ00" (jaar). We tonen ze gewoon zoals
 // CBS ze geeft — de UI render't 'm.
 
-import { fetchCbs } from "./client.js";
-import { sbiToBedrijfstak, ALLE, type CbsBedrijfstak } from "./sbi-mapping.js";
+import { fetchCbs } from "./client";
+import { sbiToBedrijfstak, ALLE, type CbsBedrijfstak } from "./sbi-mapping";
 import {
   provincieNaarRegio,
   NEDERLAND_REGIO,
   type CbsRegio,
-} from "./regio-mapping.js";
+} from "./regio-mapping";
 
 // ---- Dataset 80072NED — Ziekteverzuim per bedrijfstak ----------------
 
