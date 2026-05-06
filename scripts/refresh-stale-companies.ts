@@ -81,11 +81,14 @@ async function main() {
     `▶ refresh-stale-companies — concurrency=${args.concurrency} max-eur=${args.maxEur} all=${args.all} dry=${args.dry} ttl-days=${args.ttlDays}`,
   );
 
-  const supabase = tryGetSupabase();
-  if (!supabase) {
+  const supabaseMaybe = tryGetSupabase();
+  if (!supabaseMaybe) {
     console.error("✗ Supabase niet geconfigureerd (SUPABASE_SERVICE_ROLE_KEY?)");
     process.exit(1);
   }
+  // Vanaf hier is supabase non-null — bind aan een lokale const zodat
+  // TS-narrowing niet verloren gaat in worker-closures hieronder.
+  const supabase = supabaseMaybe;
 
   // 1. Lijst alle companies — paginate omdat je makkelijk >1000 rijen hebt
   const all: Company[] = [];
