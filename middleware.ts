@@ -18,6 +18,7 @@ import { createServerClient } from "@supabase/ssr";
 const PUBLIC_PATHS = [
   "/login",
   "/auth/callback",
+  "/auth/set-password",
   "/api/auth",
   "/api/cron",
   "/api/mode",
