@@ -1,13 +1,25 @@
 <!--
-  Magic-link e-mail template voor Supabase Auth.
+  Login-code email-template voor Supabase Auth (OTP-only).
 
   Plak deze HTML in: Supabase Dashboard → Authentication →
   Email Templates → Magic Link.
 
-  De `{{ .Token }}`-placeholder rendert de 6-cijferige OTP-code die
-  /login als fallback accepteert wanneer de magic-link niet werkt
-  (bv. Outlook Safe-Links, cross-browser open). Zonder deze placeholder
-  faalt de fallback-flow stilletjes.
+  **Bewust GEEN klikbare magic-link.** Corporate email-scanners
+  (Defender Safe Links, Mimecast, Proofpoint, etc.) pre-klikken
+  links voordat de user erbij is, wat de Supabase-token consumeert.
+  Resultaat: zowel de link als de OTP-code uit dezelfde email wordt
+  ongeldig ("Token has expired or is invalid").
+
+  Door alleen `{{ .Token }}` te tonen — geen `<a href="{{ .ConfirmationURL }}">` —
+  is er niets om pre-te-klikken. De flow:
+
+    1. User vraagt login aan → krijgt email met 6-cijferige code
+    2. Kopieer code → plak op /login → klik "Bevestig"
+    3. /login roept supabase.auth.verifyOtp({ email, token, type: "email" }) aan
+    4. Logged in
+
+  Iets meer wrijving dan magic-link (geen één-klik meer), maar
+  100% betrouwbaar — ook in Outlook/Exchange/corporate mail.
 -->
 <!DOCTYPE html>
 <html lang="nl">
@@ -31,11 +43,11 @@
                 </div>
 
                 <h1 style="margin:14px 0 0 0; font-size:34px; line-height:1.12; color:#29495a; font-weight:800;">
-                  Veilig inloggen
+                  Je inlogcode
                 </h1>
 
                 <p style="margin:12px 0 0 0; font-size:17px; line-height:1.55; color:#4f6974;">
-                  Klik op de knop hieronder of voer de 6-cijferige code in om direct in te loggen.
+                  Vul deze 6-cijferige code in op het inlogscherm om direct in te loggen.
                 </p>
               </td>
             </tr>
@@ -57,43 +69,32 @@
             <tr>
               <td style="padding:34px;">
                 <p style="margin:0 0 18px 0; font-size:16px; line-height:1.65; color:#29495a;">
-                  Je hebt een loginlink aangevraagd voor je PAVO HR omgeving.
-                  Deze link en code zijn persoonlijk en werken tijdelijk.
+                  Je hebt een inlogcode aangevraagd voor je PAVO HR omgeving.
+                  Deze code is persoonlijk en geldig voor 60 minuten.
                 </p>
 
-                <table role="presentation" cellspacing="0" cellpadding="0" style="margin:28px 0;">
+                <!-- OTP-code (groot, copy-friendly) -->
+                <table role="presentation" cellspacing="0" cellpadding="0" align="center" style="margin:28px auto;">
                   <tr>
-                    <td align="center" bgcolor="#29495a" style="border-radius:999px;">
-                      <a href="{{ .ConfirmationURL }}"
-                         style="display:inline-block; padding:15px 28px; font-size:16px; line-height:1; font-weight:700; color:#ffffff; text-decoration:none; border-radius:999px;">
-                        Inloggen bij PAVO HR
-                      </a>
-                    </td>
-                  </tr>
-                </table>
-
-                <!-- OTP-code fallback -->
-                <p style="margin:28px 0 10px 0; font-size:15px; line-height:1.55; color:#4f6974;">
-                  Werkt de knop niet? Voer dan deze 6-cijferige code in op het inlogscherm:
-                </p>
-
-                <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px 0;">
-                  <tr>
-                    <td style="padding:18px 24px; background:#f3f2ef; border:1px solid #ebe8e2; border-radius:14px;">
-                      <span style="display:inline-block; font-family:'Courier New', Courier, monospace; font-size:30px; font-weight:700; letter-spacing:0.35em; color:#29495a;">
+                    <td align="center" style="padding:24px 32px; background:#f3f2ef; border:2px solid #29495a; border-radius:14px;">
+                      <div style="font-size:13px; letter-spacing:0.08em; text-transform:uppercase; color:#6f8792; font-weight:700; margin-bottom:8px;">
+                        Jouw 6-cijferige code
+                      </div>
+                      <div style="font-family:'Courier New', Courier, monospace; font-size:42px; font-weight:700; letter-spacing:0.4em; color:#29495a;">
                         {{ .Token }}
-                      </span>
+                      </div>
                     </td>
                   </tr>
                 </table>
 
-                <p style="margin:0 0 18px 0; font-size:15px; line-height:1.65; color:#4f6974;">
-                  Of kopieer deze link in je browser:
+                <p style="margin:24px 0 8px 0; font-size:15px; line-height:1.55; color:#4f6974; font-weight:700;">
+                  Hoe in te loggen:
                 </p>
-
-                <p style="margin:0; padding:14px 16px; background:#f3f2ef; border-radius:12px; font-size:13px; line-height:1.55; color:#4f6974; word-break:break-all;">
-                  {{ .ConfirmationURL }}
-                </p>
+                <ol style="margin:0 0 18px 18px; padding:0; font-size:15px; line-height:1.65; color:#4f6974;">
+                  <li>Ga terug naar het inlogscherm</li>
+                  <li>Vul de 6-cijferige code in</li>
+                  <li>Klik &ldquo;Code bevestigen&rdquo;</li>
+                </ol>
 
                 <p style="margin:24px 0 0 0; font-size:14px; line-height:1.6; color:#7b8f98;">
                   Heb je deze login niet zelf aangevraagd? Dan kun je deze e-mail negeren.

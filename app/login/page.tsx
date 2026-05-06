@@ -113,8 +113,8 @@ function LoginForm() {
           Log in op PAVO Research Agent
         </h1>
         <p className="mt-2 text-sm text-pavo-gray-600">
-          We sturen je een magic link via e-mail. Klik in je inbox om
-          ingelogd te raken — geen wachtwoord nodig.
+          We sturen je een 6-cijferige code via e-mail. Vul die hieronder
+          in om in te loggen — geen wachtwoord nodig.
         </p>
 
         {!authOn && (
@@ -145,7 +145,7 @@ function LoginForm() {
               disabled={status === "sending" || !email.trim()}
               className="w-full rounded-lg bg-pavo-teal px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-pavo-teal-dark disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {status === "sending" ? "Versturen…" : "Stuur magic link"}
+              {status === "sending" ? "Versturen…" : "Stuur inlogcode"}
             </button>
           </form>
         )}
@@ -156,9 +156,9 @@ function LoginForm() {
               Check je inbox.
             </p>
             <p className="mt-1">
-              We hebben een magic link naar <strong>{email}</strong>{" "}
-              gestuurd. De link is ~10 minuten geldig en logt je in
-              één klik in.
+              We hebben een 6-cijferige code naar <strong>{email}</strong>{" "}
+              gestuurd. Kopieer 'm en vul hieronder in. De code is
+              60 minuten geldig.
             </p>
           </div>
         )}
@@ -176,13 +176,11 @@ function LoginForm() {
           >
             <div>
               <p className="text-sm font-semibold text-pavo-navy">
-                Werkt de link niet?
+                Vul de code in
               </p>
               <p className="mt-1 text-xs text-pavo-gray-600">
-                Werk je in Outlook of een corporate-mailbox? Link-scanners
-                kunnen magic-links ongeldig maken voordat jij erop klikt.
-                In dezelfde e-mail staat een 6-cijferige code — vul die
-                hier in.
+                Kopieer de 6-cijferige code uit de e-mail die we net
+                gestuurd hebben en plak 'm hieronder.
               </p>
             </div>
             {!email && (
