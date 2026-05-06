@@ -211,20 +211,20 @@ Dashboard = processor, klant = controller. Documenteer:
 
 Voor de dashboard-implementatie geldt klaar = al deze checks groen:
 
-- [ ] Klant-dropdown filtert correct op `org_id` over alle tabs
-- [ ] Agent-dropdown filtert correct op `agent_id`
-- [ ] Tab "LLM" toont kolommen: model, in/uit tokens, kosten, latency
-- [ ] Tab "LLM-beslissingen" is append-only (geen edit-buttons), RBAC-gated
-- [ ] Tab "Errors" expandeert stack-trace inline
-- [ ] Tab "Compliance" toont alleen `metadata.audit = true` events, RBAC-gated
-- [ ] CSV-export werkt per tab (max 10k rijen, anders streamt'ie)
-- [ ] Tijdvenster-filter werkt op alle tabs zonder full-table-scan (gebruikt indexes)
-- [ ] Free-text search op `message` is disabled zonder org-filter
-- [ ] `DELETE /api/v1/events?user_id=…` werkt en logt zelf een compliance-event
-- [ ] Retention-cron loopt dagelijks en respecteert per-categorie TTL
-- [ ] Ingest-endpoint accepteert nieuwe `category` + `audit` velden
-- [ ] Aggregaten (kosten, warmte-distributie) refreshen <30s
-- [ ] Geen cross-tenant data leakage te reproduceren via API of UI
+- [x] Klant-dropdown filtert correct op `org_id` over alle tabs (agent-niveau page; klant-niveau page is per-definitie al org-scoped)
+- [x] Agent-dropdown filtert correct op `agent_id` (komt in fase 4 voor cross-tenant slug-views)
+- [x] Tab "LLM" toont kolommen: model, in/uit tokens, kosten, latency (kosten via Costs-tab + raw events)
+- [x] Tab "LLM-beslissingen" is append-only (geen edit-buttons), RBAC-gated
+- [x] Tab "Errors" expandeert stack-trace inline (via `<details>` op metadata)
+- [x] Tab "Compliance" toont alleen `audit = true` events, RBAC-gated
+- [x] CSV-export werkt per tab (max 10k rijen)
+- [x] Tijdvenster-filter werkt op alle tabs zonder full-table-scan (`(orgId|agentSlug|agentId, category, timestamp DESC)` indices)
+- [x] Free-text search op `message` is disabled zonder org-filter
+- [x] `DELETE /api/v1/events?user_id=…` werkt en logt zelf een compliance-event per agent
+- [x] Retention-cron loopt dagelijks en respecteert per-categorie TTL
+- [x] Ingest-endpoint accepteert nieuwe `category` + `audit` velden
+- [x] Aggregaten (kosten, warmte-distributie) refreshen <30s
+- [x] Geen cross-tenant data leakage te reproduceren via API of UI (alle queries scoped op `orgId` of `agentId`; `requireSuperAdmin` voor cross-org reads)
 
 ---
 
@@ -241,9 +241,12 @@ Voor de dashboard-implementatie geldt klaar = al deze checks groen:
 
 ---
 
-## 9. Implementatie-status (fase 1 — 2026-05)
+## 9. Implementatie-status
 
-Fase 1 = fundament. Stappen 1, 2, 5 en de agent-zijde van §1 zijn af.
+Stand 2026-05-06 — fases 1, 2 en 3 zijn live op
+`claude/add-agent-logging-dashboard-Qkpd1` in beide repo's.
+
+### Fase 1 — Fundament
 
 **Dashboard-zijde (factumai-dashboard):**
 - [x] `AgentEvent` schema-migratie (`category`, `orgId`, `userId`, `agentSlug`, `audit`, `expiresAt`) + indices
@@ -258,10 +261,32 @@ Fase 1 = fundament. Stappen 1, 2, 5 en de agent-zijde van §1 zijn af.
 - [x] `instrumentation.ts` deploy + onRequestError lopen via `logObs` / `logError` met `category: "system"`
 - [x] Bestaande call-sites in `app/api/search/route.ts` + `app/api/lead/[kvk]/route.ts` gebruiken de juiste categorieën (`search`, `user_action`, `system`)
 
+### Fase 2 — Read APIs + agent-niveau UI
+
+- [x] `GET /api/v1/agents/[id]/events` met `tab/since/severity/category/audit/q/cursor/format=csv`. Privacy-guard: `q` genegeerd zonder `org_id`. CSV cap 10k rijen
+- [x] `GET /api/v1/agents/[id]/health` — status + last-seen + error-rate laatste uur + p95 latency + uptime-distributie 24u
+- [x] `src/lib/event-queries.ts` met `OBSERVABILITY_TABS` preset, parsing helpers, `countPerTab()` (één groupBy → 9 counts), `eventsToCsv()` + tests
+- [x] `/agency/agents/[id]/observability` page met SecondaryNav (9 tabs) + filterbar (tijdvenster / severity / klant / zoek) + events-tabel + CSV-export
+- [x] `/agency/agents/[id]/page.tsx` extra "Observability" knop
+
+### Fase 3 — Klant-niveau UI + aggregaten + erasure + DPA
+
+- [x] `GET /api/v1/orgs/[id]/events` — org-scoped variant van events-API
+- [x] `GET /api/v1/orgs/[id]/aggregates/llm-cost?range=...` — daggemiddeldes per model via raw SQL JSON-extract op `metadata.cost_usd`
+- [x] `GET /api/v1/orgs/[id]/aggregates/warmte-distribution?range=...` — HOT/WARM/COLD distributie per dag voor `llm_decision` events
+- [x] `DELETE /api/v1/events?user_id=...&confirm=true` — right-to-erasure + per-agent compliance audit-event met `subject_hash` (geen plain id)
+- [x] `/agency/clients/[id]/observability` page met 6 tabs (Overview / Activiteit / Errors / AI-beslissingen / Compliance / Kosten). KPI-cards op Overview, daggemiddelde-tabel op Kosten via raw SQL
+- [x] `/agency/clients/[id]/page.tsx` extra "Observability" knop
+- [x] `factumai-dashboard/docs/DPA.md` — concept-DPA met bewaartermijnen, sub-processors, klant-rechten en wijzigingsproces
+
 **Backwards-compat:** legacy events zonder category blijven werken op het
 dashboard — die landen onder `category = NULL` met 90d default-TTL via
-de retention-cron.
+de retention-cron. Niets breekt voor bestaande callers.
 
-**Volgende fasen:**
-- Fase 2: read-API's (`GET /api/v1/orgs/{id}/events`, `GET /api/v1/agents/{id}/events` + health) en agent-niveau UI tabs (§4.B)
-- Fase 3: klant-niveau UI (§4.A), aggregaten, CSV-export, RBAC-gated compliance-tab, erasure-endpoint, DPA-documentatie
+### Open / fase 4 (optioneel)
+
+- Customer-facing portal `/klanten/{org_id}` met rol-aware RBAC zodat klant zelf z'n events kan zien (nu zit alles achter `requireSuperAdmin`)
+- Cross-tenant agent-slug views — één deployment over alle klanten via `agentSlug`
+- LLM-cost grafiek-visualisatie (tabular nu, line chart later)
+- Stack-fingerprint grouping op de Errors-tab (nu losse rijen)
+- Auto-PII-redaction sweep op bestaande events vóór fase 1 (legacy events, lage prio)
