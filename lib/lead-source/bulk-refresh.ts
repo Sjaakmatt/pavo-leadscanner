@@ -24,6 +24,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TenantContext } from "@/lib/mcp/client";
 import type { ScrapeMcps } from "@/lib/orchestrator";
 import { persistRaw, type CachedToolName } from "@/lib/orchestrator/raw-cache";
+import { resolveWebsiteUrl } from "@/lib/orchestrator/website-inference";
 import {
   upsertKvkBestuurders,
   type ContactInsert,
@@ -70,16 +71,28 @@ export async function bulkRefreshLead(
   const refreshed: string[] = [];
   const failed: string[] = [];
 
-  const websiteUrl = handle.websiteUrl ?? null;
   const zoeknamen = [handle.naam, handle.handelsnaam]
     .filter((s): s is string => !!s && s.trim().length > 0);
 
   // 1. KvK basisprofiel — refresh companies-row + bestuurders. Dit is
   //    een directe DB-update, geen mcp_raw_responses-rij (die slaan
   //    we niet voor basisprofielen op; de companies-tabel IS de cache).
+  //
+  //    Website-resolutie: KvK registreert vrijwel altijd met `www.X.nl`
+  //    maar de canonical-host is meestal `X.nl`. Voor we naar de
+  //    companies-tabel schrijven proberen we de werkende variant te
+  //    vinden (bare-domain prefer) zodat alle downstream-scrapes en
+  //    de UI direct de juiste URL hebben.
+  let resolvedSiteUrl: string | null = null;
   try {
     const profile = await mcps.bedrijven.kvkBasisprofiel(ctx, handle.kvk);
     if (profile) {
+      const kvkSite = profile.websiteUrl ?? null;
+      if (kvkSite) {
+        resolvedSiteUrl = await resolveWebsiteUrl(kvkSite).catch(() => null);
+      }
+      const finalUrl = resolvedSiteUrl ?? kvkSite;
+
       await supabase
         .from("companies")
         .upsert(
@@ -87,7 +100,7 @@ export async function bulkRefreshLead(
             kvk: profile.kvkNummer,
             naam: profile.naam,
             handelsnaam: profile.handelsnaam ?? null,
-            website_url: profile.websiteUrl ?? null,
+            website_url: finalUrl,
             sbi_codes: profile.sbiCodes,
             fte_klasse: profile.fteKlasse,
             plaats: profile.plaats ?? null,
@@ -108,6 +121,11 @@ export async function bulkRefreshLead(
     console.warn(`[bulk-refresh] kvk_basisprofiel ${handle.kvk}: ${String(err)}`);
     failed.push("kvk_basisprofiel");
   }
+
+  // Voor de website-scrape gebruiken we de net-resolved URL (bare-
+  // domain prefer); valt terug op de handle-input als KvK basisprofiel
+  // faalde of geen website had.
+  const websiteUrl = resolvedSiteUrl ?? handle.websiteUrl ?? null;
 
   // 2. Per tool: live MCP-call → persistRaw met huidige schema-version.
   //    Plus deterministische upserts waar van toepassing (website →

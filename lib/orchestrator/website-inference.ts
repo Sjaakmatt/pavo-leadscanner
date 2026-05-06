@@ -36,17 +36,32 @@ export async function inferWebsiteUrl(
 }
 
 /**
- * Valideer een bekende website-URL en probeer de www/non-www variant als
- * de geregistreerde URL niet bereikbaar is.
+ * Valideer een bekende website-URL en probeer de www/non-www variant.
+ *
+ * Strategie:
+ *  1. Probeer beide variants. Bare-domain is altijd kandidaat #1
+ *     (zie generateUrlVariants).
+ *  2. Als één werkt → die.
+ *  3. Als BEIDE falen op probe (bv. WAF blokkeert HEAD/GET, Cloudflare
+ *     bot-protection) → return de bare-domain alsnog. KvK registreert
+ *     vrijwel altijd met www maar de canonical-host is meestal bare,
+ *     en de MCP-fetcher heeft eigen toggle + browser-render-fallback.
+ *     Beter een "best guess" doorgeven aan MCP dan null retourneren
+ *     (waardoor de www-variant uit KvK ongewijzigd blijft staan).
+ *  4. Alleen null retourneren als de URL totaal onparsebaar is.
  */
 export async function resolveWebsiteUrl(
   websiteUrl: string,
 ): Promise<string | null> {
   const candidates = generateUrlVariants(websiteUrl);
+  if (candidates.length === 0) return null;
   for (const url of candidates) {
     if (await probeUrl(url, PROBE_TIMEOUT_MS)) return url;
   }
-  return null;
+  // Beide variants probeerden; geen succes. Bare-domain is statistisch
+  // de canonical voor NL-MKB; geef die door zodat companies.website_url
+  // niet op de www-variant blijft hangen.
+  return candidates[0] ?? null;
 }
 
 export function generateCandidates(naam: string): string[] {
