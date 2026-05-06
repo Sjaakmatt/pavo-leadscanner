@@ -31,7 +31,10 @@ import { runScrapeBatch, type ScrapeMcps } from "@/lib/orchestrator";
 import { buildTenantContext } from "@/lib/mcp/tenant";
 import { CostTracker, withSearchScope } from "@/lib/classification/cost";
 import { detectStaleTools, type CachedToolName } from "@/lib/orchestrator/raw-cache";
-import { bulkRefreshLead } from "@/lib/lead-source/bulk-refresh";
+import {
+  bulkRefreshLead,
+  ensureWebsiteResolved,
+} from "@/lib/lead-source/bulk-refresh";
 
 const ALL_TOOLS: CachedToolName[] = [
   "get_company_website_content",
@@ -51,6 +54,7 @@ interface Args {
   withLlm: boolean;
   fteClasses: Set<string> | null;
   includeUnknownFte: boolean;
+  resolveWebsitesOnly: boolean;
 }
 
 // PAVO's ICP-FTE-bandbreedte. Bedrijven kleiner of groter zijn niet de
@@ -69,6 +73,7 @@ function parseArgs(): Args {
     withLlm: false,
     fteClasses: new Set(ICP_FTE_CLASSES),
     includeUnknownFte: false,
+    resolveWebsitesOnly: false,
   };
   for (const a of argv) {
     if (a === "--all") args.all = true;
@@ -76,6 +81,7 @@ function parseArgs(): Args {
     else if (a === "--with-llm") args.withLlm = true;
     else if (a === "--include-unknown-fte") args.includeUnknownFte = true;
     else if (a === "--all-fte") args.fteClasses = null; // override: alle FTE-klassen
+    else if (a === "--resolve-websites") args.resolveWebsitesOnly = true;
     else if (a.startsWith("--fte-classes=")) {
       args.fteClasses = new Set(
         a.split("=")[1].split(",").map((s) => s.trim()).filter(Boolean),
@@ -158,7 +164,15 @@ async function main() {
 
   // 2. Filter naar wat refresh nodig heeft (uit het ICP-subset)
   const targets: Company[] = [];
-  if (args.all) {
+  if (args.resolveWebsitesOnly) {
+    // Mode: alleen website-URL fixen (KvK basisprofiel re-fetch +
+    // resolveWebsiteUrl). Snel + goedkoop. Negeert stale-detectie
+    // omdat we expliciet ALLE ICP-companies willen valideren.
+    targets.push(...icp);
+    console.log(
+      `◷ Mode --resolve-websites: alle ICP-companies meenemen voor website-URL-resolutie`,
+    );
+  } else if (args.all) {
     targets.push(...icp);
     console.log(`◷ Mode --all: alles meenemen (incl. fresh cache)`);
   } else {
@@ -233,7 +247,23 @@ async function main() {
 
       const start = Date.now();
       try {
-        if (args.withLlm) {
+        if (args.resolveWebsitesOnly) {
+          // Lichte mode: alleen KvK basisprofiel + website-resolve.
+          // Geen tool-fetches, geen cache-stempels, geen LLM.
+          const res = await ensureWebsiteResolved(supabase, mcps, ctx, {
+            kvk: c.kvk,
+            naam: c.naam,
+            handelsnaam: c.handelsnaam,
+            websiteUrl: c.website_url,
+          });
+          processed += 1;
+          const ms = Date.now() - start;
+          const changed =
+            res.resolvedTo && res.resolvedTo !== c.website_url ? "↻" : "·";
+          console.log(
+            `[w${workerId}] [${processed + failed}/${totalCount}] ${c.kvk} ${c.naam.slice(0, 40).padEnd(40)} ${changed} ${(res.resolvedTo ?? "<no-site>").slice(0, 50)} · ${ms}ms`,
+          );
+        } else if (args.withLlm) {
           // Volledige refresh INCL. Anthropic-classifier. Schrijft ook
           // scored_leads-rij zodat de leads-list de verse warmte ziet.
           const handle = {

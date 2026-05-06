@@ -61,6 +61,58 @@ const TOOLS: Array<{
   { name: "search_company_news", needsNames: true },
 ];
 
+/**
+ * Lichte refresh: alleen KvK basisprofiel + website-URL resolutie.
+ * Geen tool-fetches, geen cache-stempels, geen LLM. Bedoeld voor
+ * batch-runs waar je alleen de bare-domain wilt fixen voor leads
+ * die nog www-prefix hebben in de companies-tabel.
+ */
+export async function ensureWebsiteResolved(
+  supabase: SupabaseClient,
+  mcps: ScrapeMcps,
+  ctx: TenantContext,
+  handle: BulkRefreshHandle,
+): Promise<{ kvk: string; resolvedTo: string | null; durationMs: number }> {
+  const startedAt = Date.now();
+  let resolvedTo: string | null = null;
+  try {
+    const profile = await mcps.bedrijven.kvkBasisprofiel(ctx, handle.kvk);
+    if (profile) {
+      const kvkSiteRaw: unknown = profile.websiteUrl;
+      const kvkSite =
+        typeof kvkSiteRaw === "string" && kvkSiteRaw.length > 0
+          ? kvkSiteRaw
+          : null;
+      if (kvkSite) {
+        resolvedTo = await resolveWebsiteUrl(kvkSite).catch(() => null);
+      }
+      const finalUrl = resolvedTo ?? kvkSite;
+      await supabase
+        .from("companies")
+        .upsert(
+          {
+            kvk: profile.kvkNummer,
+            naam: profile.naam,
+            handelsnaam: profile.handelsnaam ?? null,
+            website_url: finalUrl,
+            sbi_codes: profile.sbiCodes,
+            fte_klasse: profile.fteKlasse,
+            plaats: profile.plaats ?? null,
+            provincie: profile.provincie ?? null,
+            bestuursvorm: profile.bestuursvorm ?? null,
+            oprichtingsdatum: profile.oprichtingsdatum ?? null,
+            actief: profile.actief,
+            last_updated_at: new Date().toISOString(),
+          },
+          { onConflict: "kvk" },
+        );
+    }
+  } catch (err) {
+    console.warn(`[ensure-website] ${handle.kvk}: ${String(err)}`);
+  }
+  return { kvk: handle.kvk, resolvedTo, durationMs: Date.now() - startedAt };
+}
+
 export async function bulkRefreshLead(
   supabase: SupabaseClient,
   mcps: ScrapeMcps,
