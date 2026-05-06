@@ -49,7 +49,14 @@ interface Args {
   dry: boolean;
   ttlDays: number;
   withLlm: boolean;
+  fteClasses: Set<string> | null;
+  includeUnknownFte: boolean;
 }
+
+// PAVO's ICP-FTE-bandbreedte. Bedrijven kleiner of groter zijn niet de
+// doelgroep. NULL fte_klasse = onbekend (typisch ZZP/eenmanszaak of
+// kleinbedrijf <10 FTE) — standaard skippen we die ook.
+const ICP_FTE_CLASSES = ["10-19", "20-49", "50-99", "100-199"];
 
 function parseArgs(): Args {
   const argv = process.argv.slice(2);
@@ -60,11 +67,20 @@ function parseArgs(): Args {
     dry: false,
     ttlDays: 7,
     withLlm: false,
+    fteClasses: new Set(ICP_FTE_CLASSES),
+    includeUnknownFte: false,
   };
   for (const a of argv) {
     if (a === "--all") args.all = true;
     else if (a === "--dry") args.dry = true;
     else if (a === "--with-llm") args.withLlm = true;
+    else if (a === "--include-unknown-fte") args.includeUnknownFte = true;
+    else if (a === "--all-fte") args.fteClasses = null; // override: alle FTE-klassen
+    else if (a.startsWith("--fte-classes=")) {
+      args.fteClasses = new Set(
+        a.split("=")[1].split(",").map((s) => s.trim()).filter(Boolean),
+      );
+    }
     else if (a.startsWith("--concurrency=")) args.concurrency = Number(a.split("=")[1]);
     else if (a.startsWith("--max-eur=")) args.maxEur = Number(a.split("=")[1]);
     else if (a.startsWith("--ttl-days=")) args.ttlDays = Number(a.split("=")[1]);
@@ -77,12 +93,16 @@ interface Company {
   naam: string;
   handelsnaam: string | null;
   website_url: string | null;
+  fte_klasse: string | null;
 }
 
 async function main() {
   const args = parseArgs();
   console.log(
     `▶ refresh-stale-companies — concurrency=${args.concurrency} max-eur=${args.maxEur} all=${args.all} dry=${args.dry} ttl-days=${args.ttlDays} with-llm=${args.withLlm}`,
+  );
+  console.log(
+    `  FTE-filter: ${args.fteClasses ? [...args.fteClasses].join(",") : "ALLE"}${args.includeUnknownFte ? " + onbekend" : ""}`,
   );
   if (args.withLlm) {
     console.log(
@@ -106,7 +126,7 @@ async function main() {
   while (true) {
     const { data, error } = await supabase
       .from("companies")
-      .select("kvk, naam, handelsnaam, website_url")
+      .select("kvk, naam, handelsnaam, website_url, fte_klasse")
       .order("kvk", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
     if (error) {
@@ -119,19 +139,34 @@ async function main() {
     from += PAGE_SIZE;
   }
 
-  console.log(`◷ ${all.length} companies in DB`);
+  console.log(`◷ ${all.length} companies totaal in DB`);
 
-  // 2. Filter naar wat refresh nodig heeft
+  // FTE-filter: alleen ICP-bedrijven verwerken. Bedrijven zonder
+  // bekende FTE-klasse OF buiten het ICP-bereik worden geskipt om
+  // budget niet te verspillen aan irrelevante leads.
+  let icp: Company[] = all;
+  if (args.fteClasses) {
+    icp = all.filter((c) => {
+      if (!c.fte_klasse) return args.includeUnknownFte;
+      return args.fteClasses!.has(c.fte_klasse);
+    });
+    const skipped = all.length - icp.length;
+    console.log(
+      `◷ ${icp.length} binnen ICP-FTE-filter (${skipped} geskipt — buiten bereik of onbekende FTE)`,
+    );
+  }
+
+  // 2. Filter naar wat refresh nodig heeft (uit het ICP-subset)
   const targets: Company[] = [];
   if (args.all) {
-    targets.push(...all);
+    targets.push(...icp);
     console.log(`◷ Mode --all: alles meenemen (incl. fresh cache)`);
   } else {
     let checked = 0;
-    for (const c of all) {
+    for (const c of icp) {
       checked += 1;
       if (checked % 50 === 0) {
-        process.stdout.write(`\r◷ Stale-detectie: ${checked}/${all.length}…`);
+        process.stdout.write(`\r◷ Stale-detectie: ${checked}/${icp.length}…`);
       }
       const stale = await detectStaleTools(supabase, c.kvk, ALL_TOOLS, args.ttlDays);
       if (stale.length > 0) targets.push(c);
@@ -148,7 +183,9 @@ async function main() {
   if (args.dry) {
     console.log(`\nDRY RUN — eerste 10 targets:`);
     for (const c of targets.slice(0, 10)) {
-      console.log(`  ${c.kvk}  ${c.naam.slice(0, 60)}`);
+      console.log(
+        `  ${c.kvk}  ${(c.fte_klasse ?? "?").padEnd(7)}  ${c.naam.slice(0, 60)}`,
+      );
     }
     return;
   }
