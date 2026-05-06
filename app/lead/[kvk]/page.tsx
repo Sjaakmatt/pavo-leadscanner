@@ -24,13 +24,22 @@ export default function LeadDetailPage({ params }: Props) {
   const [lead, setLead] = useState<Lead | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  // Toon "verse data wordt opgehaald" wanneer de fetch >1.5s duurt —
+  // dat is de tell-tale dat de backend een schema-staleness refresh
+  // doet (KvK + 5 MCP-tools opnieuw aanroepen kost typisch 5-30s).
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    const refreshTimer = setTimeout(() => {
+      if (!cancelled) setRefreshing(true);
+    }, 1_500);
     async function load() {
       const res = await fetch(`/api/lead/${kvk}`);
       const data = (await res.json()) as { lead: Lead | null };
       if (cancelled) return;
+      clearTimeout(refreshTimer);
+      setRefreshing(false);
       if (!data.lead) {
         setNotFound(true);
         return;
@@ -40,6 +49,7 @@ export default function LeadDetailPage({ params }: Props) {
     load();
     return () => {
       cancelled = true;
+      clearTimeout(refreshTimer);
     };
   }, [kvk]);
 
@@ -58,10 +68,19 @@ export default function LeadDetailPage({ params }: Props) {
   }
 
   if (!lead) {
-    // Korte skeleton — de data staat al lokaal paraat, dit knippert
-    // meestal maar 1 frame.
     return (
       <div className="mx-auto max-w-4xl px-4 py-8 md:px-8 md:py-12">
+        {refreshing && (
+          <div className="mb-6 rounded-2xl border border-pavo-teal/30 bg-pavo-teal/5 px-4 py-3 text-sm text-pavo-navy">
+            <p className="font-semibold">Verse data wordt opgehaald…</p>
+            <p className="mt-1 text-pavo-gray-600">
+              De agent raadpleegt KvK, vacatures, juridisch, NLA-
+              inspecties, insolventieregister en branche-context opnieuw.
+              Dit kan 10-30 seconden duren — daarna heb je de meest
+              recente cijfers en signalen.
+            </p>
+          </div>
+        )}
         <div className="h-4 w-40 animate-pulse rounded-full bg-pavo-ink/[0.08]" />
         <div className="mt-6 h-10 w-2/3 animate-pulse rounded-xl bg-pavo-ink/[0.08]" />
         <div className="mt-4 h-4 w-1/3 animate-pulse rounded-full bg-pavo-ink/[0.06]" />
