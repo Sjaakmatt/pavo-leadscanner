@@ -114,8 +114,14 @@ export async function scrapeAndClassifyCompany(
         }
         resolvedWebsiteUrl = resolved;
       } else {
+        // Probe faalt — kan ook bij sites die HEAD/GET voor scrapers
+        // blokkeren maar wel echt content serveren (Cloudflare-protected,
+        // WAF, etc.). NIET de URL droppen; geef 'm aan de MCP, die
+        // doet z'n eigen www-toggle + browser-rendered fetch in
+        // shared/scraping/browser-fetcher.ts. Logging blijft staan
+        // zodat we weten wanneer 't gebeurt.
         console.warn(
-          `[orchestrator] website niet bereikbaar voor ${company.kvk}: ${resolvedWebsiteUrl}`,
+          `[orchestrator] probe-fail ${company.kvk}: ${resolvedWebsiteUrl} — geef alsnog aan MCP, die heeft eigen fallback`,
         );
       }
     } catch (err) {

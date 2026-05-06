@@ -120,16 +120,48 @@ function parseWebsiteUrl(websiteUrl: string): URL | null {
 }
 
 async function probeUrl(url: string, timeoutMs: number): Promise<boolean> {
+  // Stap 1: HEAD — snel, scheelt bandbreedte. Sommige servers blokkeren
+  // HEAD volledig (Cloudflare, sommige WordPress-installaties) of
+  // geven willekeurige timeouts.
   try {
     const res = await fetch(url, {
       method: "HEAD",
       redirect: "follow",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    // 200-399 = host werkt. 405 (Method Not Allowed) en 403 (Forbidden)
-    // accepteren we ook — host bestaat, server weigert HEAD-method maar
-    // GET zou werken (de scraper doet GET).
-    return res.ok || res.status === 405 || res.status === 403;
+    if (res.ok || res.status === 405 || res.status === 403) return true;
+    // Gegeven status. Als 4xx/5xx-non-405/403, geef nog een GET-shot;
+    // sommige servers retourneren 400 op HEAD maar 200 op GET.
+    if (res.status >= 400) {
+      return await probeWithGet(url, timeoutMs);
+    }
+    return false;
+  } catch {
+    // HEAD-timeout of netwerk-fout → probeer GET als fallback
+    return await probeWithGet(url, timeoutMs);
+  }
+}
+
+async function probeWithGet(url: string, timeoutMs: number): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      headers: {
+        // Range-header: pak alleen eerste KB om bandbreedte te sparen.
+        // Servers die Range niet ondersteunen retourneren gewoon 200
+        // (volledig content) — ook OK voor onze probe.
+        Range: "bytes=0-1023",
+        // Echte browser-UA: sommige sites blokkeren onbekende UAs met
+        // 403, terwijl een browser-UA wel werkt.
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+        Accept: "text/html,*/*",
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (res.ok || res.status === 206 || res.status === 403) return true;
+    return false;
   } catch {
     return false;
   }

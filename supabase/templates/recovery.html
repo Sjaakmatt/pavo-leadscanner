@@ -1,0 +1,113 @@
+<!--
+  Password-reset email template voor Supabase Auth.
+
+  Plak in: Supabase Dashboard → Authentication → Email Templates →
+  Reset Password.
+
+  Net als invite.html: geen klikbare token-link (Defender-bypass).
+  De knop link naar /auth/set-password?type=recovery met email
+  pre-filled — geen token in URL, dus pre-klik door scanners doet niks.
+-->
+<!DOCTYPE html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wachtwoord opnieuw instellen — PAVO HR</title>
+  </head>
+  <body style="margin:0; padding:0; background:#f3f2ef; font-family:Arial, Helvetica, sans-serif; color:#29495a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f2ef; padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px; background:#ffffff; border-radius:18px; overflow:hidden; box-shadow:0 10px 28px rgba(41,73,90,0.12);">
+
+            <tr>
+              <td style="background:#e7e5e1; padding:34px 34px 26px 34px;">
+                <div style="font-size:13px; letter-spacing:0.08em; text-transform:uppercase; color:#6f8792; font-weight:700;">
+                  PAVO HR
+                </div>
+                <h1 style="margin:14px 0 0 0; font-size:34px; line-height:1.12; color:#29495a; font-weight:800;">
+                  Wachtwoord opnieuw instellen
+                </h1>
+                <p style="margin:12px 0 0 0; font-size:17px; line-height:1.55; color:#4f6974;">
+                  Je hebt een wachtwoord-reset aangevraagd. Gebruik de code hieronder.
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td width="33.3%" style="height:5px; background:#29495a;"></td>
+                    <td width="33.3%" style="height:5px; background:#3f8da3;"></td>
+                    <td width="33.3%" style="height:5px; background:#df866f;"></td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:34px;">
+                <p style="margin:0 0 18px 0; font-size:16px; line-height:1.65;">
+                  Iemand — hopelijk jij — heeft een wachtwoord-reset aangevraagd voor
+                  je PAVO HR-account. Volg de stappen hieronder om een nieuw wachtwoord
+                  te kiezen.
+                </p>
+
+                <table role="presentation" cellspacing="0" cellpadding="0" align="center" style="margin:28px auto;">
+                  <tr>
+                    <td align="center" style="padding:24px 32px; background:#f3f2ef; border:2px solid #29495a; border-radius:14px;">
+                      <div style="font-size:13px; letter-spacing:0.08em; text-transform:uppercase; color:#6f8792; font-weight:700; margin-bottom:8px;">
+                        Reset-code
+                      </div>
+                      <div style="font-family:'Courier New', Courier, monospace; font-size:42px; font-weight:700; letter-spacing:0.4em; color:#29495a;">
+                        {{ .Token }}
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+
+                <table role="presentation" cellspacing="0" cellpadding="0" align="center" style="margin:24px auto 0 auto;">
+                  <tr>
+                    <td align="center" bgcolor="#29495a" style="border-radius:999px;">
+                      <a href="{{ .SiteURL }}/auth/set-password?type=recovery&email={{ .Email }}"
+                         style="display:inline-block; padding:15px 28px; font-size:16px; line-height:1; font-weight:700; color:#ffffff; text-decoration:none; border-radius:999px;">
+                        Nieuw wachtwoord kiezen
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:24px 0 8px 0; font-size:15px; line-height:1.55; color:#4f6974; font-weight:700;">
+                  Stappen:
+                </p>
+                <ol style="margin:0 0 18px 18px; padding:0; font-size:15px; line-height:1.65; color:#4f6974;">
+                  <li>Klik op &ldquo;Nieuw wachtwoord kiezen&rdquo;</li>
+                  <li>Vul de 6-cijferige reset-code in</li>
+                  <li>Kies een nieuw wachtwoord (minstens 8 tekens)</li>
+                  <li>Je bent direct ingelogd</li>
+                </ol>
+
+                <p style="margin:24px 0 0 0; font-size:14px; line-height:1.6; color:#7b8f98;">
+                  Geen reset aangevraagd? Negeer deze e-mail — je bestaande wachtwoord blijft
+                  ongewijzigd.
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:24px 34px 30px 34px; background:#f7f6f3; border-top:1px solid #ebe8e2;">
+                <p style="margin:0; font-size:13px; line-height:1.6; color:#7b8f98;">
+                  PAVO HR<br />
+                  Praktisch, duidelijk en persoonlijk op het gebied van HR.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

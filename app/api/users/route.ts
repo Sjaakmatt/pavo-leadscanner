@@ -67,7 +67,13 @@ export async function POST(req: Request) {
     const origin =
       process.env.NEXT_PUBLIC_APP_URL ??
       (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
-    const redirectTo = origin ? `${origin}/auth/callback` : undefined;
+    // Invite-email knop linkt naar /auth/set-password (geen klikbare
+    // token-URL — Defender Safe Links pre-klikt anders en consumeert
+    // de OTP). User vult email + 6-cijferige code + nieuw wachtwoord
+    // op die page. Email blijft prefilled via query-param.
+    const redirectTo = origin
+      ? `${origin}/auth/set-password?type=invite&email=${encodeURIComponent(email)}`
+      : undefined;
 
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo,

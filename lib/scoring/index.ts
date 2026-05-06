@@ -244,25 +244,48 @@ function deriveWarmte(
     cluster1Adj = Math.min(100, cluster1Adj + 10);
   }
 
-  if (cluster1Adj >= 80) {
+  // Drempels gecalibreerd mei 2026 — eerdere waardes (80/60/40)
+  // produceerden ~70% COLD wat sales-funnel uitholde. Nieuwe waardes
+  // brengen leads met substantiele maar niet-extreme pijn naar WARM,
+  // en single-stillegging + boete naar HOT.
+  //
+  // HOT cluster1 ≥ 60: 1 stillegging (40) + 1 arbo-boete (35) of
+  // 2 mediums (35+30) qualificeert al — dat is reëel een HR-noodgeval.
+  //
+  // WARM cluster2 ≥ 40: 2 vacancy-issues (langlopend + herposte) of
+  // 1 herposte-met-hoge-sterkte trekt dit. WARM cluster3 ≥ 25: 1
+  // reorganisatie-event volstaat.
+  //
+  // Composite ≥ 70: combinatie van zwakke signalen over meerdere
+  // clusters. Een bedrijf met 1 NLA-boete (35) + 1 herposte vacature
+  // (25) + 1 bestuurderswissel (15) telt op naar 75 → toch WARM.
+  if (cluster1Adj >= 60) {
     return {
       warmte: "HOT",
       reden: `Sterke cluster-1 signalen (${cluster1Adj}/100) — HR-structuur onder druk.`,
       totale: cluster1Adj,
     };
   }
-  if (clusters.cluster2 >= 60) {
+  if (clusters.cluster2 >= 40) {
     return {
       warmte: "WARM",
       reden: `Operationele HR-druk (cluster 2: ${clusters.cluster2}/100).`,
       totale: Math.max(clusters.cluster2, cluster1Adj),
     };
   }
-  if (clusters.cluster3 >= 40) {
+  if (clusters.cluster3 >= 25) {
     return {
       warmte: "WARM",
       reden: `Administratieve belasting in beeld (cluster 3: ${clusters.cluster3}/100).`,
       totale: Math.max(clusters.cluster3, cluster1Adj, clusters.cluster2),
+    };
+  }
+  const composite = cluster1Adj + clusters.cluster2 + clusters.cluster3;
+  if (composite >= 70) {
+    return {
+      warmte: "WARM",
+      reden: `Combinatie van zwakke signalen over alle clusters (totaal: ${composite}/300).`,
+      totale: Math.max(cluster1Adj, clusters.cluster2, clusters.cluster3),
     };
   }
   return {
