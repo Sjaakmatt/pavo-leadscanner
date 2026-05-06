@@ -1101,7 +1101,27 @@ async function isScrapeStale(
     .select("id", { count: "exact", head: true })
     .eq("kvk", kvk)
     .gte("detected_at", cutoff);
-  return (count ?? 0) === 0;
+  if ((count ?? 0) === 0) return true;
+
+  // Schema-staleness: signals zijn fresh, maar één van de cached
+  // MCP-payloads heeft een verouderd schema-version (bv. nieuwe
+  // contactPoints-veld na een MCP-upgrade). Dan moeten we toch een
+  // re-scrape doen zodat de nieuwe data binnenkomt.
+  const { detectStaleTools } = await import("@/lib/orchestrator/raw-cache");
+  const staleTools = await detectStaleTools(
+    supabase,
+    kvk,
+    [
+      "get_company_website_content",
+      "extract_vacancies_from_company_site",
+      "search_court_cases",
+      "search_labor_inspections",
+      "search_insolvencies",
+      "search_company_news",
+    ],
+    ttlDays,
+  );
+  return staleTools.length > 0;
 }
 
 async function fetchRecentSignals(
