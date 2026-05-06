@@ -27,10 +27,11 @@ import { BedrijvenMcp, requireBedrijvenUrl } from "@/lib/mcp/bedrijven";
 import { VacaturesMcp, requireVacaturesUrl } from "@/lib/mcp/vacatures";
 import { JuridischMcp, requireJuridischUrl } from "@/lib/mcp/juridisch";
 import { NewsMcp, requireNewsUrl } from "@/lib/mcp/news";
-import { runScrapeBatch, type ScrapeMcps } from "@/lib/orchestrator";
+import { type ScrapeMcps } from "@/lib/orchestrator";
 import { buildTenantContext } from "@/lib/mcp/tenant";
 import { CostTracker, withSearchScope } from "@/lib/classification/cost";
 import { detectStaleTools, type CachedToolName } from "@/lib/orchestrator/raw-cache";
+import { bulkRefreshLead } from "@/lib/lead-source/bulk-refresh";
 
 const ALL_TOOLS: CachedToolName[] = [
   "get_company_website_content",
@@ -181,35 +182,32 @@ async function main() {
         return;
       }
 
-      const handle = {
-        kvk: c.kvk,
-        naam: c.naam,
-        websiteUrl: c.website_url ?? undefined,
-        zoeknamen: [c.naam, c.handelsnaam].filter(
-          (s): s is string => !!s,
-        ),
-      };
-
       const ctx = buildTenantContext({
         parentCallId: `bulk-refresh:${c.kvk}`,
       });
 
       const start = Date.now();
       try {
-        await withSearchScope(
+        // Raw-only refresh: alle MCP-bronnen verversen + cache stempelen
+        // met huidige schema-version + deterministische contact-upserts.
+        // GEEN Anthropic-classifier — die draait on-demand bij lead-detail.
+        const res = await withSearchScope(
           { tracker, supabase, searchQueryId: null },
           () =>
-            runScrapeBatch([handle], ctx, mcps, supabase, {
-              concurrency: 1,
-              refreshRaw: args.all,
-              shouldAbort: () => tracker.shouldHalt(),
+            bulkRefreshLead(supabase, mcps, ctx, {
+              kvk: c.kvk,
+              naam: c.naam,
+              handelsnaam: c.handelsnaam,
+              websiteUrl: c.website_url,
             }),
         );
         processed += 1;
         const ms = Date.now() - start;
         const eur = eurSoFar();
+        const tools = res.toolsRefreshed.length;
+        const fails = res.toolsFailed.length;
         console.log(
-          `[w${workerId}] [${processed + failed}/${totalCount}] ${c.kvk} ${c.naam.slice(0, 40).padEnd(40)} · ${ms}ms · €${eur.toFixed(2)}`,
+          `[w${workerId}] [${processed + failed}/${totalCount}] ${c.kvk} ${c.naam.slice(0, 40).padEnd(40)} · ${tools}✓ ${fails > 0 ? `${fails}✗ ` : ""}· ${ms}ms · €${eur.toFixed(2)}`,
         );
       } catch (err) {
         failed += 1;
