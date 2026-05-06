@@ -87,7 +87,11 @@ export async function bulkRefreshLead(
   try {
     const profile = await mcps.bedrijven.kvkBasisprofiel(ctx, handle.kvk);
     if (profile) {
-      const kvkSite = profile.websiteUrl ?? null;
+      const kvkSiteRaw: unknown = profile.websiteUrl;
+      const kvkSite =
+        typeof kvkSiteRaw === "string" && kvkSiteRaw.length > 0
+          ? kvkSiteRaw
+          : null;
       if (kvkSite) {
         resolvedSiteUrl = await resolveWebsiteUrl(kvkSite).catch(() => null);
       }
