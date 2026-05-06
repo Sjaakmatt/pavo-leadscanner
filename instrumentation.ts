@@ -21,3 +21,24 @@ export async function register() {
     mode: process.env.MODE ?? "demo",
   });
 }
+
+// Server-side error capture in App Router. Stuurt elke gevangen
+// request-error door naar het FactumAI-dashboard zodat alle observability
+// op één plek terechtkomt.
+export async function onRequestError(
+  err: unknown,
+  request: { path?: string; method?: string },
+  context: { routerKind?: string; routePath?: string },
+) {
+  const { factum } = await import("@/lib/factum/client");
+  if (!factum.enabled) return;
+  const message = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? err.stack : undefined;
+  void factum.logEvent("error", `Next.js: ${message}`, {
+    path: request.path,
+    method: request.method,
+    routerKind: context.routerKind,
+    routePath: context.routePath,
+    stack: stack?.slice(0, 4_000),
+  });
+}

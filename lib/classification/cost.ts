@@ -202,6 +202,8 @@ export type SearchScope = {
   tracker: CostTracker;
   supabase: SupabaseClient | null;
   searchQueryId: string | null;
+  orgId?: string | null;
+  userId?: string | null;
 };
 
 const scopeStorage = new AsyncLocalStorage<SearchScope>();

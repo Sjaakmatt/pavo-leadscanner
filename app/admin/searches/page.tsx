@@ -50,7 +50,7 @@ export default async function AdminSearchesPage() {
     return (
       <div className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="text-2xl font-semibold text-pavo-navy">
-          Search-observability
+          Zoekprestaties
         </h1>
         <p className="mt-3 text-sm text-pavo-gray-600">
           Niet beschikbaar in demo-mode — observability toont alleen
@@ -63,7 +63,7 @@ export default async function AdminSearchesPage() {
     return (
       <div className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="text-2xl font-semibold text-pavo-navy">
-          Search-observability
+          Zoekprestaties
         </h1>
         <p className="mt-3 text-sm text-pavo-gray-600">
           Auth is niet geconfigureerd — geen tracking-data om te tonen.
@@ -77,7 +77,7 @@ export default async function AdminSearchesPage() {
     return (
       <div className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="text-2xl font-semibold text-pavo-navy">
-          Search-observability
+          Zoekprestaties
         </h1>
         <p className="mt-3 text-sm text-pavo-gray-600">
           Alleen voor admins.
@@ -91,7 +91,7 @@ export default async function AdminSearchesPage() {
     return (
       <div className="mx-auto max-w-5xl px-4 py-10">
         <h1 className="text-2xl font-semibold text-pavo-navy">
-          Search-observability
+          Zoekprestaties
         </h1>
         <p className="mt-3 text-sm text-pavo-gray-600">
           Supabase niet geconfigureerd.
@@ -125,21 +125,20 @@ export default async function AdminSearchesPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-10">
       <h1 className="text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
-        Search-observability
+        Zoekprestaties
       </h1>
       <p className="mt-2 text-sm text-pavo-gray-600">
-        Laatste 50 search-runs met per-stage timing en classifier-
-        kosten. Bedoeld om performance- of kosten-uitschieters snel
-        op te sporen.
+        Laatste 50 zoekopdrachten met doorlooptijden en AI-kosten per
+        stap. Bedoeld om uitschieters snel op te sporen.
       </p>
 
       <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
-        <Stat label="Totaal aantal runs" value={rows.length.toString()} />
+        <Stat label="Totaal aantal zoekopdrachten" value={rows.length.toString()} />
         <Stat
-          label="Gemiddelde duur (completed)"
+          label="Gemiddelde duur (afgerond)"
           value={fmtMs(avgDuration)}
         />
-        <Stat label="Classifier-kosten (50 runs)" value={fmtUsd(totalCost)} />
+        <Stat label="AI-kosten (laatste 50)" value={fmtUsd(totalCost)} />
       </div>
 
       <div className="mt-6 overflow-x-auto rounded-lg border border-pavo-gray-100 bg-white shadow-sm">
@@ -156,8 +155,8 @@ export default async function AdminSearchesPage() {
               <th className="px-3 py-2 text-right font-medium">Geo</th>
               <th className="px-3 py-2 text-right font-medium">Scrape</th>
               <th className="px-3 py-2 text-right font-medium">Score</th>
-              <th className="px-3 py-2 text-right font-medium">Calls</th>
-              <th className="px-3 py-2 text-right font-medium">$</th>
+              <th className="px-3 py-2 text-right font-medium">AI-aanroepen</th>
+              <th className="px-3 py-2 text-right font-medium">€</th>
               <th className="px-3 py-2 text-left font-medium">Status</th>
             </tr>
           </thead>

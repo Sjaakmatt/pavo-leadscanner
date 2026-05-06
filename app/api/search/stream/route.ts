@@ -1,6 +1,8 @@
 import { getLeadSource } from "@/lib/lead-source";
 import type { SearchFilters, SearchProgressEvent } from "@/lib/adapters/types";
 import { parseSearchFilters, validationErrorMessage } from "@/lib/adapters/validation";
+import { authConfigured, getCurrentUser } from "@/lib/auth/server";
+import { checkSearchRateLimit } from "@/lib/rate-limit/search";
 
 // Server-Sent Events variant van /api/search. De ProductionLeadSource
 // emitteert `SearchProgressEvent`s tijdens de flow; wij serialiseren ze
@@ -33,6 +35,29 @@ export async function POST(req: Request) {
     filters = parseSearchFilters(await req.json());
   } catch (err) {
     return new Response(validationErrorMessage(err), { status: 400 });
+  }
+
+  if (authConfigured()) {
+    const me = await getCurrentUser();
+    const limit = await checkSearchRateLimit(me?.orgId ?? null);
+    if (!limit.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: `Daglimiet bereikt (${limit.count}/${limit.cap} zoekopdrachten). Probeer morgen opnieuw.`,
+          count: limit.count,
+          cap: limit.cap,
+        }),
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
+            ...(limit.retryAfterSeconds
+              ? { "Retry-After": String(limit.retryAfterSeconds) }
+              : {}),
+          },
+        },
+      );
+    }
   }
 
   const encoder = new TextEncoder();

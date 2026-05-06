@@ -11,7 +11,6 @@ import LeadBriefing from "@/components/LeadBriefing";
 import LeadChat from "@/components/LeadChat";
 import LeadStatusBar from "@/components/LeadStatusBar";
 import LeadTrend from "@/components/LeadTrend";
-import OnboardingAgent from "@/components/OnboardingAgent";
 import ServiceMatchBar from "@/components/ServiceMatchBar";
 import SignalList from "@/components/SignalList";
 import WarmteBadge from "@/components/WarmteBadge";
@@ -137,10 +136,6 @@ export default function LeadDetailPage({ params }: Props) {
       >
         <SectionFade>
           <LeadStatusBar kvk={lead.kvk} />
-        </SectionFade>
-
-        <SectionFade>
-          <OnboardingAgent kvk={lead.kvk} leadNaam={lead.naam} />
         </SectionFade>
 
         {lead.warmte === "COLD" && (

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { factum } from "@/lib/factum/client";
 import { collectDailyMetrics } from "@/lib/factum/metrics-aggregator";
 import { requireCronAuth } from "@/lib/cron/auth";
+import { runCronWithAlerting } from "@/lib/cron/run-with-alerting";
 
 /**
  * Vercel Cron — elke 5 minuten.
@@ -32,31 +33,30 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Connect bij eerste tick van deze lambda-instance. `factum.connect`
-  // is intern al idempotent (`this.connected` flag), dus dubbel-call
-  // is goedkoop maar overbodig.
-  if (!connectedThisInstance) {
-    await factum.connect({
-      version:
-        process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ??
-        process.env.npm_package_version ??
-        "dev",
-      hostname: process.env.VERCEL_URL ?? "pavo-leadscanner",
-      runtime: `nodejs-${process.version}`,
+  return runCronWithAlerting("factum-sync", async () => {
+    if (!connectedThisInstance) {
+      await factum.connect({
+        version:
+          process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ??
+          process.env.npm_package_version ??
+          "dev",
+        hostname: process.env.VERCEL_URL ?? "pavo-leadscanner",
+        runtime: `nodejs-${process.version}`,
+      });
+      connectedThisInstance = true;
+    }
+
+    const started = Date.now();
+    const metrics = await collectDailyMetrics();
+    const collectMs = Date.now() - started;
+
+    await factum.sendBatch({
+      heartbeat: { status: "online", responseTimeMs: collectMs },
+      metrics,
     });
-    connectedThisInstance = true;
-  }
 
-  const started = Date.now();
-  const metrics = await collectDailyMetrics();
-  const collectMs = Date.now() - started;
-
-  await factum.sendBatch({
-    heartbeat: { status: "online", responseTimeMs: collectMs },
-    metrics,
+    return { metrics, collectMs };
   });
-
-  return NextResponse.json({ ok: true, metrics, collectMs });
 }
 
 export const maxDuration = 30;

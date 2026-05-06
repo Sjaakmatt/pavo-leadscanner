@@ -4,6 +4,7 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseRouteClient } from "@/lib/auth/server";
+import { logObs } from "@/lib/observability/logger";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -23,6 +24,13 @@ export async function GET(req: NextRequest) {
   // de gebruiker dan met een herkenbaar bericht naar /login zodat ze
   // weten waarom 't faalt — niet stilletjes redirecten.
   if (supabaseError) {
+    void logObs({
+      type: "warning",
+      category: "auth",
+      message: `Magic-link callback faalde · ${supabaseErrorCode ?? supabaseError}`,
+      audit: true,
+      metadata: { error_code: supabaseErrorCode, error: supabaseError },
+    });
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set(
       "error",
@@ -62,6 +70,16 @@ export async function GET(req: NextRequest) {
     console.warn(
       `[auth/callback] exchange failed: ${error.message} verifierMissing=${isVerifierMissing}`,
     );
+    void logObs({
+      type: "warning",
+      category: "auth",
+      message: `Magic-link exchange faalde`,
+      audit: true,
+      metadata: {
+        error: error.message,
+        verifier_missing: isVerifierMissing,
+      },
+    });
     const loginUrl = new URL("/login", req.url);
     loginUrl.searchParams.set(
       "error",
@@ -75,6 +93,14 @@ export async function GET(req: NextRequest) {
   console.log(
     `[auth/callback] exchange OK userId=${data.user?.id ?? "?"} email=${data.user?.email ?? "?"} hasSession=${data.session ? "yes" : "no"}`,
   );
+  void logObs({
+    type: "info",
+    category: "auth",
+    message: `Login succes`,
+    audit: true,
+    userId: data.user?.id ?? null,
+    metadata: { has_session: !!data.session },
+  });
 
   return NextResponse.redirect(new URL(from, req.url));
 }

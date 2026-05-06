@@ -17,6 +17,8 @@ import {
   newToolBudget,
   toolLabel,
 } from "@/lib/agent/lead-tools";
+import { authConfigured, getCurrentUser } from "@/lib/auth/server";
+import { logObs } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 // Tool-use loop kan meerdere turns + MCP-calls doen; vraagt extra tijd.
@@ -55,6 +57,22 @@ export async function POST(
   if (!lead) {
     return new Response("Lead not found", { status: 404 });
   }
+
+  let orgId: string | null = null;
+  let userId: string | null = null;
+  if (authConfigured()) {
+    const me = await getCurrentUser();
+    orgId = me?.orgId ?? null;
+    userId = me?.id ?? null;
+  }
+  void logObs({
+    type: "info",
+    category: "user_action",
+    message: `Chat-vraag · kvk=${kvk}`,
+    orgId,
+    userId,
+    metadata: { kvk, message_count: messages.length },
+  });
 
   let client;
   try {
@@ -109,6 +127,24 @@ export async function POST(
           });
 
           const final = await stream.finalMessage();
+
+          void logObs({
+            type: "info",
+            category: "llm",
+            message: `Claude chat · kvk=${kvk} turn=${turn} stop=${final.stop_reason}`,
+            orgId,
+            userId,
+            metadata: {
+              model: CHAT_MODEL,
+              kvk,
+              turn,
+              stop_reason: final.stop_reason,
+              input_tokens: final.usage?.input_tokens,
+              output_tokens: final.usage?.output_tokens,
+              cache_read_tokens: final.usage?.cache_read_input_tokens,
+              cache_create_tokens: final.usage?.cache_creation_input_tokens,
+            },
+          });
 
           if (final.stop_reason !== "tool_use") {
             // Klaar — de stream-text is al naar de UI gegaan.

@@ -255,7 +255,7 @@ export default function FilterBar({
 
             <div className="rounded-2xl border border-pavo-ink/[0.06] bg-pavo-frost/40 p-4">
               <label className="mb-2 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.12em] text-pavo-gray-600">
-                <span>Max basisprofielen</span>
+                <span>Max KvK-lookups</span>
                 <span className="rounded-md bg-white px-1.5 py-0.5 font-mono text-[11px] font-bold text-pavo-navy ring-1 ring-pavo-ink/[0.06]">
                   €{((filters.max_basisprofielen ?? 200) * 0.02).toFixed(0)}
                 </span>
@@ -275,7 +275,7 @@ export default function FilterBar({
                 className="w-full rounded-lg border border-pavo-ink/[0.08] bg-white px-3 py-1.5 text-sm font-medium text-pavo-navy transition-all duration-200 hover:border-pavo-teal/40 focus:border-pavo-teal focus:outline-none focus:ring-4 focus:ring-pavo-teal/10"
               />
               <p className="mt-2 text-[11px] leading-relaxed text-pavo-gray-600">
-                Hard cap op betaalde KvK-calls (€0,02 per call). Default 200 = €4.
+                Maximum aantal KvK-lookups (€0,02 per stuk). Standaard 200 = €4.
               </p>
             </div>
           </div>

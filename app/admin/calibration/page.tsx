@@ -173,7 +173,7 @@ export default async function CalibrationPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-10">
       <h1 className="text-2xl font-semibold tracking-tight text-pavo-navy md:text-3xl">
-        Scoring-calibration
+        Scoring-controle
       </h1>
       <p className="mt-2 text-sm text-pavo-gray-600">
         Werkt onze warmte- en dienstmatch-engine? Hieronder zie je per
@@ -214,7 +214,7 @@ export default async function CalibrationPage() {
       </h2>
       {dienstRows.length === 0 ? (
         <p className="mt-3 text-sm text-pavo-gray-600">
-          Nog geen scored_leads met dienst-match.
+          Nog geen leads met dienst-match.
         </p>
       ) : (
         <div className="mt-3 overflow-x-auto rounded-lg border border-pavo-gray-100 bg-white shadow-sm">
