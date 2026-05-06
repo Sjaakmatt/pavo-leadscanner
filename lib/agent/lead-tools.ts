@@ -5,6 +5,8 @@
 //   - get_kvk_snapshot_history    → Supabase kvk_snapshots (gratis)
 //   - scrape_vacancies            → mcp-vacatures (gratis)
 //   - search_court_cases          → mcp-juridisch (gratis)
+//   - search_labor_inspections    → mcp-juridisch (gratis) — NLA-overtredingen
+//   - search_insolvencies         → mcp-juridisch (gratis) — Centraal Insolventieregister
 //   - search_news                 → mcp-news (gratis)
 //   - get_lead_signals_raw        → Supabase signals (gratis)
 //
@@ -29,6 +31,8 @@ export const TOOL_LABELS_NL: Record<string, string> = {
   get_kvk_snapshot_history: "Historische KvK-snapshots vergelijken",
   scrape_vacancies: "Live vacatures ophalen van de bedrijfssite",
   search_court_cases: "Rechtspraak.nl doorzoeken",
+  search_labor_inspections: "NLA-arbeidsinspectie doorzoeken (overtredingen WAV/WML/Arbo)",
+  search_insolvencies: "Centraal Insolventieregister doorzoeken (faillissementen, surseances)",
   search_news: "Bedrijfsnieuws doorzoeken",
   get_lead_signals_raw: "Onderliggende signaaldata ophalen",
 };
@@ -102,6 +106,35 @@ export const LEAD_TOOLS: Tool[] = [
     },
   },
   {
+    name: "search_labor_inspections",
+    description:
+      "Zoek NLA-arbeidsinspectie-overtredingen voor DEZE lead in resultaten.nlarbeidsinspectie.nl. Vindt vastgestelde overtredingen op WAV (illegaal personeel), WML (loonbetaling), Arbeidstijdenwet of Arbobesluit. Voor 'heeft dit bedrijf NLA-boetes gehad?'. Roep aan zonder argumenten — bedrijfsnaam wordt auto-ingevuld.",
+    input_schema: {
+      type: "object",
+      properties: {
+        search_term: {
+          type: "string",
+          description: "OPTIONEEL — default deze lead's naam.",
+        },
+      },
+    },
+  },
+  {
+    name: "search_insolvencies",
+    description:
+      "Zoek in het Centraal Insolventieregister naar faillissementen, surseances of WSNP voor DEZE lead. Voor 'is dit bedrijf failliet?', 'zijn er gerelateerde faillissementen in het concern?'. Geef company_names als je wilt zoeken voor moeder/dochters/handelsnamen — anders default deze lead's naam.",
+    input_schema: {
+      type: "object",
+      properties: {
+        company_names: {
+          type: "array",
+          items: { type: "string" },
+          description: "OPTIONEEL — default [deze lead's naam]. Geef array voor concern/handelsnamen.",
+        },
+      },
+    },
+  },
+  {
     name: "search_news",
     description:
       "Zoek recente Google News artikelen over DEZE lead. Voor overnames, koerswijzigingen, persberichten. Roep aan zonder argumenten.",
@@ -138,6 +171,8 @@ const PER_REQUEST_TOOL_BUDGET: Record<string, number> = {
   get_kvk_snapshot_history: 1,
   scrape_vacancies: 1,
   search_court_cases: 2,
+  search_labor_inspections: 2,
+  search_insolvencies: 2,
   search_news: 2,
   get_lead_signals_raw: 1,
 };
@@ -267,6 +302,17 @@ export async function executeLeadTool(
         result = await getJuridisch().searchCourtCases(ctx, {
           company_names: stringArrayOrNull(input.company_names) ?? [leadCtx.naam],
           legal_area: stringOrNull(input.legal_area) ?? undefined,
+        });
+        break;
+      case "search_labor_inspections":
+        result = await getJuridisch().searchLaborInspections(ctx, {
+          search_term: stringOrNull(input.search_term) ?? leadCtx.naam,
+        });
+        break;
+      case "search_insolvencies":
+        result = await getJuridisch().searchInsolvencies(ctx, {
+          company_names:
+            stringArrayOrNull(input.company_names) ?? [leadCtx.naam],
         });
         break;
       case "search_news":
