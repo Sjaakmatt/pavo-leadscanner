@@ -29,6 +29,10 @@ import {
 import type { Signaal } from "@/lib/scoring/types";
 import { persistRaw, readRaw, type CachedToolName } from "./raw-cache";
 import { upsertWebsiteContacts } from "@/lib/lead-source/contacts";
+import {
+  deriveContactsFromPages,
+  upsertDeterministicContacts,
+} from "@/lib/contacts/from-website";
 import { inferWebsiteUrl, resolveWebsiteUrl } from "./website-inference";
 import type {
   WebsiteScrapeResult,
@@ -157,6 +161,13 @@ export async function scrapeAndClassifyCompany(
           ),
       ).then(async (r) => {
         if (!r) return mark("get_company_website_content");
+        // Deterministische contact-extractie eerst — gratis, instant.
+        // Pakt info@/sales@/+31… die in HTML-anchors of JSON-LD staan
+        // maar door de cleaned-text-LLM-flow gemist worden.
+        const deterministic = deriveContactsFromPages(company.kvk, r.pages);
+        if (deterministic.length > 0) {
+          void upsertDeterministicContacts(supabase, deterministic);
+        }
         const full = await classifyWebsiteFull(company, r);
         // Best-effort: contacten persisten in een fire-and-forget zodat
         // signaal-flow niet wacht op de contacts-upsert.

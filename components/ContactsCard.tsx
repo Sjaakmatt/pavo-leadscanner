@@ -2,26 +2,40 @@
 
 import { useEffect, useState } from "react";
 
+type ContactBron =
+  | "kvk"
+  | "website"
+  | "website-jsonld"
+  | "website-regex"
+  | "website-llm"
+  | "handmatig";
+
 type Contact = {
   id: string;
   naam: string;
   functie: string | null;
   email: string | null;
   telefoon: string | null;
-  bron: "kvk" | "website" | "handmatig";
+  bron: ContactBron;
   bron_url: string | null;
   bewijs: string | null;
 };
 
-const BRON_LABEL: Record<Contact["bron"], string> = {
+const BRON_LABEL: Record<ContactBron, string> = {
   kvk: "KvK-bestuurder",
   website: "Website",
+  "website-jsonld": "Website (gestructureerd)",
+  "website-regex": "Website (contact-link)",
+  "website-llm": "Website (AI-gevonden)",
   handmatig: "Handmatig",
 };
 
-const BRON_COLOR: Record<Contact["bron"], string> = {
+const BRON_COLOR: Record<ContactBron, string> = {
   kvk: "bg-pavo-teal/10 text-pavo-teal",
   website: "bg-pavo-orange/10 text-pavo-orange",
+  "website-jsonld": "bg-emerald-100 text-emerald-700",
+  "website-regex": "bg-emerald-50 text-emerald-700",
+  "website-llm": "bg-pavo-orange/10 text-pavo-orange",
   handmatig: "bg-pavo-gray-100 text-pavo-gray-600",
 };
 

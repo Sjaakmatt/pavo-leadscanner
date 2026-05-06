@@ -7,7 +7,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { KvkBestuurder } from "@/lib/kvk/types";
 
-export type ContactBron = "kvk" | "website" | "handmatig";
+export type ContactBron =
+  | "kvk"
+  | "website"
+  | "website-jsonld"
+  | "website-regex"
+  | "website-llm"
+  | "handmatig";
 
 export type LeadContact = {
   id: string;
