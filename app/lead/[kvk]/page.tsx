@@ -31,9 +31,14 @@ export default function LeadDetailPage({ params }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    // Banner pas tonen na 3.5s — fast lead-loads (cache-hit, geen
+    // re-scrape nodig) komen typisch binnen <1s terug. Drempel hoog
+    // genoeg dat snelle loads geen flits veroorzaken; laag genoeg
+    // dat de eerste sync-rescrape na schema-bump (5-30s) wel feedback
+    // geeft.
     const refreshTimer = setTimeout(() => {
       if (!cancelled) setRefreshing(true);
-    }, 1_500);
+    }, 3_500);
     async function load() {
       const res = await fetch(`/api/lead/${kvk}`);
       const data = (await res.json()) as { lead: Lead | null };

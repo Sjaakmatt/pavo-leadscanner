@@ -93,17 +93,21 @@ export function generateUrlVariants(websiteUrl: string): string[] {
   const parsed = parseWebsiteUrl(websiteUrl);
   if (!parsed) return [];
 
-  const variants = [parsed];
-  if (parsed.hostname.startsWith("www.")) {
-    const withoutWww = new URL(parsed.toString());
-    withoutWww.hostname = parsed.hostname.slice(4);
-    variants.push(withoutWww);
-  } else {
-    const withWww = new URL(parsed.toString());
-    withWww.hostname = `www.${parsed.hostname}`;
-    variants.push(withWww);
+  // Strategie: probeer ALTIJD non-www eerst. Bare-domain is vrijwel
+  // altijd de canonical host (KvK-input vaak met www, maar werkende
+  // server zit op bare). Pas www proberen als niet-www faalt.
+  // Voorbeeld dat dit triggerde: hardernatuursteen.nl werkt, maar
+  // www.hardernatuursteen.nl serveert lege/parking-content.
+  const bare = new URL(parsed.toString());
+  if (bare.hostname.startsWith("www.")) {
+    bare.hostname = bare.hostname.slice(4);
+  }
+  const wwwUrl = new URL(parsed.toString());
+  if (!wwwUrl.hostname.startsWith("www.")) {
+    wwwUrl.hostname = `www.${wwwUrl.hostname}`;
   }
 
+  const variants = [bare, wwwUrl];
   return [...new Set(variants.map((url) => url.toString()))];
 }
 

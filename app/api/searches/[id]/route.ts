@@ -99,6 +99,49 @@ export async function GET(
 
     const kvks = scored.map((s) => s.kvk);
 
+    // 2b) Latest scoring per kvk — als sinds deze search een lead opnieuw
+    // gescoord is (via lead-detail-open na cache-refresh of bulk-refresh
+    // script), willen we die verse warmte tonen i.p.v. de stale snapshot
+    // van toen-de-search-liep. We pakken de meest recente scored_leads-rij
+    // per kvk (ongeacht search_query_id) en mergen die over de oude rij heen.
+    const { data: latestRaw } = await supabase
+      .from("scored_leads")
+      .select("kvk, warmte, totale_score, diensten_match, samenvatting, created_at")
+      .in("kvk", kvks)
+      .order("created_at", { ascending: false });
+    const latestByKvk = new Map<
+      string,
+      { warmte: string; totale_score: number; diensten_match: unknown; samenvatting: string | null }
+    >();
+    for (const row of (latestRaw ?? []) as Array<{
+      kvk: string;
+      warmte: string;
+      totale_score: number;
+      diensten_match: unknown;
+      samenvatting: string | null;
+      created_at: string;
+    }>) {
+      if (!latestByKvk.has(row.kvk)) {
+        latestByKvk.set(row.kvk, {
+          warmte: row.warmte,
+          totale_score: row.totale_score,
+          diensten_match: row.diensten_match,
+          samenvatting: row.samenvatting,
+        });
+      }
+    }
+    // Mergen + her-sorteren op nieuwe scores
+    for (const s of scored) {
+      const latest = latestByKvk.get(s.kvk);
+      if (latest) {
+        s.warmte = latest.warmte as ScoredLeadRow["warmte"];
+        s.totale_score = latest.totale_score;
+        s.diensten_match = latest.diensten_match as ScoredLeadRow["diensten_match"];
+        if (latest.samenvatting) s.samenvatting = latest.samenvatting;
+      }
+    }
+    scored.sort((a, b) => b.totale_score - a.totale_score);
+
     // 3) Companies-info voor die kvk's.
     const { data: companiesRaw } = await supabase
       .from("companies")
