@@ -74,34 +74,32 @@ export async function ensureWebsiteResolved(
   handle: BulkRefreshHandle,
 ): Promise<{ kvk: string; resolvedTo: string | null; durationMs: number }> {
   const startedAt = Date.now();
-  let resolvedTo: string | null = null;
+  let finalUrl: string | null = null;
   try {
     const profile = await mcps.bedrijven.kvkBasisprofiel(ctx, handle.kvk);
     if (profile) {
-      const kvkSiteRaw: unknown = profile.websiteUrl;
-      const kvkSite =
-        typeof kvkSiteRaw === "string" && kvkSiteRaw.length > 0
-          ? kvkSiteRaw
-          : null;
+      const fields = mapBasisprofielFields(profile);
+      const kvkSite = fields.websiteUrl;
+      let resolvedTo: string | null = null;
       if (kvkSite) {
         resolvedTo = await resolveWebsiteUrl(kvkSite).catch(() => null);
       }
-      const finalUrl = resolvedTo ?? kvkSite;
+      finalUrl = resolvedTo ?? kvkSite;
       await supabase
         .from("companies")
         .upsert(
           {
-            kvk: profile.kvkNummer,
-            naam: profile.naam,
-            handelsnaam: profile.handelsnaam ?? null,
+            kvk: fields.kvk,
+            naam: fields.naam,
+            handelsnaam: fields.handelsnaam,
             website_url: finalUrl,
-            sbi_codes: profile.sbiCodes,
-            fte_klasse: profile.fteKlasse,
-            plaats: profile.plaats ?? null,
-            provincie: profile.provincie ?? null,
-            bestuursvorm: profile.bestuursvorm ?? null,
-            oprichtingsdatum: profile.oprichtingsdatum ?? null,
-            actief: profile.actief,
+            sbi_codes: fields.sbiCodes,
+            fte_klasse: fields.fteKlasse,
+            plaats: fields.plaats,
+            provincie: fields.provincie,
+            bestuursvorm: fields.bestuursvorm,
+            oprichtingsdatum: fields.oprichtingsdatum,
+            actief: fields.actief,
             last_updated_at: new Date().toISOString(),
           },
           { onConflict: "kvk" },
@@ -110,7 +108,53 @@ export async function ensureWebsiteResolved(
   } catch (err) {
     console.warn(`[ensure-website] ${handle.kvk}: ${String(err)}`);
   }
-  return { kvk: handle.kvk, resolvedTo, durationMs: Date.now() - startedAt };
+  return { kvk: handle.kvk, resolvedTo: finalUrl, durationMs: Date.now() - startedAt };
+}
+
+/**
+ * Map MCP-basisprofiel-response naar companies-tabel-velden. MCP-shape
+ * verschilt subtiel van pavo's local KvkBasisprofiel-type:
+ *   - websiteUrls (array) → websiteUrl (eerste, of null)
+ *   - handelsnamen (array) → handelsnaam (eerste, of null)
+ *   - vestigingen[].adres.plaats → plaats (eerste hoofdvestiging)
+ *   - fteKlasse enum heeft extra waardes ("0", "1", "2-4", "5-9", "250+")
+ *     die in pavo's UI niet bestaan; mappen die naar null zodat de
+ *     check-constraint niet faalt
+ */
+function mapBasisprofielFields(profile: unknown) {
+  const p = profile as {
+    kvkNummer: string;
+    naam: string;
+    handelsnamen?: string[];
+    websiteUrls?: string[];
+    sbiCodes?: string[];
+    bestuursvorm?: string;
+    oprichtingsdatum?: string;
+    actief: boolean;
+    fteKlasse?: string;
+    vestigingen?: Array<{
+      adres?: { plaats?: string; provincie?: string };
+      isHoofdvestiging?: boolean;
+    }>;
+  };
+  const hoofdvestiging =
+    p.vestigingen?.find((v) => v.isHoofdvestiging) ?? p.vestigingen?.[0];
+  const PAVO_FTE = new Set(["10-19", "20-49", "50-99", "100-199"]);
+  return {
+    kvk: p.kvkNummer,
+    naam: p.naam,
+    handelsnaam:
+      p.handelsnamen && p.handelsnamen.length > 0 ? p.handelsnamen[0] : null,
+    websiteUrl:
+      p.websiteUrls && p.websiteUrls.length > 0 ? p.websiteUrls[0] : null,
+    sbiCodes: p.sbiCodes ?? [],
+    bestuursvorm: p.bestuursvorm ?? null,
+    oprichtingsdatum: p.oprichtingsdatum ?? null,
+    actief: p.actief,
+    fteKlasse: p.fteKlasse && PAVO_FTE.has(p.fteKlasse) ? p.fteKlasse : null,
+    plaats: hoofdvestiging?.adres?.plaats ?? null,
+    provincie: hoofdvestiging?.adres?.provincie ?? null,
+  };
 }
 
 export async function bulkRefreshLead(
@@ -139,11 +183,8 @@ export async function bulkRefreshLead(
   try {
     const profile = await mcps.bedrijven.kvkBasisprofiel(ctx, handle.kvk);
     if (profile) {
-      const kvkSiteRaw: unknown = profile.websiteUrl;
-      const kvkSite =
-        typeof kvkSiteRaw === "string" && kvkSiteRaw.length > 0
-          ? kvkSiteRaw
-          : null;
+      const fields = mapBasisprofielFields(profile);
+      const kvkSite = fields.websiteUrl;
       if (kvkSite) {
         resolvedSiteUrl = await resolveWebsiteUrl(kvkSite).catch(() => null);
       }
@@ -153,23 +194,24 @@ export async function bulkRefreshLead(
         .from("companies")
         .upsert(
           {
-            kvk: profile.kvkNummer,
-            naam: profile.naam,
-            handelsnaam: profile.handelsnaam ?? null,
+            kvk: fields.kvk,
+            naam: fields.naam,
+            handelsnaam: fields.handelsnaam,
             website_url: finalUrl,
-            sbi_codes: profile.sbiCodes,
-            fte_klasse: profile.fteKlasse,
-            plaats: profile.plaats ?? null,
-            provincie: profile.provincie ?? null,
-            bestuursvorm: profile.bestuursvorm ?? null,
-            oprichtingsdatum: profile.oprichtingsdatum ?? null,
-            actief: profile.actief,
+            sbi_codes: fields.sbiCodes,
+            fte_klasse: fields.fteKlasse,
+            plaats: fields.plaats,
+            provincie: fields.provincie,
+            bestuursvorm: fields.bestuursvorm,
+            oprichtingsdatum: fields.oprichtingsdatum,
+            actief: fields.actief,
             last_updated_at: new Date().toISOString(),
           },
           { onConflict: "kvk" },
         );
-      if (profile.bestuurders && profile.bestuurders.length > 0) {
-        await upsertKvkBestuurders(supabase, profile.kvkNummer, profile.bestuurders);
+      const bestuurders = (profile as { bestuurders?: Array<{ naam: string; functie?: string; sinds?: string }> }).bestuurders;
+      if (bestuurders && bestuurders.length > 0) {
+        await upsertKvkBestuurders(supabase, fields.kvk, bestuurders);
       }
       refreshed.push("kvk_basisprofiel");
     }
