@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import ArchetypeCard from "@/components/ArchetypeCard";
+import BrancheContextCard from "@/components/BrancheContextCard";
 import ColdContext from "@/components/ColdContext";
 import CompanyDataCard from "@/components/CompanyDataCard";
 import ContactsCard from "@/components/ContactsCard";
@@ -153,6 +154,10 @@ export default function LeadDetailPage({ params }: Props) {
 
         <SectionFade>
           <CompanyDataCard kvk={lead.kvk} />
+        </SectionFade>
+
+        <SectionFade>
+          <BrancheContextCard kvk={lead.kvk} />
         </SectionFade>
 
         <SectionFade>

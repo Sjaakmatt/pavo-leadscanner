@@ -8,6 +8,7 @@
 //   - search_labor_inspections    → mcp-juridisch (gratis) — NLA-overtredingen
 //   - search_insolvencies         → mcp-juridisch (gratis) — Centraal Insolventieregister
 //   - search_news                 → mcp-news (gratis)
+//   - get_cbs_branche_context     → CBS Open Data (gratis) — verzuim/krapte/etc per branche+regio
 //   - get_lead_signals_raw        → Supabase signals (gratis)
 //
 // Per chat-sessie geldt een per-tool rate-limit zodat de agent niet
@@ -34,6 +35,7 @@ export const TOOL_LABELS_NL: Record<string, string> = {
   search_labor_inspections: "NLA-arbeidsinspectie doorzoeken (overtredingen WAV/WML/Arbo)",
   search_insolvencies: "Centraal Insolventieregister doorzoeken (faillissementen, surseances)",
   search_news: "Bedrijfsnieuws doorzoeken",
+  get_cbs_branche_context: "CBS branche- en regio-cijfers ophalen",
   get_lead_signals_raw: "Onderliggende signaaldata ophalen",
 };
 
@@ -150,6 +152,17 @@ export const LEAD_TOOLS: Tool[] = [
     },
   },
   {
+    name: "get_cbs_branche_context",
+    description:
+      "Haal CBS Open Data branche- en regio-context op voor DEZE lead. Geeft ziekteverzuim per branche, krapte-indicator arbeidsmarkt per regio, vacaturegraad, faillissementen YoY en cao-loonontwikkeling. Voor 'hoe staat deze sector ervoor?' / 'is het krap in deze regio?' / 'hoe ontwikkelt het loon zich?'. Roep aan zonder argumenten.",
+    input_schema: {
+      type: "object",
+      properties: {
+        kvk: { type: "string", description: "OPTIONEEL — default deze lead." },
+      },
+    },
+  },
+  {
     name: "get_lead_signals_raw",
     description:
       "Alle ruwe signal-records voor DEZE lead uit de database (categorie, cluster, sterkte, confidence, observatie, bron, bewijs, detected_at). Voor 'wat is het exacte bewijs?', 'op welke datum?'. Roep aan zonder argumenten.",
@@ -174,6 +187,7 @@ const PER_REQUEST_TOOL_BUDGET: Record<string, number> = {
   search_labor_inspections: 2,
   search_insolvencies: 2,
   search_news: 2,
+  get_cbs_branche_context: 1,
   get_lead_signals_raw: 1,
 };
 
@@ -321,6 +335,9 @@ export async function executeLeadTool(
           max_results: typeof input.max_results === "number" ? input.max_results : 10,
         });
         break;
+      case "get_cbs_branche_context":
+        result = await fetchCbsBrancheContextForKvk(kvk);
+        break;
       case "get_lead_signals_raw":
         result = await fetchSignalsRaw(
           kvk,
@@ -369,6 +386,21 @@ async function fetchKvkSnapshotHistory(kvk: string): Promise<unknown> {
     .limit(10);
   if (error) throw new Error(`kvk_snapshots query: ${error.message}`);
   return { kvk, snapshots: data ?? [] };
+}
+
+async function fetchCbsBrancheContextForKvk(kvk: string): Promise<unknown> {
+  const supabase = supabaseServer();
+  const { data } = await supabase
+    .from("companies")
+    .select("sbi_codes, provincie")
+    .eq("kvk", kvk)
+    .maybeSingle();
+  const row = data as { sbi_codes?: string[] | null; provincie?: string | null } | null;
+  const sbi = Array.isArray(row?.sbi_codes) && row?.sbi_codes[0] ? row.sbi_codes[0] : null;
+  const provincie = row?.provincie ?? null;
+
+  const { fetchBrancheContext } = await import("@/lib/cbs/queries");
+  return fetchBrancheContext({ sbiCode: sbi, provincie });
 }
 
 async function fetchSignalsRaw(kvk: string, ttlDays: number): Promise<unknown> {
