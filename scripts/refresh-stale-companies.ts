@@ -27,7 +27,7 @@ import { BedrijvenMcp, requireBedrijvenUrl } from "@/lib/mcp/bedrijven";
 import { VacaturesMcp, requireVacaturesUrl } from "@/lib/mcp/vacatures";
 import { JuridischMcp, requireJuridischUrl } from "@/lib/mcp/juridisch";
 import { NewsMcp, requireNewsUrl } from "@/lib/mcp/news";
-import { type ScrapeMcps } from "@/lib/orchestrator";
+import { runScrapeBatch, type ScrapeMcps } from "@/lib/orchestrator";
 import { buildTenantContext } from "@/lib/mcp/tenant";
 import { CostTracker, withSearchScope } from "@/lib/classification/cost";
 import { detectStaleTools, type CachedToolName } from "@/lib/orchestrator/raw-cache";
@@ -48,6 +48,7 @@ interface Args {
   all: boolean;
   dry: boolean;
   ttlDays: number;
+  withLlm: boolean;
 }
 
 function parseArgs(): Args {
@@ -58,10 +59,12 @@ function parseArgs(): Args {
     all: false,
     dry: false,
     ttlDays: 7,
+    withLlm: false,
   };
   for (const a of argv) {
     if (a === "--all") args.all = true;
     else if (a === "--dry") args.dry = true;
+    else if (a === "--with-llm") args.withLlm = true;
     else if (a.startsWith("--concurrency=")) args.concurrency = Number(a.split("=")[1]);
     else if (a.startsWith("--max-eur=")) args.maxEur = Number(a.split("=")[1]);
     else if (a.startsWith("--ttl-days=")) args.ttlDays = Number(a.split("=")[1]);
@@ -79,8 +82,13 @@ interface Company {
 async function main() {
   const args = parseArgs();
   console.log(
-    `▶ refresh-stale-companies — concurrency=${args.concurrency} max-eur=${args.maxEur} all=${args.all} dry=${args.dry} ttl-days=${args.ttlDays}`,
+    `▶ refresh-stale-companies — concurrency=${args.concurrency} max-eur=${args.maxEur} all=${args.all} dry=${args.dry} ttl-days=${args.ttlDays} with-llm=${args.withLlm}`,
   );
+  if (args.withLlm) {
+    console.log(
+      "  ⚠ --with-llm: roept Anthropic Claude classifier aan per lead (~€0,03/lead). Wordt ook scored_leads-rij geinsert zodat warmte in UI ververst.",
+    );
+  }
 
   const supabaseMaybe = tryGetSupabase();
   if (!supabaseMaybe) {
@@ -188,27 +196,53 @@ async function main() {
 
       const start = Date.now();
       try {
-        // Raw-only refresh: alle MCP-bronnen verversen + cache stempelen
-        // met huidige schema-version + deterministische contact-upserts.
-        // GEEN Anthropic-classifier — die draait on-demand bij lead-detail.
-        const res = await withSearchScope(
-          { tracker, supabase, searchQueryId: null },
-          () =>
-            bulkRefreshLead(supabase, mcps, ctx, {
-              kvk: c.kvk,
-              naam: c.naam,
-              handelsnaam: c.handelsnaam,
-              websiteUrl: c.website_url,
-            }),
-        );
-        processed += 1;
-        const ms = Date.now() - start;
-        const eur = eurSoFar();
-        const tools = res.toolsRefreshed.length;
-        const fails = res.toolsFailed.length;
-        console.log(
-          `[w${workerId}] [${processed + failed}/${totalCount}] ${c.kvk} ${c.naam.slice(0, 40).padEnd(40)} · ${tools}✓ ${fails > 0 ? `${fails}✗ ` : ""}· ${ms}ms · €${eur.toFixed(2)}`,
-        );
+        if (args.withLlm) {
+          // Volledige refresh INCL. Anthropic-classifier. Schrijft ook
+          // scored_leads-rij zodat de leads-list de verse warmte ziet.
+          const handle = {
+            kvk: c.kvk,
+            naam: c.naam,
+            websiteUrl: c.website_url ?? undefined,
+            zoeknamen: [c.naam, c.handelsnaam].filter(
+              (s): s is string => !!s,
+            ),
+          };
+          await withSearchScope(
+            { tracker, supabase, searchQueryId: null },
+            () =>
+              runScrapeBatch([handle], ctx, mcps, supabase, {
+                concurrency: 1,
+                refreshRaw: args.all,
+                shouldAbort: () => tracker.shouldHalt(),
+              }),
+          );
+          processed += 1;
+          const ms = Date.now() - start;
+          const eur = eurSoFar();
+          console.log(
+            `[w${workerId}] [${processed + failed}/${totalCount}] ${c.kvk} ${c.naam.slice(0, 40).padEnd(40)} · LLM✓ · ${ms}ms · €${eur.toFixed(2)}`,
+          );
+        } else {
+          // Raw-only refresh: GEEN classifier, alleen externe data.
+          const res = await withSearchScope(
+            { tracker, supabase, searchQueryId: null },
+            () =>
+              bulkRefreshLead(supabase, mcps, ctx, {
+                kvk: c.kvk,
+                naam: c.naam,
+                handelsnaam: c.handelsnaam,
+                websiteUrl: c.website_url,
+              }),
+          );
+          processed += 1;
+          const ms = Date.now() - start;
+          const eur = eurSoFar();
+          const tools = res.toolsRefreshed.length;
+          const fails = res.toolsFailed.length;
+          console.log(
+            `[w${workerId}] [${processed + failed}/${totalCount}] ${c.kvk} ${c.naam.slice(0, 40).padEnd(40)} · ${tools}✓ ${fails > 0 ? `${fails}✗ ` : ""}· ${ms}ms · €${eur.toFixed(2)}`,
+          );
+        }
       } catch (err) {
         failed += 1;
         const msg = err instanceof Error ? err.message : String(err);

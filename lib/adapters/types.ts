@@ -145,6 +145,8 @@ export type RunSearchOptions = {
 
 export type GetLeadOptions = {
   refresh?: boolean;
+  /** Optionele org-context (defaults via getCurrentUser). */
+  orgId?: string | null;
 };
 
 export interface LeadSource {

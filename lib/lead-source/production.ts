@@ -564,7 +564,18 @@ export class ProductionLeadSource implements LeadSource {
 
     const stored = await fetchRecentSignals(supabase, kvk, CACHE_TTL_DAYS);
     const score = scoreCompany(local, stored);
-    return scoreToLead(local, score, stored);
+    const lead = scoreToLead(local, score, stored);
+
+    // Persisteer rescore-resultaat zodat de leads-list / Geschiedenis-
+    // pagina de verse warmte ziet (anders blijft de UI op de oude
+    // score uit de laatste full-search hangen). search_query_id=null
+    // signaleert "rescore zonder search-context" — sinds migration
+    // 017 is dat nullable.
+    if (stale) {
+      void persistScoredLeads(supabase, null, [lead], opts.orgId ?? null);
+    }
+
+    return lead;
   }
 }
 
@@ -1287,11 +1298,16 @@ async function logSearchFailed(
 
 async function persistScoredLeads(
   supabase: SupabaseClient,
-  searchQueryId: string,
+  searchQueryId: string | null,
   leads: Lead[],
   orgId: string | null,
 ): Promise<void> {
-  if (searchQueryId.startsWith("local-") || leads.length === 0) return;
+  if (
+    leads.length === 0 ||
+    (searchQueryId !== null && searchQueryId.startsWith("local-"))
+  ) {
+    return;
+  }
   const rows = leads.map((l) => ({
     search_query_id: searchQueryId,
     org_id: orgId,
