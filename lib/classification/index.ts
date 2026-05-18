@@ -147,6 +147,94 @@ export function classifyVacatures(
   return signalen;
 }
 
+// ---------- bestuurders (deterministisch) --------------------------------
+
+// Input voor de bestuurders-classifier. Komt direct uit KvK
+// `/basisprofielen/{kvk}/eigenaar/bestuurders` — geen scraping nodig.
+export type Bestuurder = {
+  naam: string;
+  functie: string;
+  sinds?: string;
+};
+
+// Functietitels die wijzen op founder/eigenaar-rol. Lijst is bewust kort
+// zodat we false-positives op "Commissaris" of "Procuratiehouder"
+// (geen operationele leidinggevende) vermijden.
+const FOUNDER_FUNCTIES = [
+  "eigenaar",
+  "directeur",
+  "algemeen directeur",
+  "bestuurder",
+  "enig aandeelhouder",
+  "enige bestuurder",
+];
+
+/**
+ * Emit founder_run wanneer bestuurders-data dit duidelijk wijst:
+ *   - Minder dan 50 FTE (boven die grens loopt het bedrijf niet meer
+ *     founder-only)
+ *   - 1 of 2 bestuurders, allemaal in een operationele functie
+ *   - Achternaam van minstens één bestuurder komt voor in de bedrijfs- of
+ *     handelsnaam (sterk signaal dat het familie-/founder-bedrijf is)
+ *
+ * Volledig deterministisch — geen LLM-call. Confidence is gestaffeld:
+ * naam-match levert hoge confidence; zonder match laten we het over aan
+ * de website-classifier zodat we geen false positives genereren.
+ */
+export function classifyBestuurders(
+  company: CompanyHandle & { handelsnamen?: string[] },
+  bestuurders: Bestuurder[],
+): Signaal[] {
+  if (bestuurders.length === 0 || bestuurders.length > 2) return [];
+  if (typeof company.totaalWerkzamePersonen === "number" &&
+      company.totaalWerkzamePersonen >= 50) {
+    return [];
+  }
+
+  const operationeel = bestuurders.every((b) =>
+    FOUNDER_FUNCTIES.some((f) => b.functie.toLowerCase().includes(f)),
+  );
+  if (!operationeel) return [];
+
+  const namen = [company.naam, ...(company.handelsnamen ?? [])]
+    .filter((n): n is string => !!n)
+    .map((n) => n.toLowerCase());
+  const surnameMatch = bestuurders.find((b) => {
+    const surname = extractSurname(b.naam);
+    if (!surname) return false;
+    return namen.some((n) => n.includes(surname.toLowerCase()));
+  });
+  if (!surnameMatch) return [];
+
+  const bewijs = bestuurders.map(
+    (b) => `${b.naam} — ${b.functie}${b.sinds ? ` (sinds ${b.sinds})` : ""}`,
+  );
+  return [
+    {
+      categorie: "founder_run",
+      cluster: 3,
+      sterkte: 80,
+      confidence: bestuurders.length === 1 ? 90 : 80,
+      observatie: `Bestuurder${bestuurders.length === 1 ? "" : "s"} met achternaam ${extractSurname(surnameMatch.naam)} in bedrijfsnaam — eigenaar-gestuurd.`,
+      bewijs,
+      bronType: "kvk",
+    },
+  ];
+}
+
+function extractSurname(volledigeNaam: string): string | null {
+  // KvK levert namen als "Jansen, P." of "Jan Jansen" of "P. de Jong".
+  // Pak het langste woord >2 chars als achternaam (heuristiek; werkt
+  // voor ~90% van de NL-namen). Tussenvoegsels ("de", "van") tellen
+  // niet, want die zijn te kort.
+  const parts = volledigeNaam
+    .replace(/,/g, " ")
+    .split(/\s+/)
+    .filter((p) => p.length > 2 && !/^[A-Z]\.$/.test(p));
+  if (parts.length === 0) return null;
+  return parts.sort((a, b) => b.length - a.length)[0];
+}
+
 // ---------- news ----------------------------------------------------------
 
 export async function classifyNews(

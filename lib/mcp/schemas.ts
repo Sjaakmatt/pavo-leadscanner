@@ -66,6 +66,7 @@ export const KvkBasisprofiel = z
     vestigingen: z.array(KvkVestiging),
     actief: z.boolean(),
     fteKlasse: z.string().optional(),
+    totaalWerkzamePersonen: z.number().int().nonnegative().optional(),
   })
   .passthrough();
 export type KvkBasisprofiel = z.infer<typeof KvkBasisprofiel>;

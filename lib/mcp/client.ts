@@ -14,6 +14,9 @@
 //     errors (max 2 retries, totaal max ~3s extra latency).
 //   - Circuit breaker: 5 opeenvolgende failures binnen 30s → break;
 //     vervolgens 60s open en daarna half-open (1 probe).
+//   - RPS-throttle: per-instance token-bucket zodat parallel werkers
+//     niet meer dan N calls/sec naar dezelfde MCP-server schieten.
+//     Beschermt vooral mcp-bedrijven tegen KvK's harde 3 rps quota.
 
 import type { ZodSchema } from "zod";
 
@@ -87,6 +90,55 @@ async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Token-bucket rate-limiter — refilled bij elke acquire op basis van
+// verstreken tijd. Doel: gemiddeld ≤ ratePerSec calls/sec; korte burst
+// tot `burst` tokens. Volgorde is FIFO via een wait-queue zodat een
+// hammered instance niet één worker laat verhongeren.
+class RateLimiter {
+  private tokens: number;
+  private lastRefill = Date.now();
+  private readonly waiters: Array<() => void> = [];
+
+  constructor(
+    private readonly ratePerSec: number,
+    private readonly burst: number,
+  ) {
+    this.tokens = burst;
+  }
+
+  async acquire(): Promise<void> {
+    if (this.ratePerSec <= 0) return; // throttle disabled
+    while (true) {
+      this.refill();
+      if (this.tokens >= 1) {
+        this.tokens -= 1;
+        return;
+      }
+      // Wacht tot we minstens 1 token verdiend hebben.
+      const ms = Math.ceil(((1 - this.tokens) / this.ratePerSec) * 1000);
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          const idx = this.waiters.indexOf(resolve);
+          if (idx !== -1) this.waiters.splice(idx, 1);
+          resolve();
+        }, ms);
+        this.waiters.push(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsed = (now - this.lastRefill) / 1000;
+    if (elapsed <= 0) return;
+    this.tokens = Math.min(this.burst, this.tokens + elapsed * this.ratePerSec);
+    this.lastRefill = now;
+  }
+}
+
 type McpTextBlock = { type: "text"; text: string };
 
 function isTextBlock(b: unknown): b is McpTextBlock {
@@ -95,16 +147,37 @@ function isTextBlock(b: unknown): b is McpTextBlock {
   return obj.type === "text" && typeof obj.text === "string";
 }
 
+export type McpHttpClientOptions = {
+  /**
+   * Max calls per seconde (gemiddeld) naar deze MCP-instance.
+   * `0` = throttle uit (default voor tests). Productie zet dit per
+   * MCP — KvK heeft een 3 rps quota, dus mcp-bedrijven krijgt
+   * `ratePerSec: 3`.
+   */
+  ratePerSec?: number;
+  /**
+   * Aantal tokens dat we mogen burst-en boven `ratePerSec`. Default
+   * gelijk aan `ratePerSec` (≈ 1s aan calls in één keer toegestaan).
+   */
+  burst?: number;
+};
+
 export class McpHttpClient {
   private sessionId: string | null = null;
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private readonly breaker = new CircuitBreaker();
+  private readonly limiter: RateLimiter;
 
   constructor(
     private readonly baseUrl: string,
     private readonly clientName = "pavo-leadscanner",
-  ) {}
+    opts: McpHttpClientOptions = {},
+  ) {
+    const rate = opts.ratePerSec ?? 0;
+    const burst = opts.burst ?? Math.max(1, rate);
+    this.limiter = new RateLimiter(rate, burst);
+  }
 
   async callTool<T>(
     toolName: string,
@@ -151,6 +224,7 @@ export class McpHttpClient {
     responseSchema: ZodSchema<T>,
   ): Promise<T> {
     await this.ensureInitialized();
+    await this.limiter.acquire();
     let response: Response;
     try {
       response = await fetch(this.baseUrl, {

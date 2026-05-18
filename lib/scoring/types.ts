@@ -67,6 +67,10 @@ export const SignaalBronType = z.enum([
   "insolventie",
   "vacatures",
   "news",
+  // Deterministisch afgeleid uit KvK Basisprofiel (bestuurders + FTE),
+  // niet via een externe scraper. Gebruikt voor founder_run zonder
+  // website-tekst te scrapen.
+  "kvk",
 ]);
 export type SignaalBronType = z.infer<typeof SignaalBronType>;
 

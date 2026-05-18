@@ -85,12 +85,34 @@ export class ProductionLeadSource implements LeadSource {
   private readonly mcps: ScrapeMcps;
 
   constructor() {
-    this.bedrijven = new BedrijvenMcp(new McpHttpClient(requireBedrijvenUrl()));
+    // Per-MCP throttling: KvK heeft een harde 3 rps quota op de
+    // Handelsregister-API, dus mcp-bedrijven mag nooit boven 3 calls/sec
+    // (burst 5 om initiele basisprofiel-batch te dekken). Andere MCPs
+    // zijn losser (Google News RSS, publieke scrapers); 10 rps geeft
+    // genoeg headroom zonder shared-IP rate-limits te raken.
+    this.bedrijven = new BedrijvenMcp(
+      new McpHttpClient(requireBedrijvenUrl(), "pavo-leadscanner", {
+        ratePerSec: 3,
+        burst: 5,
+      }),
+    );
     this.mcps = {
       bedrijven: this.bedrijven,
-      vacatures: new VacaturesMcp(new McpHttpClient(requireVacaturesUrl())),
-      juridisch: new JuridischMcp(new McpHttpClient(requireJuridischUrl())),
-      news: new NewsMcp(new McpHttpClient(requireNewsUrl())),
+      vacatures: new VacaturesMcp(
+        new McpHttpClient(requireVacaturesUrl(), "pavo-leadscanner", {
+          ratePerSec: 10,
+        }),
+      ),
+      juridisch: new JuridischMcp(
+        new McpHttpClient(requireJuridischUrl(), "pavo-leadscanner", {
+          ratePerSec: 10,
+        }),
+      ),
+      news: new NewsMcp(
+        new McpHttpClient(requireNewsUrl(), "pavo-leadscanner", {
+          ratePerSec: 10,
+        }),
+      ),
     };
   }
 
@@ -229,16 +251,36 @@ export class ProductionLeadSource implements LeadSource {
       const handles = toScrape
         .map((kvk) => geoFiltered.find((x) => x.profile.kvkNummer === kvk)?.profile)
         .filter((p): p is LocalKvkBasisprofiel => !!p)
-        .map((p) => ({
-          kvk: p.kvkNummer,
-          naam: p.naam,
-          websiteUrl: p.websiteUrl,
-          zoeknamen: [p.naam, p.handelsnaam].filter((s): s is string => !!s),
-          fteKlasse: p.fteKlasse,
-          totaalWerkzamePersonen: typeof p.raw === "object" && p.raw !== null
-            ? (p.raw as { totaalWerkzamePersonen?: number }).totaalWerkzamePersonen
-            : undefined,
-        }));
+        .map((p) => {
+          const raw = (typeof p.raw === "object" && p.raw !== null
+            ? p.raw
+            : null) as McpKvkBasisprofiel | null;
+          const handelsnamen = raw?.handelsnamen ?? [];
+          // Dedup statutaire naam + handelsnamen voor MCP-queries die
+          // multi-name search ondersteunen (search_company_news,
+          // search_court_cases, search_insolvencies).
+          const zoeknamen = [
+            ...new Map(
+              [p.naam, ...handelsnamen]
+                .filter((s): s is string => !!s)
+                .map((n) => [n.toLowerCase(), n]),
+            ).values(),
+          ];
+          return {
+            kvk: p.kvkNummer,
+            naam: p.naam,
+            websiteUrl: p.websiteUrl,
+            zoeknamen,
+            handelsnamen,
+            fteKlasse: p.fteKlasse,
+            totaalWerkzamePersonen: raw?.totaalWerkzamePersonen,
+            bestuurders: p.bestuurders.map((b) => ({
+              naam: b.naam,
+              functie: b.functie ?? "bestuurder",
+              sinds: b.sinds,
+            })),
+          };
+        });
 
       let scraped = 0;
       await runScrapeBatch(handles, searchCtx, this.mcps, supabase, {
@@ -321,13 +363,26 @@ export class ProductionLeadSource implements LeadSource {
       opts.refresh === true ||
       (await isScrapeStale(supabase, kvk, LEAD_DETAIL_TTL_DAYS));
     if (stale) {
+      const handelsnamen = profile.handelsnamen;
       const handle = {
         kvk: local.kvkNummer,
         naam: local.naam,
         websiteUrl: local.websiteUrl,
-        zoeknamen: [local.naam, local.handelsnaam].filter(
-          (s): s is string => !!s,
-        ),
+        zoeknamen: [
+          ...new Map(
+            [local.naam, ...handelsnamen]
+              .filter((s): s is string => !!s)
+              .map((n) => [n.toLowerCase(), n]),
+          ).values(),
+        ],
+        handelsnamen,
+        fteKlasse: local.fteKlasse,
+        totaalWerkzamePersonen: profile.totaalWerkzamePersonen,
+        bestuurders: local.bestuurders.map((b) => ({
+          naam: b.naam,
+          functie: b.functie ?? "bestuurder",
+          sinds: b.sinds,
+        })),
       };
       await runScrapeBatch([handle], ctx, this.mcps, supabase, {
         concurrency: 1,
@@ -480,9 +535,15 @@ async function filterHitsByRadius(
 
   if (!center) return { hits, coords: coordsByPlaats };
 
+  // Met een actief center is "geen plaats bekend" geen license to pass:
+  // anders glipt een (klein) deel van de hits onversleten door de
+  // geo-filter en eet alsnog KvK basisprofiel-quota op. Wél door
+  // laten wanneer center null is (heel-NL search) — zie hierboven.
   const filtered = hits.filter((h) => {
-    if (!h.adres.plaats) return true;
+    if (!h.adres.plaats) return false;
     const coords = coordsByPlaats.get(h.adres.plaats);
+    // Plaats wel bekend maar PDOK leverde geen coords: laten staan zodat
+    // we plaatsen die nét niet in de cache zaten niet wegfilteren.
     if (!coords) return true;
     return haversineKm(center, coords) <= radiusKm;
   });
@@ -728,6 +789,7 @@ const BRON_TYPE_TO_BRON: Record<string, Bron> = {
   insolventie: "Insolventieregister",
   news: "Nieuws",
   vacatures: "Jobdigger",
+  kvk: "KvK",
 };
 
 function toLeadSignaal(row: StoredSignal): UiSignaal {

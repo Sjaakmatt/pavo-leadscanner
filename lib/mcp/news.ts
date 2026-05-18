@@ -11,9 +11,13 @@ import {
 export class NewsMcp {
   constructor(private readonly client: McpHttpClient) {}
 
+  // Liever `company_names` doorgeven (statutaire naam + handelsnamen)
+  // dan een enkele `company_name`: KvK levert vaak een ander statutair
+  // label dan waar het bedrijf publiekelijk onder bekend staat, dus de
+  // multi-name query verhoogt recall fors.
   searchCompanyNews(
     ctx: TenantContext,
-    args: { company_name: string; max_results?: number },
+    args: { company_names: string[]; max_results?: number },
   ): Promise<NewsRawResultT> {
     return this.client.callTool(
       "search_company_news",
