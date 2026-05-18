@@ -12,23 +12,27 @@ import { z } from "zod";
 
 // ============ mcp-bedrijven ============
 
+// KvK Zoeken-API v2 levert geen SBI of provincie in de zoek-hit (zie
+// shared schema in factumai-mcps). Die velden komen pas uit basisprofiel.
+// Houdt sbiCodes optioneel zodat bestaande consumers blijven werken; nieuwe
+// code leest sbiCodes alleen uit `KvkBasisprofiel`.
 export const KvkZoekHit = z
   .object({
     kvkNummer: z.string(),
     naam: z.string(),
     handelsnaam: z.string().optional(),
     vestigingsnummer: z.string().optional(),
-    sbiCodes: z.array(z.string()),
+    sbiCodes: z.array(z.string()).optional(),
     adres: z.object({
       straat: z.string().optional(),
       huisnummer: z.string().optional(),
+      huisletter: z.string().optional(),
       postcode: z.string().optional(),
       plaats: z.string(),
-      provincie: z.string().optional(),
-    }),
-    // Optioneel: MCP MAG fteKlasse meegeven uit de KvK-werknemers-bucket.
-    // Niet vereist (sommige KvK-records bevatten 'm niet); wanneer wel
-    // aanwezig gebruiken we 'm voor de FTE-filter.
+    }).passthrough(),
+    type: z.enum(["hoofdvestiging", "nevenvestiging", "rechtspersoon"]).optional(),
+    actief: z.boolean().optional(),
+    rsin: z.string().optional(),
     fteKlasse: z.string().optional(),
   })
   .passthrough();

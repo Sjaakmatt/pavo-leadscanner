@@ -42,7 +42,7 @@ import type { KvkBasisprofiel as LocalKvkBasisprofiel } from "@/lib/kvk/types";
 import { mapBrancheToSbi } from "@/lib/kvk/sbi-mapping";
 import {
   haversineKm,
-  provincesWithinRadius,
+  plaatsenWithinRadius,
   type LatLng,
 } from "@/lib/geo/pdok";
 import { supabaseServer } from "@/lib/supabase/client";
@@ -56,6 +56,27 @@ const CACHE_TTL_DAYS = 30;
 const LEAD_DETAIL_TTL_DAYS = 7;
 const MAX_PARALLEL_SCRAPES = 5;
 const KVK_BASISPROFIEL_CONCURRENCY = 8;
+// Per-plaats cap voor kvk_zoeken (zie B4). Voor een typische 30km-radius
+// (10-20 plaatsen) × 100 levert dit max 1000-2000 candidates op — ruim
+// genoeg voor een MKB-branchezoekopdracht zonder KvK-quota op te eten.
+const KVK_ZOEKEN_PER_PLAATS_LIMIT = 100;
+// Globale cap: we draaien nooit door alle plaatsen heen bij een nationale
+// zoekopdracht; dit voorkomt 50k+ candidates voor "heel NL".
+const KVK_ZOEKEN_GLOBAL_LIMIT = 5000;
+// Default plaatsen-set wanneer er geen center is gekozen ("heel NL"). 50
+// grootste woonplaatsen geven >70% van alle KvK-registraties; bij grotere
+// behoefte zet de UI later een expliciete radius.
+const FALLBACK_PLAATSEN_NL_TOP = [
+  "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven", "Groningen",
+  "Tilburg", "Almere", "Breda", "Nijmegen", "Apeldoorn", "Haarlem",
+  "Arnhem", "Enschede", "Amersfoort", "Zaanstad", "'s-Hertogenbosch",
+  "Haarlemmermeer", "Zwolle", "Zoetermeer", "Leeuwarden", "Leiden",
+  "Maastricht", "Dordrecht", "Westland", "Alphen aan den Rijn", "Alkmaar",
+  "Emmen", "Delft", "Venlo", "Deventer", "Sittard-Geleen", "Helmond",
+  "Oss", "Amstelveen", "Hilversum", "Hengelo", "Heerlen", "Roosendaal",
+  "Schiedam", "Purmerend", "Vlaardingen", "Gouda", "Spijkenisse",
+  "Almelo", "Lelystad", "Ede", "Nissewaard", "Veenendaal", "Capelle aan den IJssel",
+];
 
 function noopEmit(_event: SearchProgressEvent): void {}
 
@@ -84,67 +105,108 @@ export class ProductionLeadSource implements LeadSource {
     const searchQueryId = await logSearchStart(supabase, filters);
 
     try {
-      // 1) KvK afbakening
-      await updateStep(supabase, searchQueryId, "Kamer van Koophandel doorzoeken");
-      emit({ type: "stage", stage: "kvk", message: "Kamer van Koophandel doorzoeken…" });
+      // 1) Plaatsen-set bepalen op basis van center+radius. Zonder center
+      //    valt-ie terug op de 50 grootste woonplaatsen (>70% KvK-coverage).
+      //    KvK Zoeken-API v2 ondersteunt geen SBI/provincie-filter; je
+      //    MOET per plaats zoeken.
+      await updateStep(supabase, searchQueryId, "Plaatsen binnen straal bepalen");
+      emit({ type: "stage", stage: "plaatsen", message: "Plaatsen binnen straal bepalen…" });
 
-      const sbiCodes = mapBrancheToSbi(filters.branche);
-      const provincies = filters.regio_center
-        ? provincesWithinRadius(filters.regio_center, filters.regio_straal_km)
-        : undefined;
+      const plaatsen = await resolvePlaatsen(
+        filters.regio_center,
+        filters.regio_straal_km,
+      );
+      if (plaatsen.length === 0) {
+        // PDOK was niet bereikbaar én geen center → niets te zoeken.
+        // Beter een lege resultset dan een halfgevuld antwoord.
+        await logSearchComplete(supabase, searchQueryId, {
+          totalCandidates: 0,
+          totalScraped: 0,
+          totalLeadsReturned: 0,
+          durationMs: Date.now() - startedAt,
+        });
+        emit({ type: "done", totalLeadsReturned: 0, totalCostUsd: 0, durationMs: Date.now() - startedAt });
+        return {
+          search_id: searchQueryId,
+          titel: `Live resultaten · ${filters.branche}`,
+          leads: [],
+          relaxation: { regio: false, fte: false },
+        };
+      }
+
+      // 2) KvK afbakening per plaats (limit per-plaats + globaal).
+      await updateStep(supabase, searchQueryId, `Kamer van Koophandel doorzoeken (${plaatsen.length} plaatsen)`);
+      emit({ type: "stage", stage: "kvk", message: `Kamer van Koophandel doorzoeken in ${plaatsen.length} plaatsen…` });
 
       const hits = await this.bedrijven.kvkZoeken(searchCtx, {
-        sbiCodes,
-        provincies,
-        limit: 200,
+        plaatsen,
+        type: "hoofdvestiging",
+        inclusiefInactief: false,
+        limit: Math.min(
+          KVK_ZOEKEN_GLOBAL_LIMIT,
+          plaatsen.length * KVK_ZOEKEN_PER_PLAATS_LIMIT,
+        ),
       });
       emit({ type: "kvk", totalCandidates: hits.length });
 
-      // 2) Basisprofielen ophalen (parallel, throttled)
+      // 3) Geo-filter op zoek-hit plaats: bedrijven waarvan de
+      //    hoofdvestiging buiten de straal valt nu al wegfilteren. Bespaart
+      //    60-80% van de basisprofiel-calls (KvK rekent per call).
+      //    Wanneer er geen center is gekozen blijft alles staan (de
+      //    plaatsen-set zelf is dan al de filter).
+      await updateStep(supabase, searchQueryId, "Regio-filter op zoek-hit");
+      const { hits: geoHits, coords: coordsByPlaats } = await filterHitsByRadius(
+        this.bedrijven,
+        searchCtx,
+        hits,
+        filters.regio_center,
+        filters.regio_straal_km,
+        supabase,
+      );
+      emit({ type: "geo", remaining: geoHits.length });
+
+      // 4) Basisprofielen ophalen — alleen voor survivors van geo-filter.
       await updateStep(
         supabase,
         searchQueryId,
-        `Basisprofielen ophalen (${hits.length})`,
+        `Basisprofielen ophalen (${geoHits.length})`,
       );
       emit({
         type: "stage",
         stage: "basisprofielen",
-        message: `Basisprofielen ophalen (${hits.length})…`,
+        message: `Basisprofielen ophalen (${geoHits.length})…`,
       });
       const profiles = await fetchBasisprofielen(
         this.bedrijven,
         searchCtx,
-        hits.map((h) => h.kvkNummer),
+        geoHits.map((h) => h.kvkNummer),
       );
-      const enriched = hits
+
+      // 5) SBI-filter: KvK Zoeken-API v2 levert geen SBI in de hit;
+      //    pas hier filteren op basis van sbiCodes uit het basisprofiel.
+      //    Match op prefix (KvK SBI-codes zijn punt-genotaeerd, bv. "41.20"
+      //    onder prefix "41").
+      const sbiPrefixes = mapBrancheToSbi(filters.branche);
+      const enriched = geoHits
         .map((h) => {
           const profile = profiles.get(h.kvkNummer);
           if (!profile) return null;
+          if (!profile.actief) return null;
+          if (sbiPrefixes.length > 0 && !matchesSbi(profile.sbiCodes, sbiPrefixes)) {
+            return null;
+          }
           return { hit: h, profile: toLocalProfile(profile, h) };
         })
         .filter((x): x is NonNullable<typeof x> => x !== null);
 
-      // 3) FTE-filter — best-effort (alleen als MCP fteKlasse meegeeft)
-      const fteFiltered = enriched.filter(({ profile }) => {
+      // 6) FTE-filter — best-effort (alleen als MCP fteKlasse meegeeft).
+      const geoFiltered = enriched.filter(({ profile }) => {
         if (!filters.fte_klassen.length) return true;
         if (!profile.fteKlasse) return true;
         return filters.fte_klassen.includes(profile.fteKlasse as FteKlasse);
       });
 
-      // 4) Geo-filter via mcp-bedrijven.pdok_geocode (DB-cache eerst)
-      await updateStep(supabase, searchQueryId, "Regio-filter toepassen");
-      emit({ type: "stage", stage: "geo", message: "Regio-filter toepassen…" });
-      const { kept: geoFiltered, coords: coordsByPlaats } = await applyGeoFilter(
-        this.bedrijven,
-        searchCtx,
-        fteFiltered,
-        filters.regio_center,
-        filters.regio_straal_km,
-        supabase,
-      );
-      emit({ type: "geo", remaining: geoFiltered.length });
-
-      // 5) Companies upserten (incl. lat/lng zodat next-run skipt PDOK)
+      // 7) Companies upserten (incl. lat/lng zodat next-run skipt PDOK).
       await upsertCompanies(supabase, geoFiltered, coordsByPlaats);
 
       // 6) Scrape-targets bepalen (cache-respect, tenzij refresh)
@@ -172,6 +234,10 @@ export class ProductionLeadSource implements LeadSource {
           naam: p.naam,
           websiteUrl: p.websiteUrl,
           zoeknamen: [p.naam, p.handelsnaam].filter((s): s is string => !!s),
+          fteKlasse: p.fteKlasse,
+          totaalWerkzamePersonen: typeof p.raw === "object" && p.raw !== null
+            ? (p.raw as { totaalWerkzamePersonen?: number }).totaalWerkzamePersonen
+            : undefined,
         }));
 
       let scraped = 0;
@@ -310,7 +376,9 @@ function toLocalProfile(
 ): LocalKvkBasisprofiel {
   const hoofd = mcp.vestigingen.find((v) => v.isHoofdvestiging);
   const plaats = hoofd?.adres.plaats ?? hit?.adres.plaats;
-  const provincie = hoofd?.adres.provincie ?? hit?.adres.provincie;
+  // KvK Zoeken-API v2 levert geen provincie in de hit; uitsluitend uit
+  // het basisprofiel (vestigingen.adres.provincie).
+  const provincie = hoofd?.adres.provincie;
   return {
     kvkNummer: mcp.kvkNummer,
     naam: mcp.naam,
@@ -336,24 +404,52 @@ function toLocalProfile(
   };
 }
 
-async function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
+// Bepaalt de plaatsen-set waar `kvk_zoeken` op moet schieten. Met een
+// center+radius wordt PDOK aangeslagen (gebundeld in plaatsenWithinRadius).
+// Zonder center valt-ie terug op een vaste top-50 (>70% KvK-coverage); de
+// UI moedigt gebruikers aan een radius te kiezen voor volledigere
+// dekking.
+async function resolvePlaatsen(
+  center: LatLng | null,
+  radiusKm: number,
+): Promise<string[]> {
+  if (!center) return FALLBACK_PLAATSEN_NL_TOP;
+  const plaatsen = await plaatsenWithinRadius(center, radiusKm);
+  if (plaatsen.length === 0) {
+    // PDOK-failure of nul matches → terugvallen op top-50 zodat de
+    // search nog íets oplevert. Log het zodat we het in dashboard zien.
+    console.warn(
+      `[resolvePlaatsen] geen plaatsen voor center=${JSON.stringify(center)} radius=${radiusKm}km — fallback op top-50.`,
+    );
+    return FALLBACK_PLAATSEN_NL_TOP;
+  }
+  return plaatsen;
+}
+
+// Filter `KvkZoekHit[]` op haversine-afstand vanaf het center. Werkt op
+// de zoek-hit (vóór basisprofiel) zodat we 60-80% van de duurste
+// KvK-calls besparen. Coords komen uit Supabase-cache eerst, daarna
+// PDOK via mcp-bedrijven; missende coords laten we door (anders
+// verliezen we plaatsen die nét niet in de cache zaten).
+async function filterHitsByRadius(
   bedrijven: BedrijvenMcp,
   ctx: TenantContext,
-  enriched: T[],
+  hits: KvkZoekHit[],
   center: LatLng | null,
   radiusKm: number,
   supabase: SupabaseClient,
-): Promise<{ kept: T[]; coords: Map<string, LatLng> }> {
+): Promise<{ hits: KvkZoekHit[]; coords: Map<string, LatLng> }> {
   const coordsByPlaats = new Map<string, LatLng>();
-  if (enriched.length === 0) {
-    return { kept: enriched, coords: coordsByPlaats };
-  }
+  if (hits.length === 0) return { hits, coords: coordsByPlaats };
+
   const uniquePlaatsen = [
-    ...new Set(enriched.map((x) => x.profile.plaats).filter((p): p is string => !!p)),
+    ...new Set(
+      hits
+        .map((h) => h.adres.plaats)
+        .filter((p): p is string => !!p && p.length > 0),
+    ),
   ];
 
-  // 1) Lees gecachte coords uit companies — al lang bekende plaatsen
-  //    raken PDOK niet meer.
   const { data: cached } = await supabase
     .from("companies")
     .select("plaats, lat, lng")
@@ -370,7 +466,6 @@ async function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
     }
   }
 
-  // 2) Resterende plaatsen: PDOK via mcp-bedrijven.
   const missing = uniquePlaatsen.filter((p) => !coordsByPlaats.has(p));
   await Promise.all(
     missing.map(async (p) => {
@@ -378,22 +473,29 @@ async function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
         const geo = await bedrijven.pdokGeocode(ctx, p);
         if (geo) coordsByPlaats.set(p, { lat: geo.lat, lng: geo.lng });
       } catch {
-        // skip — bedrijf wordt straks geheel uit het filter weggelaten
-        // alleen als we WEL center hebben en geen coords.
+        // skip — hit blijft door, marginaal false-positive risk
       }
     }),
   );
 
-  if (!center) {
-    return { kept: enriched, coords: coordsByPlaats };
-  }
-  const kept = enriched.filter(({ profile }) => {
-    if (!profile.plaats) return true;
-    const coords = coordsByPlaats.get(profile.plaats);
+  if (!center) return { hits, coords: coordsByPlaats };
+
+  const filtered = hits.filter((h) => {
+    if (!h.adres.plaats) return true;
+    const coords = coordsByPlaats.get(h.adres.plaats);
     if (!coords) return true;
     return haversineKm(center, coords) <= radiusKm;
   });
-  return { kept, coords: coordsByPlaats };
+  return { hits: filtered, coords: coordsByPlaats };
+}
+
+// SBI-prefix-match. KvK levert SBI-codes punt-genotaeerd ("41.20.1") of
+// soms plat ("4120"); we matchen op startsWith van de prefix na het
+// verwijderen van punten zodat beide varianten kloppen.
+function matchesSbi(sbiCodes: string[], prefixes: string[]): boolean {
+  if (prefixes.length === 0) return true;
+  const flatCodes = sbiCodes.map((c) => c.replace(/\./g, ""));
+  return flatCodes.some((c) => prefixes.some((p) => c.startsWith(p)));
 }
 
 async function upsertCompanies<T extends { profile: LocalKvkBasisprofiel }>(

@@ -11,7 +11,7 @@ Je krijgt ruwe data over een Nederlands bedrijf. Jouw taak: identificeer PAVO-si
 ## Clusters en categorieën
 
 **Cluster 1 — HR-structuur (hoogste waarde):**
-- geen_hr_rol_zichtbaar — geen HR-functie zichtbaar bij bedrijf met 30+ FTE
+- geen_hr_rol_zichtbaar — geen HR-functie (HR-manager, P&O, People & Culture, HR Business Partner) zichtbaar bij bedrijf met 15+ FTE. Let op rollen zoals "HR-adviseur", "Personeelszaken", "People Operations" — die TELLEN als HR-rol. Bij bedrijven onder 15 FTE NIET markeren.
 - snelle_groei — expansie, nieuwe locaties, vacaturegroei
 - veel_functies_geen_structuur — veel functies maar geen zichtbare org-structuur
 - negatieve_reviews_chaos — negatieve reviews wijzen op organisatie-chaos

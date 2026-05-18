@@ -20,9 +20,19 @@ import {
 export class BedrijvenMcp {
   constructor(private readonly client: McpHttpClient) {}
 
+  // KvK Zoeken-API v2 filtert per plaats (geen SBI- of provincie-filter).
+  // Geef een lijst plaatsen mee — de MCP-adapter loopt sequentieel langs
+  // alle plaatsen tot `limit` is bereikt. SBI-filtering gebeurt pas ná
+  // `kvkBasisprofiel`, omdat die call wel sbiCodes retourneert.
   async kvkZoeken(
     ctx: TenantContext,
-    args: { sbiCodes: string[]; provincies?: string[]; limit?: number },
+    args: {
+      plaatsen: string[];
+      type?: "hoofdvestiging" | "nevenvestiging" | "rechtspersoon";
+      naam?: string;
+      inclusiefInactief?: boolean;
+      limit?: number;
+    },
   ): Promise<KvkZoekHitT[]> {
     return this.client.callTool("kvk_zoeken", ctx, args, z.array(KvkZoekHit));
   }

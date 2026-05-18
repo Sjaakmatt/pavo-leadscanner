@@ -49,6 +49,11 @@ export type CompanyHandle = {
   naam: string;
   websiteUrl?: string;
   zoeknamen: string[];
+  // Optioneel: FTE-info uit basisprofiel. Wordt doorgegeven aan de
+  // classifier zodat regels zoals "geen_hr_rol_zichtbaar bij 15+ FTE"
+  // zelf getoetst kunnen worden.
+  fteKlasse?: string;
+  totaalWerkzamePersonen?: number;
 };
 
 export type OrchestrationResult = {

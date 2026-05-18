@@ -118,3 +118,90 @@ export function provincesWithinRadius(
     .filter(([, c]) => haversineKm(center, c) <= radiusKm + 80) // +80km provincie-radius buffer
     .map(([name]) => name);
 }
+
+// ---------- alle NL-woonplaatsen + radius-filter --------------------------
+//
+// KvK Zoeken-API v2 ondersteunt geen provincie- of SBI-filter; je MOET
+// per plaats zoeken. Voor een center+radius zoekopdracht moeten we dus
+// eerst weten welke plaatsen er binnen de straal liggen. PDOK levert de
+// volledige set (~2700 woonplaatsen) in één call op.
+//
+// Lazy loaded: eerste call ~1s, daarna in-memory hit. Process-lifecycle
+// is voldoende — woonplaats-set verandert alleen bij gemeentelijke
+// herindelingen (1-2× per jaar).
+
+type PlaatsRecord = { naam: string; coords: LatLng };
+
+let allPlaatsenCache: PlaatsRecord[] | null = null;
+let allPlaatsenPromise: Promise<PlaatsRecord[]> | null = null;
+
+type PdokPlaatsDoc = {
+  weergavenaam?: string;
+  woonplaatsnaam?: string;
+  centroide_ll?: string;
+};
+
+async function loadAllPlaatsen(): Promise<PlaatsRecord[]> {
+  if (allPlaatsenCache) return allPlaatsenCache;
+  if (allPlaatsenPromise) return allPlaatsenPromise;
+
+  allPlaatsenPromise = (async () => {
+    const url = `${PDOK_SEARCH}?q=*&fq=type:woonplaats&rows=5000&fl=woonplaatsnaam,weergavenaam,centroide_ll`;
+    const res = await fetch(url, {
+      headers: { Accept: "application/json" },
+      // PDOK pakt ~2700 docs in <2s; ruim ervoor zitten.
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      throw new Error(`PDOK woonplaatsen-lijst ${res.status}`);
+    }
+    const json = (await res.json()) as {
+      response?: { docs?: PdokPlaatsDoc[] };
+    };
+    const docs = json.response?.docs ?? [];
+    const out: PlaatsRecord[] = [];
+    const seen = new Set<string>();
+    for (const d of docs) {
+      const naam = d.woonplaatsnaam ?? d.weergavenaam;
+      const coords = parseCentroid(d.centroide_ll);
+      if (!naam || !coords) continue;
+      const key = naam.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ naam, coords });
+    }
+    allPlaatsenCache = out;
+    return out;
+  })().catch((err) => {
+    // Reset promise zodat next-call opnieuw probeert; cache blijft leeg.
+    allPlaatsenPromise = null;
+    throw err;
+  });
+
+  return allPlaatsenPromise;
+}
+
+// Lijst van NL-woonplaatsen waarvan het centroïde binnen `radiusKm`
+// ligt van `center`. Sorteert op afstand zodat KvK-zoekopdrachten de
+// dichtsbijzijnde plaatsen als eerst raken (relevanter bij lage caps).
+//
+// Best-effort: bij PDOK-failures fallback naar lege lijst en logging
+// (caller moet dan kunnen omgaan met "geen plaatsen" — bv. door alle
+// provincies te scopen of de zoekopdracht te skippen).
+export async function plaatsenWithinRadius(
+  center: LatLng,
+  radiusKm: number,
+): Promise<string[]> {
+  let plaatsen: PlaatsRecord[];
+  try {
+    plaatsen = await loadAllPlaatsen();
+  } catch (err) {
+    console.warn(`[plaatsenWithinRadius] PDOK fail: ${String(err)}`);
+    return [];
+  }
+  const withDist = plaatsen
+    .map((p) => ({ naam: p.naam, dist: haversineKm(center, p.coords) }))
+    .filter((p) => p.dist <= radiusKm)
+    .sort((a, b) => a.dist - b.dist);
+  return withDist.map((p) => p.naam);
+}
