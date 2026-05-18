@@ -283,7 +283,7 @@ export async function bulkRefreshLead(
         }
         case "search_company_news": {
           payload = await mcps.news.searchCompanyNews(ctx, {
-            company_name: handle.naam,
+            company_names: zoeknamen.length > 0 ? zoeknamen : [handle.naam],
             max_results: 10,
           });
           break;

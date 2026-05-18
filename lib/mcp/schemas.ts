@@ -12,25 +12,29 @@ import { z } from "zod";
 
 // ============ mcp-bedrijven ============
 
-// Zoeken-API v2 levert per hit minder data dan basisprofiel — geen sbiCodes
-// (die zitten alleen in basisprofiel) en geen FTE-data. Adres is genest
-// onder `adres.binnenlandsAdres` op de wire, maar de MCP-adapter projecteert
-// naar deze platte vorm.
+// KvK Zoeken-API v2 levert geen SBI of provincie in de zoek-hit — sbiCodes
+// komen pas uit basisprofiel. `sbiCodes` blijft hier optioneel zodat oudere
+// MCP-adapters niet hard breken. Adres is op de wire genest onder
+// `adres.binnenlandsAdres` maar de MCP projecteert naar deze platte vorm.
 export const KvkZoekHit = z
   .object({
     kvkNummer: z.string(),
     naam: z.string(),
     vestigingsnummer: z.string().optional(),
     rsin: z.string().optional(),
+    sbiCodes: z.array(z.string()).optional(),
     type: z.enum(["hoofdvestiging", "nevenvestiging", "rechtspersoon"]).optional(),
     actief: z.boolean().optional(),
-    adres: z.object({
-      straat: z.string().optional(),
-      huisnummer: z.string().optional(),
-      huisletter: z.string().optional(),
-      postcode: z.string().optional(),
-      plaats: z.string(),
-    }),
+    adres: z
+      .object({
+        straat: z.string().optional(),
+        huisnummer: z.string().optional(),
+        huisletter: z.string().optional(),
+        postcode: z.string().optional(),
+        plaats: z.string(),
+      })
+      .passthrough(),
+    fteKlasse: z.string().optional(),
   })
   .passthrough();
 export type KvkZoekHit = z.infer<typeof KvkZoekHit>;

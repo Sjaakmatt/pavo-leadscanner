@@ -31,6 +31,10 @@ function trackKvkCall(toolName: string): void {
 export class BedrijvenMcp {
   constructor(private readonly client: McpHttpClient) {}
 
+  // KvK Zoeken-API v2 filtert per plaats (geen SBI- of provincie-filter).
+  // Geef een lijst plaatsen mee — de MCP-adapter loopt sequentieel langs
+  // alle plaatsen tot `limit` is bereikt. SBI-filtering gebeurt pas ná
+  // `kvkBasisprofiel`, omdat die call wel sbiCodes retourneert.
   async kvkZoeken(
     ctx: TenantContext,
     args: {

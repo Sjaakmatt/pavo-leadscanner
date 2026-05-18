@@ -27,13 +27,17 @@ import type {
 // CompanyHandle voor de classifiers. plaats + sector zijn OPTIONELE
 // disambiguators die naar de user-prompt gaan zodat homoniem-bedrijven
 // (gangbare BV-namen in news/rechtspraak) niet als signaal voor de
-// verkeerde lead landen. Aanroepers die ze niet meegeven krijgen het
-// oude gedrag — backwards compatible.
+// verkeerde lead landen. fteKlasse + totaalWerkzamePersonen helpen Claude
+// bv. de 15-FTE-drempel voor `geen_hr_rol_zichtbaar` zelf toetsen ipv
+// blind te volgen. Aanroepers die ze niet meegeven krijgen het oude
+// gedrag — backwards compatible.
 type CompanyHandle = {
   kvk: string;
   naam: string;
   plaats?: string;
   sector?: string;
+  fteKlasse?: string;
+  totaalWerkzamePersonen?: number;
 };
 
 // ---------- website -------------------------------------------------------
@@ -58,6 +62,11 @@ export type WebsiteClassificationResult = {
   contacten: WebsiteContact[];
 };
 
+// Per pagina cap op 8 000 chars: matcht de MCP-laag (ScrapedPage levert
+// tot 8 000 chars text) zodat we geen team-page-namen verliezen die ná
+// char 4 000 in de DOM staan. Bij langere pagina's knipt de MCP al af.
+const WEBSITE_CHARS_PER_PAGE = 8_000;
+
 export async function classifyWebsite(
   company: CompanyHandle,
   result: WebsiteScrapeResult,
@@ -74,7 +83,7 @@ export async function classifyWebsiteFull(
     return { signalen: [], contacten: [] };
   }
   const context = result.pages
-    .map((p) => `### ${p.url}\n${p.text.slice(0, 4000)}`)
+    .map((p) => `### ${p.url}\n${p.text.slice(0, WEBSITE_CHARS_PER_PAGE)}`)
     .join("\n\n---\n\n");
   const sitemapInfo = result.sitemap
     ? `\n\nSitemap: ${result.sitemap.vacancyUrls.length} vacancy-URLs / ${result.sitemap.totalUrls} totaal`
@@ -211,6 +220,94 @@ export function classifyVacatures(
   }
 
   return signalen;
+}
+
+// ---------- bestuurders (deterministisch) --------------------------------
+
+// Input voor de bestuurders-classifier. Komt direct uit KvK
+// `/basisprofielen/{kvk}/eigenaar/bestuurders` — geen scraping nodig.
+export type Bestuurder = {
+  naam: string;
+  functie: string;
+  sinds?: string;
+};
+
+// Functietitels die wijzen op founder/eigenaar-rol. Lijst is bewust kort
+// zodat we false-positives op "Commissaris" of "Procuratiehouder"
+// (geen operationele leidinggevende) vermijden.
+const FOUNDER_FUNCTIES = [
+  "eigenaar",
+  "directeur",
+  "algemeen directeur",
+  "bestuurder",
+  "enig aandeelhouder",
+  "enige bestuurder",
+];
+
+/**
+ * Emit founder_run wanneer bestuurders-data dit duidelijk wijst:
+ *   - Minder dan 50 FTE (boven die grens loopt het bedrijf niet meer
+ *     founder-only)
+ *   - 1 of 2 bestuurders, allemaal in een operationele functie
+ *   - Achternaam van minstens één bestuurder komt voor in de bedrijfs- of
+ *     handelsnaam (sterk signaal dat het familie-/founder-bedrijf is)
+ *
+ * Volledig deterministisch — geen LLM-call. Confidence is gestaffeld:
+ * naam-match levert hoge confidence; zonder match laten we het over aan
+ * de website-classifier zodat we geen false positives genereren.
+ */
+export function classifyBestuurders(
+  company: CompanyHandle & { handelsnamen?: string[] },
+  bestuurders: Bestuurder[],
+): Signaal[] {
+  if (bestuurders.length === 0 || bestuurders.length > 2) return [];
+  if (typeof company.totaalWerkzamePersonen === "number" &&
+      company.totaalWerkzamePersonen >= 50) {
+    return [];
+  }
+
+  const operationeel = bestuurders.every((b) =>
+    FOUNDER_FUNCTIES.some((f) => b.functie.toLowerCase().includes(f)),
+  );
+  if (!operationeel) return [];
+
+  const namen = [company.naam, ...(company.handelsnamen ?? [])]
+    .filter((n): n is string => !!n)
+    .map((n) => n.toLowerCase());
+  const surnameMatch = bestuurders.find((b) => {
+    const surname = extractSurname(b.naam);
+    if (!surname) return false;
+    return namen.some((n) => n.includes(surname.toLowerCase()));
+  });
+  if (!surnameMatch) return [];
+
+  const bewijs = bestuurders.map(
+    (b) => `${b.naam} — ${b.functie}${b.sinds ? ` (sinds ${b.sinds})` : ""}`,
+  );
+  return [
+    {
+      categorie: "founder_run",
+      cluster: 3,
+      sterkte: 80,
+      confidence: bestuurders.length === 1 ? 90 : 80,
+      observatie: `Bestuurder${bestuurders.length === 1 ? "" : "s"} met achternaam ${extractSurname(surnameMatch.naam)} in bedrijfsnaam — eigenaar-gestuurd.`,
+      bewijs,
+      bronType: "kvk",
+    },
+  ];
+}
+
+function extractSurname(volledigeNaam: string): string | null {
+  // KvK levert namen als "Jansen, P." of "Jan Jansen" of "P. de Jong".
+  // Pak het langste woord >2 chars als achternaam (heuristiek; werkt
+  // voor ~90% van de NL-namen). Tussenvoegsels ("de", "van") tellen
+  // niet, want die zijn te kort.
+  const parts = volledigeNaam
+    .replace(/,/g, " ")
+    .split(/\s+/)
+    .filter((p) => p.length > 2 && !/^[A-Z]\.$/.test(p));
+  if (parts.length === 0) return null;
+  return parts.sort((a, b) => b.length - a.length)[0];
 }
 
 function describeSources(result: VacatureRawResult): string {
@@ -460,20 +557,29 @@ Regels:
 // (e.g. "ignore previous instructions") niet als systeem-instructie
 // worden geïnterpreteerd. Daarnaast strippen we Anthropic-XML-achtige
 // fence-markers uit de input zodat een vijandige bron geen </document>
-// kan injecteren om uit het sandbox-blok te breken.
 //
 // Plaats + sector worden als disambiguator meegegeven (indien beschikbaar)
 // zodat Claude items die over een ANDER bedrijf met dezelfde naam gaan
 // kan herkennen en weggooien — vooral relevant voor news (homoniemen)
-// en rechtspraak (gangbare BV-namen). Backwards compatible: als
-// CompanyHandle.plaats/sector niet zijn meegegeven blijft het oude gedrag.
+// en rechtspraak (gangbare BV-namen). fteKlasse + totaalWerkzamePersonen
+// helpen Claude bv. de 15-FTE-drempel voor `geen_hr_rol_zichtbaar` zelf
+// toetsen ipv blind te volgen. Alles backwards compatible.
 function buildClassifierUserPrompt(
   company: CompanyHandle,
   bronType: SignaalBronType,
   context: string,
 ): string {
   const safe = sanitizeContext(context);
-  const header: string[] = [`Bedrijf: ${company.naam} (KvK ${company.kvk})`];
+  const fteParts: string[] = [];
+  if (typeof company.totaalWerkzamePersonen === "number") {
+    fteParts.push(`~${company.totaalWerkzamePersonen} FTE`);
+  }
+  if (company.fteKlasse) fteParts.push(`bucket ${company.fteKlasse}`);
+  const firstLine =
+    fteParts.length > 0
+      ? `Bedrijf: ${company.naam} (KvK ${company.kvk}) · ${fteParts.join(", ")}`
+      : `Bedrijf: ${company.naam} (KvK ${company.kvk})`;
+  const header: string[] = [firstLine];
   if (company.plaats) header.push(`Plaats: ${company.plaats}`);
   if (company.sector) header.push(`SBI-sector: ${company.sector}`);
   header.push(`Bron: ${bronType}`);

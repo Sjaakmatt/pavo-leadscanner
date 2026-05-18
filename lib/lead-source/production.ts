@@ -101,12 +101,34 @@ export class ProductionLeadSource implements LeadSource {
   private readonly mcps: ScrapeMcps;
 
   constructor() {
-    this.bedrijven = new BedrijvenMcp(new McpHttpClient(requireBedrijvenUrl()));
+    // Per-MCP throttling: KvK heeft een harde 3 rps quota op de
+    // Handelsregister-API, dus mcp-bedrijven mag nooit boven 3 calls/sec
+    // (burst 5 om de initiele basisprofiel-batch te dekken). Andere MCPs
+    // zijn losser (Google News RSS, publieke scrapers); 10 rps geeft
+    // genoeg headroom zonder shared-IP rate-limits te raken.
+    this.bedrijven = new BedrijvenMcp(
+      new McpHttpClient(requireBedrijvenUrl(), "pavo-leadscanner", {
+        ratePerSec: 3,
+        burst: 5,
+      }),
+    );
     this.mcps = {
       bedrijven: this.bedrijven,
-      vacatures: new VacaturesMcp(new McpHttpClient(requireVacaturesUrl())),
-      juridisch: new JuridischMcp(new McpHttpClient(requireJuridischUrl())),
-      news: new NewsMcp(new McpHttpClient(requireNewsUrl())),
+      vacatures: new VacaturesMcp(
+        new McpHttpClient(requireVacaturesUrl(), "pavo-leadscanner", {
+          ratePerSec: 10,
+        }),
+      ),
+      juridisch: new JuridischMcp(
+        new McpHttpClient(requireJuridischUrl(), "pavo-leadscanner", {
+          ratePerSec: 10,
+        }),
+      ),
+      news: new NewsMcp(
+        new McpHttpClient(requireNewsUrl(), "pavo-leadscanner", {
+          ratePerSec: 10,
+        }),
+      ),
     };
   }
 
@@ -384,12 +406,36 @@ export class ProductionLeadSource implements LeadSource {
       const handles = toScrape
         .map((kvk) => geoFiltered.find((x) => x.profile.kvkNummer === kvk)?.profile)
         .filter((p): p is LocalKvkBasisprofiel => !!p)
-        .map((p) => ({
-          kvk: p.kvkNummer,
-          naam: p.naam,
-          websiteUrl: p.websiteUrl,
-          zoeknamen: [p.naam, p.handelsnaam].filter((s): s is string => !!s),
-        }));
+        .map((p) => {
+          const raw = (typeof p.raw === "object" && p.raw !== null
+            ? p.raw
+            : null) as McpKvkBasisprofiel | null;
+          const handelsnamen = raw?.handelsnamen ?? [];
+          // Dedup statutaire naam + handelsnamen (case-insensitive). Levert
+          // input voor MCP-tools die multi-name search ondersteunen
+          // (search_company_news, search_court_cases, search_insolvencies).
+          const zoeknamen = [
+            ...new Map(
+              [p.naam, ...handelsnamen]
+                .filter((s): s is string => !!s)
+                .map((n) => [n.toLowerCase(), n]),
+            ).values(),
+          ];
+          return {
+            kvk: p.kvkNummer,
+            naam: p.naam,
+            websiteUrl: p.websiteUrl,
+            zoeknamen,
+            handelsnamen,
+            fteKlasse: p.fteKlasse,
+            totaalWerkzamePersonen: raw?.totaalWerkzamePersonen,
+            bestuurders: p.bestuurders.map((b) => ({
+              naam: b.naam,
+              functie: b.functie ?? "bestuurder",
+              sinds: b.sinds,
+            })),
+          };
+        });
 
       const scrapeStart = Date.now();
       let scraped = 0;
@@ -540,13 +586,27 @@ export class ProductionLeadSource implements LeadSource {
       opts.refresh === true ||
       (await isScrapeStale(supabase, kvk, LEAD_DETAIL_TTL_DAYS));
     if (stale) {
+      const handelsnamen = [local.handelsnaam].filter(
+        (s): s is string => !!s,
+      );
       const handle = {
         kvk: local.kvkNummer,
         naam: local.naam,
         websiteUrl: local.websiteUrl,
-        zoeknamen: [local.naam, local.handelsnaam].filter(
-          (s): s is string => !!s,
-        ),
+        zoeknamen: [
+          ...new Map(
+            [local.naam, ...handelsnamen]
+              .filter((s): s is string => !!s)
+              .map((n) => [n.toLowerCase(), n]),
+          ).values(),
+        ],
+        handelsnamen,
+        fteKlasse: local.fteKlasse,
+        bestuurders: local.bestuurders.map((b) => ({
+          naam: b.naam,
+          functie: b.functie ?? "bestuurder",
+          sinds: b.sinds,
+        })),
       };
       // Geen searchQueryId — solo refresh — maar wel een tracker
       // zodat het budget alsnog gehandhaafd wordt.
@@ -1334,6 +1394,7 @@ const BRON_TYPE_TO_BRON: Record<string, Bron> = {
   insolventie: "Insolventieregister",
   news: "Nieuws",
   vacatures: "Vacatures",
+  kvk: "KvK",
 };
 
 function toLeadSignaal(row: StoredSignal): UiSignaal {

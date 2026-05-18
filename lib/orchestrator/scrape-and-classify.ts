@@ -25,6 +25,8 @@ import {
   classifyInsolventie,
   classifyVacatures,
   classifyNews,
+  classifyBestuurders,
+  type Bestuurder,
 } from "@/lib/classification";
 import type { Signaal } from "@/lib/scoring/types";
 import { persistRaw, readRaw, type CachedToolName } from "./raw-cache";
@@ -55,6 +57,15 @@ export type CompanyHandle = {
   naam: string;
   websiteUrl?: string;
   zoeknamen: string[];
+  handelsnamen?: string[];
+  // Optioneel: FTE-info uit basisprofiel. Wordt doorgegeven aan de
+  // classifier zodat regels zoals "geen_hr_rol_zichtbaar bij 15+ FTE"
+  // zelf getoetst kunnen worden.
+  fteKlasse?: string;
+  totaalWerkzamePersonen?: number;
+  // KvK bestuurders-sub-resource — voedt de deterministische
+  // founder_run-classifier zodat we daar niet op website-tekst leunen.
+  bestuurders?: Bestuurder[];
 };
 
 export type OrchestrationResult = {
@@ -269,7 +280,8 @@ export async function scrapeAndClassifyCompany(
       opts.refreshRaw ?? false,
       () =>
         mcps.news.searchCompanyNews(ctxFor("search_company_news"), {
-          company_name: company.naam,
+          company_names:
+            company.zoeknamen.length > 0 ? company.zoeknamen : [company.naam],
           max_results: 20,
         }),
     ).then(async (r) =>
@@ -287,6 +299,13 @@ export async function scrapeAndClassifyCompany(
     } else if (s.status === "rejected") {
       failures.push(String(s.reason));
     }
+  }
+
+  // Deterministische signalen direct uit KvK-data — geen MCP-call, dus
+  // buiten de tasks-loop. Loopt altijd, ook zonder website-URL: de
+  // bestuurders-classifier zoekt founder_run zonder scraping.
+  if (company.bestuurders && company.bestuurders.length > 0) {
+    allSignals.push(...classifyBestuurders(company, company.bestuurders));
   }
 
   // Fase 3: persist naar Supabase. Één insert per signaal; we koppelen

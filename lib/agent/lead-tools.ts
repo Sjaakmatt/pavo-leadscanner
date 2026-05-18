@@ -331,7 +331,7 @@ export async function executeLeadTool(
         break;
       case "search_news":
         result = await getNews().searchCompanyNews(ctx, {
-          company_name: stringOrNull(input.company_name) ?? leadCtx.naam,
+          company_names: [stringOrNull(input.company_name) ?? leadCtx.naam],
           max_results: typeof input.max_results === "number" ? input.max_results : 10,
         });
         break;

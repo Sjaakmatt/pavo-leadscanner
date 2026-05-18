@@ -204,7 +204,8 @@ async function testCompany(
     ),
     fetchWithFsCache<NewsRawResult | null>(c.kvk, 'news', flags.refresh, () =>
       mcps.news.searchCompanyNews(childCtx(parentCtx), {
-        company_name: c.naam,
+        company_names:
+          handle.zoeknamen.length > 0 ? handle.zoeknamen : [c.naam],
         max_results: 20,
       }),
     ),
