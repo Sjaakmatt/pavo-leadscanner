@@ -1,22 +1,30 @@
 // MCP-based ProductionLeadSource. Praat uitsluitend met de vier externe
 // FactumAI domein-MCPs — geen in-process scrapers, geen directe KvK-client.
 //
-//   1. mcp-bedrijven.kvk_zoeken                    (SBI + provincies)
-//   2. mcp-bedrijven.kvk_basisprofiel              (parallel per kandidaat)
-//   3. mcp-bedrijven.pdok_geocode                  (per unieke plaats voor geo-filter)
-//   4. Upsert companies-row                        (Supabase)
-//   5. Per bedrijf parallel via orchestrator:
+// KvK Zoeken-API v2 ondersteunt geen SBI- of provincie-filter (sinds april
+// 2026). De pijplijn werkt daarom plaats-georiënteerd:
+//
+//   1. plaatsenWithinRadius(center, radius) → lijst NL-plaatsen in target-area
+//   2. Supabase companies-cache → bestaande SBI+FTE-matches in target-plaatsen
+//   3. mcp-bedrijven.kvk_zoeken per plaats (gratis) → onbekende kvk-nummers
+//   4. mcp-bedrijven.kvk_basisprofiel (€0.02 per call, hard cap via
+//      MAX_BASISPROFIELEN_PER_SEARCH) → dataset opbouwen; filter daarop
+//   5. mcp-bedrijven.pdok_geocode               (per onbekende plaats voor fijn-haversine)
+//   6. Upsert companies-row + bestuurders + kvk_snapshots
+//   7. Per match parallel via orchestrator:
 //        mcp-bedrijven.get_company_website_content
 //        mcp-vacatures.extract_vacancies_from_company_site
 //        mcp-juridisch.search_court_cases / search_labor_inspections / search_insolvencies
 //        mcp-news.search_company_news
 //      → classificatie naar PAVO-Signaal[]
-//   6. scoring engine → LeadScore
-//   7. scored_leads + search_queries afronden
+//   8. scoring engine → LeadScore
+//   9. scored_leads + search_queries afronden
 //
-// Budget-guard via MAX_COST_PER_SEARCH_USD; we kunnen kosten alleen
-// schatten (dashboard heeft de echte cijfers per tool-call), dus de
-// guard is conservatief.
+// Budget-guard:
+//  - MAX_BASISPROFIELEN_PER_SEARCH (default 500) → ~€10 absolute cap
+//  - MAX_COST_PER_SEARCH_USD voor scrape-/classify-stap (LLM-tokens via CostTracker)
+// Bij eerste zoekopdracht in een nieuwe regio is dit de duurste run; alle
+// volgende runs hitten de Supabase-cache → praktisch gratis.
 
 import type {
   Bron,
@@ -40,43 +48,51 @@ import { buildTenantContext } from "@/lib/mcp/tenant";
 import type { KvkZoekHit, KvkBasisprofiel as McpKvkBasisprofiel } from "@/lib/mcp/schemas";
 import type { KvkBasisprofiel as LocalKvkBasisprofiel } from "@/lib/kvk/types";
 import { mapBrancheToSbi } from "@/lib/kvk/sbi-mapping";
-import {
-  haversineKm,
-  plaatsenWithinRadius,
-  type LatLng,
-} from "@/lib/geo/pdok";
+import { haversineKm, type LatLng } from "@/lib/geo/pdok";
+import { plaatsenWithinRadius } from "@/lib/geo/plaatsen";
 import { supabaseServer } from "@/lib/supabase/client";
 import { runScrapeBatch, type ScrapeMcps } from "@/lib/orchestrator";
 import { scoreCompany, type StoredSignal } from "@/lib/scoring";
 import { matchesSignaalQuery } from "@/lib/adapters/mock";
 import { ESTIMATED_MINUTES_SAVED_PER_LEAD } from "@/lib/factum/roi";
 import { SCORING_VERSION } from "@/lib/scoring/version";
+import { CostTracker, withSearchScope } from "@/lib/classification/cost";
+import { logObs } from "@/lib/observability/logger";
+import { upsertKvkBestuurders } from "@/lib/lead-source/contacts";
+import { getCurrentUser, authConfigured } from "@/lib/auth/server";
 
 const CACHE_TTL_DAYS = 30;
 const LEAD_DETAIL_TTL_DAYS = 7;
 const MAX_PARALLEL_SCRAPES = 5;
 const KVK_BASISPROFIEL_CONCURRENCY = 8;
-// Per-plaats cap voor kvk_zoeken (zie B4). Voor een typische 30km-radius
-// (10-20 plaatsen) × 100 levert dit max 1000-2000 candidates op — ruim
-// genoeg voor een MKB-branchezoekopdracht zonder KvK-quota op te eten.
-const KVK_ZOEKEN_PER_PLAATS_LIMIT = 100;
-// Globale cap: we draaien nooit door alle plaatsen heen bij een nationale
-// zoekopdracht; dit voorkomt 50k+ candidates voor "heel NL".
-const KVK_ZOEKEN_GLOBAL_LIMIT = 5000;
-// Default plaatsen-set wanneer er geen center is gekozen ("heel NL"). 50
-// grootste woonplaatsen geven >70% van alle KvK-registraties; bij grotere
-// behoefte zet de UI later een expliciete radius.
-const FALLBACK_PLAATSEN_NL_TOP = [
-  "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven", "Groningen",
-  "Tilburg", "Almere", "Breda", "Nijmegen", "Apeldoorn", "Haarlem",
-  "Arnhem", "Enschede", "Amersfoort", "Zaanstad", "'s-Hertogenbosch",
-  "Haarlemmermeer", "Zwolle", "Zoetermeer", "Leeuwarden", "Leiden",
-  "Maastricht", "Dordrecht", "Westland", "Alphen aan den Rijn", "Alkmaar",
-  "Emmen", "Delft", "Venlo", "Deventer", "Sittard-Geleen", "Helmond",
-  "Oss", "Amstelveen", "Hilversum", "Hengelo", "Heerlen", "Roosendaal",
-  "Schiedam", "Purmerend", "Vlaardingen", "Gouda", "Spijkenisse",
-  "Almelo", "Lelystad", "Ede", "Nissewaard", "Veenendaal", "Capelle aan den IJssel",
-];
+
+// Hard cap-CEILING op het aantal betaalde basisprofiel-calls per zoek-
+// opdracht. Met €0.02/call → 500 calls = €10 absolute ceiling. Verhogen
+// kan via `MAX_BASISPROFIELEN_PER_SEARCH` env-var. Per-search runtime-
+// override gaat via SearchFilters.max_basisprofielen, maar wordt altijd
+// gecapped op dit ceiling.
+const MAX_BASISPROFIELEN_CEILING = (() => {
+  const raw = Number(process.env.MAX_BASISPROFIELEN_PER_SEARCH ?? 500);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 500;
+})();
+
+function resolveBasisBudget(override: number | undefined): number {
+  if (typeof override !== "number" || !Number.isFinite(override) || override <= 0) {
+    return MAX_BASISPROFIELEN_CEILING;
+  }
+  return Math.min(Math.floor(override), MAX_BASISPROFIELEN_CEILING);
+}
+
+const DEFAULT_RADIUS_KM = 25;
+// Maximum hits die we uit één Zoeken-call accepteren. KvK v2 max = 100.
+const ZOEKEN_PAGE_SIZE = 100;
+
+const MAX_ZOEKPLAATSEN_PER_SEARCH = (() => {
+  const raw = process.env.MAX_ZOEKPLAATSEN_PER_SEARCH;
+  if (!raw) return undefined;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
+})();
 
 function noopEmit(_event: SearchProgressEvent): void {}
 
@@ -87,7 +103,7 @@ export class ProductionLeadSource implements LeadSource {
   constructor() {
     // Per-MCP throttling: KvK heeft een harde 3 rps quota op de
     // Handelsregister-API, dus mcp-bedrijven mag nooit boven 3 calls/sec
-    // (burst 5 om initiele basisprofiel-batch te dekken). Andere MCPs
+    // (burst 5 om de initiele basisprofiel-batch te dekken). Andere MCPs
     // zijn losser (Google News RSS, publieke scrapers); 10 rps geeft
     // genoeg headroom zonder shared-IP rate-limits te raken.
     this.bedrijven = new BedrijvenMcp(
@@ -124,112 +140,251 @@ export class ProductionLeadSource implements LeadSource {
     const startedAt = Date.now();
     const supabase = supabaseServer();
     const searchCtx = buildTenantContext();
-    const searchQueryId = await logSearchStart(supabase, filters);
+
+    // Resolve org-scope: bij prod-mode trekken we 'm uit de session;
+    // bij cron/jobs zonder request-context kunnen opts.orgId / opts.ownerId
+    // overrules. Demo zonder auth → null (geen scoping).
+    const orgId = opts.orgId ?? (await tryGetOrgId());
+    const ownerId = opts.ownerId ?? null;
+
+    const searchQueryId = await logSearchStart(supabase, filters, {
+      orgId,
+      ownerId,
+    });
+
+    const tracker = new CostTracker();
+    return withSearchScope(
+      { tracker, supabase, searchQueryId },
+      () => this.runSearchInScope(
+        filters,
+        opts,
+        emit,
+        startedAt,
+        supabase,
+        searchCtx,
+        searchQueryId,
+        tracker,
+        orgId,
+      ),
+    );
+  }
+
+  private async runSearchInScope(
+    filters: SearchFilters,
+    opts: RunSearchOptions,
+    emit: NonNullable<RunSearchOptions["onEvent"]>,
+    startedAt: number,
+    supabase: SupabaseClient,
+    searchCtx: TenantContext,
+    searchQueryId: string,
+    tracker: CostTracker,
+    orgId: string | null,
+  ): Promise<SearchResult> {
+    // Per-stage timings — geschreven naar search_queries aan het eind.
+    const timing = {
+      kvk_ms: 0,
+      basisprofiel_ms: 0,
+      geo_ms: 0,
+      scrape_ms: 0,
+      score_ms: 0,
+    };
 
     try {
-      // 1) Plaatsen-set bepalen op basis van center+radius. Zonder center
-      //    valt-ie terug op de 50 grootste woonplaatsen (>70% KvK-coverage).
-      //    KvK Zoeken-API v2 ondersteunt geen SBI/provincie-filter; je
-      //    MOET per plaats zoeken.
-      await updateStep(supabase, searchQueryId, "Plaatsen binnen straal bepalen");
-      emit({ type: "stage", stage: "plaatsen", message: "Plaatsen binnen straal bepalen…" });
+      // 1) KvK afbakening: bepaal target-plaatsen uit center + radius.
+      await updateStep(supabase, searchQueryId, "Plaatsen bepalen voor zoekgebied");
+      emit({ type: "stage", stage: "kvk", message: "Zoekgebied opdelen in plaatsen…" });
 
-      const plaatsen = await resolvePlaatsen(
-        filters.regio_center,
-        filters.regio_straal_km,
+      const kvkStart = Date.now();
+      const sbiCodes = mapBrancheToSbi(filters.branche);
+      const targetPlaatsen = filters.regio_center
+        ? await plaatsenWithinRadius(
+            filters.regio_center,
+            filters.regio_straal_km ?? DEFAULT_RADIUS_KM,
+            { maxPlaatsen: MAX_ZOEKPLAATSEN_PER_SEARCH },
+          )
+        : [];
+      console.log(
+        `[funnel] plaatsen=${formatPlaatsenForLog(targetPlaatsen)} center=${filters.regio_center ? `${filters.regio_center.lat.toFixed(2)},${filters.regio_center.lng.toFixed(2)}` : "none"} radius=${filters.regio_straal_km ?? DEFAULT_RADIUS_KM}km branche="${filters.branche}" sbi=[${sbiCodes.join(",")}] fte=[${filters.fte_klassen.join(",")}]`,
       );
-      if (plaatsen.length === 0) {
-        // PDOK was niet bereikbaar én geen center → niets te zoeken.
-        // Beter een lege resultset dan een halfgevuld antwoord.
+
+      if (targetPlaatsen.length === 0 && filters.regio_center) {
+        timing.kvk_ms = Date.now() - kvkStart;
+        emit({ type: "kvk", totalCandidates: 0 });
+        emit({
+          type: "stage",
+          stage: "score",
+          message: "Geen plaatsen in straal — vergroot de radius en probeer opnieuw.",
+        });
+        const cost = tracker.snapshot();
         await logSearchComplete(supabase, searchQueryId, {
           totalCandidates: 0,
           totalScraped: 0,
           totalLeadsReturned: 0,
           durationMs: Date.now() - startedAt,
+          timing,
+          cost,
         });
-        emit({ type: "done", totalLeadsReturned: 0, totalCostUsd: 0, durationMs: Date.now() - startedAt });
+        emit({
+          type: "done",
+          totalLeadsReturned: 0,
+          totalCostUsd: cost.totalUsd,
+          durationMs: Date.now() - startedAt,
+        });
         return {
           search_id: searchQueryId,
-          titel: `Live resultaten · ${filters.branche}`,
+          titel: `Geen plaatsen in straal · ${filters.branche}`,
           leads: [],
           relaxation: { regio: false, fte: false },
         };
       }
 
-      // 2) KvK afbakening per plaats (limit per-plaats + globaal).
-      await updateStep(supabase, searchQueryId, `Kamer van Koophandel doorzoeken (${plaatsen.length} plaatsen)`);
-      emit({ type: "stage", stage: "kvk", message: `Kamer van Koophandel doorzoeken in ${plaatsen.length} plaatsen…` });
-
-      const hits = await this.bedrijven.kvkZoeken(searchCtx, {
-        plaatsen,
-        type: "hoofdvestiging",
-        inclusiefInactief: false,
-        limit: Math.min(
-          KVK_ZOEKEN_GLOBAL_LIMIT,
-          plaatsen.length * KVK_ZOEKEN_PER_PLAATS_LIMIT,
-        ),
+      // 2) Cache-first: companies-tabel bevat al SBI + FTE per kvk uit
+      // eerdere searches. Pak de hele bekende regio-dataset en filter
+      // daarna client-side op SBI/FTE, zodat eerder afgewezen bedrijven
+      // niet opnieuw betaalde basisprofiel-calls kosten.
+      const cachedDataset = await loadCachedProfiles(supabase, {
+        plaatsen: targetPlaatsen,
+        center: filters.regio_center,
+        radiusKm: filters.regio_straal_km ?? DEFAULT_RADIUS_KM,
       });
-      emit({ type: "kvk", totalCandidates: hits.length });
-
-      // 3) Geo-filter op zoek-hit plaats: bedrijven waarvan de
-      //    hoofdvestiging buiten de straal valt nu al wegfilteren. Bespaart
-      //    60-80% van de basisprofiel-calls (KvK rekent per call).
-      //    Wanneer er geen center is gekozen blijft alles staan (de
-      //    plaatsen-set zelf is dan al de filter).
-      await updateStep(supabase, searchQueryId, "Regio-filter op zoek-hit");
-      const { hits: geoHits, coords: coordsByPlaats } = await filterHitsByRadius(
-        this.bedrijven,
-        searchCtx,
-        hits,
-        filters.regio_center,
-        filters.regio_straal_km,
-        supabase,
-      );
-      emit({ type: "geo", remaining: geoHits.length });
-
-      // 4) Basisprofielen ophalen — alleen voor survivors van geo-filter.
-      await updateStep(
-        supabase,
-        searchQueryId,
-        `Basisprofielen ophalen (${geoHits.length})`,
-      );
+      const cachedProfiles = filterProfiles(cachedDataset, {
+        sbiCodes,
+        fteKlassen: filters.fte_klassen,
+      });
       emit({
         type: "stage",
         stage: "basisprofielen",
-        message: `Basisprofielen ophalen (${geoHits.length})…`,
+        message: `Cache: ${cachedDataset.length} bekende bedrijven (${cachedProfiles.length} match); KvK doorzoeken tot max ${resolveBasisBudget(filters.max_basisprofielen)} basisprofielen…`,
       });
-      const profiles = await fetchBasisprofielen(
+
+      // 3) Zoeken-v2 voor alle target-plaatsen in één gratis call →
+      //    onbekende kvk-nummers, dan basisprofiel per kandidaat (€0.02)
+      //    tot het betaalbudget raakt. Daarna gebruiken we de opgebouwde
+      //    dataset voor SBI/FTE/geo-filter.
+      const knownKvks = new Set(cachedDataset.map((p) => p.kvkNummer));
+      const fetchedProfiles: LocalKvkBasisprofiel[] = [];
+      let basisprofielenSpent = 0;
+      const basisBudget = resolveBasisBudget(filters.max_basisprofielen);
+      let kvkHitsTotal = cachedDataset.length;
+
+      if (basisBudget > 0 && targetPlaatsen.length > 0) {
+        // KvK Zoeken accepteert meerdere plaatsen in één call. Dat houdt de
+        // gratis afbakening op één MCP/dashboard call per search-run; daarna
+        // bepalen basisprofiel-calls pas het betaalde budget.
+        let hits: Awaited<ReturnType<typeof this.bedrijven.kvkZoeken>>;
+        try {
+          hits = await this.bedrijven.kvkZoeken(searchCtx, {
+            plaatsen: targetPlaatsen,
+            type: "hoofdvestiging",
+            limit: ZOEKEN_PAGE_SIZE,
+          });
+        } catch (err) {
+          console.warn(
+            `[funnel] kvk_zoeken faalde voor plaatsen=${formatPlaatsenForLog(targetPlaatsen)}: ${String(err)}`,
+          );
+          if (isRateLimitError(err)) {
+            emit({
+              type: "stage",
+              stage: "kvk",
+              message: "KvK tijdelijk rate-limited; zoekopdracht gebruikt de cache en stopt met nieuwe KvK-calls.",
+            });
+          }
+          hits = [];
+        }
+
+        if (hits.length > 0) {
+          kvkHitsTotal += hits.length;
+          emit({ type: "kvk", totalCandidates: kvkHitsTotal });
+
+          const candidates = hits
+            .map((h) => h.kvkNummer)
+            .filter((kvk) => !knownKvks.has(kvk));
+          for (const kvk of candidates) knownKvks.add(kvk);
+
+          await fetchBasisprofielenWithFilter({
+            bedrijven: this.bedrijven,
+            ctx: searchCtx,
+            kvks: candidates,
+            sbiFilter: sbiCodes,
+            fteFilter: filters.fte_klassen,
+            spendBudget: () => basisBudget - basisprofielenSpent,
+            onSpend: () => {
+              basisprofielenSpent += 1;
+            },
+            onProfile: (profile) => {
+              fetchedProfiles.push(toLocalProfile(profile, null));
+            },
+            onMatch: () => {
+              emit({ type: "kvk", totalCandidates: kvkHitsTotal });
+            },
+            concurrency: KVK_BASISPROFIEL_CONCURRENCY,
+          });
+        }
+      }
+
+      timing.kvk_ms = Date.now() - kvkStart;
+      timing.basisprofiel_ms = timing.kvk_ms;
+      void logObs({
+        type: "info",
+        category: "search_stage",
+        message: `Stage kvk · candidates=${cachedDataset.length + fetchedProfiles.length} duration=${timing.kvk_ms}ms`,
+        orgId,
+        metadata: {
+          stage: "kvk",
+          cached: cachedDataset.length,
+          fetched: fetchedProfiles.length,
+          duration_ms: timing.kvk_ms,
+        },
+      });
+      const fullDataset = uniqueProfiles([...cachedDataset, ...fetchedProfiles]);
+      const matchedProfiles = filterProfiles(fullDataset, {
+        sbiCodes,
+        fteKlassen: filters.fte_klassen,
+      });
+      const enriched = matchedProfiles.map((profile) => ({
+        hit: null as KvkZoekHit | null,
+        profile,
+      }));
+
+      // 4) Geo-filter via PDOK + haversine — fine-tune binnen de plaats.
+      await updateStep(supabase, searchQueryId, "Regio-filter toepassen");
+      emit({ type: "stage", stage: "geo", message: "Regio-filter toepassen…" });
+      const geoStart = Date.now();
+      const coordsByPlaats = await loadCoordsByPlaats(
         this.bedrijven,
         searchCtx,
-        geoHits.map((h) => h.kvkNummer),
+        fullDataset,
+        supabase,
       );
-
-      // 5) SBI-filter: KvK Zoeken-API v2 levert geen SBI in de hit;
-      //    pas hier filteren op basis van sbiCodes uit het basisprofiel.
-      //    Match op prefix (KvK SBI-codes zijn punt-genotaeerd, bv. "41.20"
-      //    onder prefix "41").
-      const sbiPrefixes = mapBrancheToSbi(filters.branche);
-      const enriched = geoHits
-        .map((h) => {
-          const profile = profiles.get(h.kvkNummer);
-          if (!profile) return null;
-          if (!profile.actief) return null;
-          if (sbiPrefixes.length > 0 && !matchesSbi(profile.sbiCodes, sbiPrefixes)) {
-            return null;
-          }
-          return { hit: h, profile: toLocalProfile(profile, h) };
-        })
-        .filter((x): x is NonNullable<typeof x> => x !== null);
-
-      // 6) FTE-filter — best-effort (alleen als MCP fteKlasse meegeeft).
-      const geoFiltered = enriched.filter(({ profile }) => {
-        if (!filters.fte_klassen.length) return true;
-        if (!profile.fteKlasse) return true;
-        return filters.fte_klassen.includes(profile.fteKlasse as FteKlasse);
+      const geoFiltered = applyGeoFilter(
+        enriched,
+        filters.regio_center,
+        filters.regio_straal_km ?? DEFAULT_RADIUS_KM,
+        coordsByPlaats,
+      );
+      timing.geo_ms = Date.now() - geoStart;
+      emit({ type: "geo", remaining: geoFiltered.length });
+      void logObs({
+        type: "info",
+        category: "search_stage",
+        message: `Stage geo · remaining=${geoFiltered.length} duration=${timing.geo_ms}ms`,
+        orgId,
+        metadata: {
+          stage: "geo",
+          remaining: geoFiltered.length,
+          duration_ms: timing.geo_ms,
+        },
       });
 
-      // 7) Companies upserten (incl. lat/lng zodat next-run skipt PDOK).
-      await upsertCompanies(supabase, geoFiltered, coordsByPlaats);
+      // 5) Companies upserten (incl. lat/lng zodat next-run skipt PDOK).
+      // Persist alle opgehaalde basisprofielen, ook als ze later door SBI,
+      // FTE of geo niet als lead doorgaan. Betaalde KvK-data mag niet
+      // verdampen omdat een bedrijf deze run geen goede PAVO-lead is.
+      await upsertCompanies(
+        supabase,
+        fullDataset.map((profile) => ({ profile })),
+        coordsByPlaats,
+      );
 
       // 6) Scrape-targets bepalen (cache-respect, tenzij refresh)
       const candidateKvks = geoFiltered.map((x) => x.profile.kvkNummer);
@@ -256,9 +411,9 @@ export class ProductionLeadSource implements LeadSource {
             ? p.raw
             : null) as McpKvkBasisprofiel | null;
           const handelsnamen = raw?.handelsnamen ?? [];
-          // Dedup statutaire naam + handelsnamen voor MCP-queries die
-          // multi-name search ondersteunen (search_company_news,
-          // search_court_cases, search_insolvencies).
+          // Dedup statutaire naam + handelsnamen (case-insensitive). Levert
+          // input voor MCP-tools die multi-name search ondersteunen
+          // (search_company_news, search_court_cases, search_insolvencies).
           const zoeknamen = [
             ...new Map(
               [p.naam, ...handelsnamen]
@@ -282,10 +437,15 @@ export class ProductionLeadSource implements LeadSource {
           };
         });
 
+      const scrapeStart = Date.now();
       let scraped = 0;
       await runScrapeBatch(handles, searchCtx, this.mcps, supabase, {
         concurrency: MAX_PARALLEL_SCRAPES,
         refreshRaw: opts.refresh ?? false,
+        // Stop met scrapen zodra de budget-guard slaat — kosten lopen
+        // anders door op rechtspraak/news ondanks dat classifier al is
+        // gestopt. We laten de batch wel afronden voor in-flight calls.
+        shouldAbort: () => tracker.shouldHalt(),
         onProgress: (e) => {
           scraped = e.done;
           emit({
@@ -294,27 +454,75 @@ export class ProductionLeadSource implements LeadSource {
             naam: handles.find((h) => h.kvk === e.kvk)?.naam ?? e.kvk,
             scraped: e.done,
             total: e.total,
-            costUsd: 0,
+            costUsd: tracker.snapshot().totalUsd,
           });
         },
       });
+      timing.scrape_ms = Date.now() - scrapeStart;
+      void logObs({
+        type: "info",
+        category: "search_stage",
+        message: `Stage scrape · scraped=${scraped}/${handles.length} duration=${timing.scrape_ms}ms`,
+        orgId,
+        metadata: {
+          stage: "scrape",
+          scraped,
+          total: handles.length,
+          duration_ms: timing.scrape_ms,
+          cost_usd: tracker.snapshot().totalUsd,
+        },
+      });
 
-      // 7) Scoring per bedrijf
+      // 7) Scoring per bedrijf — emit per lead zodra hij klaar is
+      //    zodat de UI niet hoeft te wachten op alles
       await updateStep(supabase, searchQueryId, "Scoring en rangschikking");
       emit({ type: "stage", stage: "score", message: "Scoren + warmte bepalen…" });
+      const scoreStart = Date.now();
       const leads: Lead[] = [];
       let scoredCount = 0;
       for (const { profile } of geoFiltered) {
         const stored = await fetchRecentSignals(supabase, profile.kvkNummer, CACHE_TTL_DAYS);
         const score = scoreCompany(profile, stored);
-        leads.push(scoreToLead(profile, score, stored));
+        const lead = scoreToLead(profile, score, stored);
+        leads.push(lead);
         scoredCount += 1;
+        // AI-decision logging (Art. 22 GDPR + AI Act art. 12). Bevat geen
+        // bedrijfsnaam — alleen kvk + warmte + reden + signaal-categorieen.
+        void logObs({
+          type: "info",
+          category: "llm_decision",
+          message: `Score · kvk=${profile.kvkNummer} warmte=${score.warmte}`,
+          orgId,
+          metadata: {
+            kvk: profile.kvkNummer,
+            warmte: score.warmte,
+            warmte_reden: score.warmte_reden,
+            totale_score: score.totale_score,
+            archetype: score.archetype,
+            signaal_categorieen: stored.map((s) => s.categorie),
+            cold_redenen: score.cold_redenen,
+          },
+        });
+        emit({ type: "lead", lead });
         emit({ type: "score", scored: scoredCount, total: geoFiltered.length });
       }
+      timing.score_ms = Date.now() - scoreStart;
+      void logObs({
+        type: "info",
+        category: "search_stage",
+        message: `Stage score · n=${scoredCount} duration=${timing.score_ms}ms`,
+        orgId,
+        metadata: {
+          stage: "score",
+          scored: scoredCount,
+          total: geoFiltered.length,
+          duration_ms: timing.score_ms,
+        },
+      });
 
       // 8) Persist scored_leads (alle gescoorde leads — query-filter
       //    is een UI-presentation-laag, niet een data-uitsluiting).
-      await persistScoredLeads(supabase, searchQueryId, leads);
+      await persistScoredLeads(supabase, searchQueryId, leads, orgId);
 
       // 9) Free-text post-filter (signaal_query) — slaat op archetype-,
       //    signaal- en dienst-tekst. Lege query → no-op.
@@ -323,18 +531,21 @@ export class ProductionLeadSource implements LeadSource {
       );
       const sorted = sortLeadsByWarmte(filteredByQuery);
       const durationMs = Date.now() - startedAt;
+      const cost = tracker.snapshot();
 
       await logSearchComplete(supabase, searchQueryId, {
-        totalCandidates: hits.length,
+        totalCandidates: kvkHitsTotal,
         totalScraped: toScrape.length,
         totalLeadsReturned: sorted.length,
         durationMs,
+        timing,
+        cost,
       });
 
       emit({
         type: "done",
         totalLeadsReturned: sorted.length,
-        totalCostUsd: 0,
+        totalCostUsd: cost.totalUsd,
         durationMs,
       });
 
@@ -355,15 +566,29 @@ export class ProductionLeadSource implements LeadSource {
     const supabase = supabaseServer();
     const ctx = buildTenantContext();
 
-    const profile = await this.bedrijven.kvkBasisprofiel(ctx, kvk);
-    if (!profile) return null;
-    const local = toLocalProfile(profile, null);
+    // Probeer eerst een verse basisprofiel-call; bij failure fall-back op
+    // de gecachete companies-row. Eerder gaf dit endpoint 404 zodra KvK
+    // even niet bereikbaar was — maar als de lead net in een search-run is
+    // gevonden zit 'ie sowieso al in companies en kunnen we 'm wel renderen.
+    let local: LocalKvkBasisprofiel | null = null;
+    try {
+      const profile = await this.bedrijven.kvkBasisprofiel(ctx, kvk);
+      if (profile) local = toLocalProfile(profile, null);
+    } catch (err) {
+      console.warn(`[getLead] KvK basisprofiel ${kvk} faalde: ${String(err)} — val terug op cache`);
+    }
+    if (!local) {
+      local = await loadProfileFromCache(supabase, kvk);
+    }
+    if (!local) return null;
 
     const stale =
       opts.refresh === true ||
       (await isScrapeStale(supabase, kvk, LEAD_DETAIL_TTL_DAYS));
     if (stale) {
-      const handelsnamen = profile.handelsnamen;
+      const handelsnamen = [local.handelsnaam].filter(
+        (s): s is string => !!s,
+      );
       const handle = {
         kvk: local.kvkNummer,
         naam: local.naam,
@@ -377,51 +602,376 @@ export class ProductionLeadSource implements LeadSource {
         ],
         handelsnamen,
         fteKlasse: local.fteKlasse,
-        totaalWerkzamePersonen: profile.totaalWerkzamePersonen,
         bestuurders: local.bestuurders.map((b) => ({
           naam: b.naam,
           functie: b.functie ?? "bestuurder",
           sinds: b.sinds,
         })),
       };
-      await runScrapeBatch([handle], ctx, this.mcps, supabase, {
-        concurrency: 1,
-        refreshRaw: opts.refresh ?? false,
-      });
+      // Geen searchQueryId — solo refresh — maar wel een tracker
+      // zodat het budget alsnog gehandhaafd wordt.
+      const tracker = new CostTracker();
+      await withSearchScope(
+        { tracker, supabase, searchQueryId: null },
+        () =>
+          runScrapeBatch([handle], ctx, this.mcps, supabase, {
+            concurrency: 1,
+            refreshRaw: opts.refresh ?? false,
+            shouldAbort: () => tracker.shouldHalt(),
+          }),
+      );
     }
 
     const stored = await fetchRecentSignals(supabase, kvk, CACHE_TTL_DAYS);
     const score = scoreCompany(local, stored);
-    return scoreToLead(local, score, stored);
+    const lead = scoreToLead(local, score, stored);
+
+    // Persisteer rescore-resultaat zodat de leads-list / Geschiedenis-
+    // pagina de verse warmte ziet (anders blijft de UI op de oude
+    // score uit de laatste full-search hangen). search_query_id=null
+    // signaleert "rescore zonder search-context" — sinds migration
+    // 017 is dat nullable.
+    if (stale) {
+      void persistScoredLeads(supabase, null, [lead], opts.orgId ?? null);
+    }
+
+    return lead;
   }
+}
+
+/**
+ * Laad één LocalKvkBasisprofiel uit de companies-cache. Wordt gebruikt
+ * door getLead() als fallback wanneer KvK basisprofiel-call faalt — een
+ * lead die al in een search-run is gevonden zit altijd in companies, dus
+ * we kunnen 'm renderen ook al is KvK API tijdelijk down.
+ */
+async function loadProfileFromCache(
+  supabase: SupabaseClient,
+  kvk: string,
+): Promise<LocalKvkBasisprofiel | null> {
+  const { data } = await supabase
+    .from("companies")
+    .select(
+      "kvk, naam, handelsnaam, website_url, sbi_codes, fte_klasse, plaats, provincie, bestuursvorm, oprichtingsdatum, actief",
+    )
+    .eq("kvk", kvk)
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as {
+    kvk: string;
+    naam: string;
+    handelsnaam: string | null;
+    website_url: string | null;
+    sbi_codes: string[] | null;
+    fte_klasse: string | null;
+    plaats: string | null;
+    provincie: string | null;
+    bestuursvorm: string | null;
+    oprichtingsdatum: string | null;
+    actief: boolean;
+  };
+  return {
+    kvkNummer: row.kvk,
+    naam: row.naam,
+    handelsnaam: row.handelsnaam ?? undefined,
+    websiteUrl: row.website_url ?? undefined,
+    sbiCodes: row.sbi_codes ?? [],
+    fteKlasse: (row.fte_klasse ?? undefined) as LocalKvkBasisprofiel["fteKlasse"],
+    bestuursvorm: row.bestuursvorm ?? undefined,
+    oprichtingsdatum: row.oprichtingsdatum ?? undefined,
+    actief: row.actief,
+    bestuurders: [],
+    vestigingen: row.plaats
+      ? [
+          {
+            vestigingsnummer: "",
+            isHoofdvestiging: true,
+            handelsnaam: row.handelsnaam ?? row.naam,
+            adres: `${row.plaats}${row.provincie ? `, ${row.provincie}` : ""}`,
+            plaats: row.plaats,
+            provincie: row.provincie ?? undefined,
+          },
+        ]
+      : [],
+    plaats: row.plaats ?? undefined,
+    provincie: row.provincie ?? undefined,
+    raw: null,
+  };
 }
 
 // ---------- helpers -------------------------------------------------------
 
-async function fetchBasisprofielen(
-  bedrijven: BedrijvenMcp,
-  ctx: TenantContext,
-  kvks: string[],
-): Promise<Map<string, McpKvkBasisprofiel>> {
-  const out = new Map<string, McpKvkBasisprofiel>();
+/**
+ * Lees companies-cache: alle bekende kvk's in het zoekgebied die voldoen
+ * aan SBI- en FTE-filter. Cache-hit → €0 per kvk; we omzeilen Zoeken én
+ * basisprofiel volledig voor bekende bedrijven.
+ *
+ * Geo-lookup via lat/lng bounding-box i.p.v. `plaats IN (...)`. PDOK levert
+ * woonplaatsen voor `targetPlaatsen`, maar KvK basisprofiel kan een
+ * vestiging registreren in een nabijgelegen woonplaats die niet in onze
+ * target-set zit. Een name-match miste die — een geo-bbox dekt wél.
+ *
+ * Deze functie retourneert de volledige bekende dataset in het zoekgebied.
+ * SBI/FTE-filtering gebeurt daarna client-side via `filterProfiles()`.
+ * Daardoor kunnen eerder opgehaalde, maar toen afgewezen, basisprofielen
+ * opnieuw meedoen zonder nogmaals een betaalde KvK-call.
+ *
+ * De companies-tabel wordt gevuld bij elke search die basisprofielen
+ * fetcht; na een paar runs in een regio is dit zelfvoorzienend.
+ */
+async function loadCachedProfiles(
+  supabase: SupabaseClient,
+  args: {
+    plaatsen: string[];
+    center: LatLng | null;
+    radiusKm: number;
+  },
+): Promise<LocalKvkBasisprofiel[]> {
+  let query = supabase
+    .from("companies")
+    .select(
+      "kvk, naam, handelsnaam, website_url, sbi_codes, fte_klasse, plaats, provincie, bestuursvorm, oprichtingsdatum, actief, lat, lng",
+    )
+    .eq("actief", true);
+
+  if (args.center) {
+    // Bounding-box: 1° latitude ≈ 111 km; longitude wordt smaller naar
+    // het noorden (cos(lat)). Voor NL ~52° is 1° lng ≈ 68 km. Iets ruimer
+    // dan strikt de cirkel — false positives filteren we later weg in
+    // applyGeoFilter via haversine.
+    const dLat = args.radiusKm / 111;
+    const dLng = args.radiusKm / (111 * Math.cos((args.center.lat * Math.PI) / 180));
+    query = query
+      .gte("lat", args.center.lat - dLat)
+      .lte("lat", args.center.lat + dLat)
+      .gte("lng", args.center.lng - dLng)
+      .lte("lng", args.center.lng + dLng);
+  } else if (args.plaatsen.length > 0) {
+    // Geen center → val terug op plaats-name match (zeldzaam pad).
+    query = query.in("plaats", args.plaatsen);
+  } else {
+    return [];
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.warn(`loadCachedProfiles: ${error.message}`);
+    return [];
+  }
+
+  // Post-query: haversine. Bbox kan companies ~10% buiten de cirkel
+  // includeren. Final-haversine filter knipt die weg.
+  const center = args.center;
+  const radius = args.radiusKm;
+  const stats = { rows: 0, geoOut: 0, kept: 0 };
+  const filtered = ((data ?? []) as Array<{
+    kvk: string;
+    naam: string;
+    handelsnaam?: string | null;
+    website_url?: string | null;
+    sbi_codes: string[] | null;
+    fte_klasse: string | null;
+    plaats: string | null;
+    provincie: string | null;
+    bestuursvorm: string | null;
+    oprichtingsdatum: string | null;
+    actief: boolean;
+    lat: number | null;
+    lng: number | null;
+  }>).filter((row) => {
+    stats.rows += 1;
+    if (center) {
+      // Strict: bedrijven in de cache zonder lat/lng kunnen niet betrouwbaar
+      // tegen een straal getoetst worden — uitsluiten is veiliger dan
+      // mogelijk een Almere-bedrijf in een Westwoud-search te tonen.
+      if (row.lat === null || row.lng === null) {
+        stats.geoOut += 1;
+        return false;
+      }
+      if (haversineKm(center, { lat: row.lat, lng: row.lng }) > radius) {
+        stats.geoOut += 1;
+        return false;
+      }
+    }
+    stats.kept += 1;
+    return true;
+  });
+
+  if (stats.rows > 0) {
+    console.log(
+      `[funnel] cache dataset: rows=${stats.rows} geo-out=${stats.geoOut} kept=${stats.kept}`,
+    );
+  }
+
+  return filtered.map((row) => ({
+    kvkNummer: row.kvk,
+    naam: row.naam,
+    handelsnaam: row.handelsnaam ?? undefined,
+    websiteUrl: row.website_url ?? undefined,
+    sbiCodes: row.sbi_codes ?? [],
+    fteKlasse: (row.fte_klasse ?? undefined) as LocalKvkBasisprofiel["fteKlasse"],
+    bestuursvorm: row.bestuursvorm ?? undefined,
+    oprichtingsdatum: row.oprichtingsdatum ?? undefined,
+    actief: row.actief,
+    bestuurders: [],
+    vestigingen: row.plaats
+      ? [
+          {
+            vestigingsnummer: "",
+            isHoofdvestiging: true,
+            handelsnaam: row.handelsnaam ?? row.naam,
+            adres: `${row.plaats}${row.provincie ? `, ${row.provincie}` : ""}`,
+            plaats: row.plaats,
+            provincie: row.provincie ?? undefined,
+          },
+        ]
+      : [],
+    plaats: row.plaats ?? undefined,
+    provincie: row.provincie ?? undefined,
+    raw: null,
+  }));
+}
+
+function filterProfiles(
+  profiles: LocalKvkBasisprofiel[],
+  filters: { sbiCodes: string[]; fteKlassen: FteKlasse[] },
+): LocalKvkBasisprofiel[] {
+  return profiles.filter((profile) => {
+    if (
+      filters.sbiCodes.length > 0 &&
+      !hasSbiOverlap(profile.sbiCodes, filters.sbiCodes)
+    ) {
+      return false;
+    }
+    if (
+      filters.fteKlassen.length > 0 &&
+      !matchesFteKlasse(profile.fteKlasse, filters.fteKlassen)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function isRateLimitError(err: unknown): boolean {
+  return /\b(429|too many requests)\b/i.test(String(err));
+}
+
+function formatPlaatsenForLog(plaatsen: string[]): string {
+  const preview = plaatsen.slice(0, 20).join(",");
+  const suffix = plaatsen.length > 20 ? `,+${plaatsen.length - 20} meer` : "";
+  return `{count=${plaatsen.length}, values=[${preview}${suffix}]}`;
+}
+
+/**
+ * Parallel basisprofiel-fetch met SBI+FTE-filter en budget-guard.
+ * Alle succesvolle profielen gaan via `onProfile` de persistente dataset in;
+ * alleen filter-matches gaan via `onMatch` door naar scrape/scoring.
+ */
+async function fetchBasisprofielenWithFilter(args: {
+  bedrijven: BedrijvenMcp;
+  ctx: TenantContext;
+  kvks: string[];
+  sbiFilter: string[];
+  fteFilter: FteKlasse[];
+  spendBudget: () => number;
+  onSpend: () => void;
+  onProfile?: (profile: McpKvkBasisprofiel) => void;
+  onMatch: (profile: McpKvkBasisprofiel) => void;
+  concurrency: number;
+}): Promise<void> {
+  const { bedrijven, ctx, kvks, sbiFilter, fteFilter } = args;
+  if (kvks.length === 0) return;
+
   const queue = [...kvks];
+  // Diagnostiek: tel waarom kandidaten worden verworpen zodat we via
+  // Vercel-logs kunnen zien of de funnel klopt. "fewer leads than
+  // expected" debug-vraag is anders moeilijk te beantwoorden.
+  const stats = {
+    fetched: 0,
+    nullProfile: 0,
+    rejectedSbi: 0,
+    rejectedFte: 0,
+    rejectedFteUnknown: 0,
+    fetchErr: 0,
+    matched: 0,
+  };
+  let stoppedByRateLimit = false;
   const workers = Array.from(
-    { length: Math.min(KVK_BASISPROFIEL_CONCURRENCY, queue.length) },
+    { length: Math.min(args.concurrency, queue.length) },
     async () => {
       while (queue.length > 0) {
+        if (stoppedByRateLimit) return;
+        if (args.spendBudget() <= 0) return;
         const kvk = queue.shift();
         if (!kvk) return;
+        args.onSpend();
         try {
           const profile = await bedrijven.kvkBasisprofiel(ctx, kvk);
-          if (profile) out.set(kvk, profile);
+          stats.fetched += 1;
+          if (!profile) {
+            stats.nullProfile += 1;
+            continue;
+          }
+          args.onProfile?.(profile);
+          if (sbiFilter.length > 0 && !hasSbiOverlap(profile.sbiCodes, sbiFilter)) {
+            stats.rejectedSbi += 1;
+            continue;
+          }
+          if (fteFilter.length > 0 && !matchesFteKlasse(profile.fteKlasse, fteFilter)) {
+            if (!profile.fteKlasse) stats.rejectedFteUnknown += 1;
+            else stats.rejectedFte += 1;
+            continue;
+          }
+          stats.matched += 1;
+          args.onMatch(profile);
         } catch (err) {
-          console.warn(`kvk_basisprofiel ${kvk} faalde: ${String(err)}`);
+          stats.fetchErr += 1;
+          if (isRateLimitError(err)) {
+            stoppedByRateLimit = true;
+            queue.length = 0;
+          }
         }
       }
     },
   );
   await Promise.all(workers);
-  return out;
+  if (stoppedByRateLimit) {
+    console.warn("[funnel] basisprofiel-fetch gestopt door 429 rate-limit");
+  }
+  console.log(
+    `[funnel] basisprofiel: queued=${kvks.length} fetched=${stats.fetched} null=${stats.nullProfile} sbi-out=${stats.rejectedSbi} fte-out=${stats.rejectedFte} fte-unknown-out=${stats.rejectedFteUnknown} err=${stats.fetchErr} matched=${stats.matched} sbiFilter=[${sbiFilter.join(",")}] fteFilter=[${fteFilter.join(",")}]`,
+  );
+}
+
+function uniqueProfiles(
+  profiles: LocalKvkBasisprofiel[],
+): LocalKvkBasisprofiel[] {
+  return [...new Map(profiles.map((profile) => [profile.kvkNummer, profile])).values()];
+}
+
+function hasSbiOverlap(profileSbi: string[], filterSbi: string[]): boolean {
+  if (filterSbi.length === 0) return true;
+  // mapBrancheToSbi retourneert 2-digit prefixes ("41","42","43") terwijl
+  // KvK basisprofiel volledige codes geeft ("41201", "4120"). Prefix-match
+  // werkt voor beide: "41201".startsWith("41") en ook "41201".startsWith("41201").
+  return profileSbi.some((sbi) => filterSbi.some((prefix) => sbi.startsWith(prefix)));
+}
+
+/**
+ * MCP retourneert FTE-buckets met andere bovenrand-grenzen ("100-249",
+ * "250+") dan de UI-filter ("100-199"). Vertaal beide naar overlap.
+ */
+function matchesFteKlasse(
+  mcpKlasse: string | undefined,
+  filter: FteKlasse[],
+): boolean {
+  if (!mcpKlasse) return false;
+  if (filter.includes(mcpKlasse as FteKlasse)) return true;
+  if ((mcpKlasse === "100-249" || mcpKlasse === "250+") && filter.includes("100-199")) {
+    return true;
+  }
+  return false;
 }
 
 // MCP basisprofiel (camelCase + arrays) → lokale shape die scoring leest.
@@ -431,9 +981,8 @@ function toLocalProfile(
 ): LocalKvkBasisprofiel {
   const hoofd = mcp.vestigingen.find((v) => v.isHoofdvestiging);
   const plaats = hoofd?.adres.plaats ?? hit?.adres.plaats;
-  // KvK Zoeken-API v2 levert geen provincie in de hit; uitsluitend uit
-  // het basisprofiel (vestigingen.adres.provincie).
-  const provincie = hoofd?.adres.provincie;
+  // KvK Zoeken-v2 en Basisprofiel-v1 leveren geen provincie meer mee.
+  // Provincie blijft undefined tot we 'm via postcode-prefix afleiden.
   return {
     kvkNummer: mcp.kvkNummer,
     naam: mcp.naam,
@@ -449,62 +998,30 @@ function toLocalProfile(
       vestigingsnummer: v.vestigingsnummer,
       isHoofdvestiging: v.isHoofdvestiging,
       handelsnaam: mcp.handelsnamen[0] ?? mcp.naam,
-      adres: `${v.adres.plaats}${v.adres.provincie ? `, ${v.adres.provincie}` : ""}`,
+      adres: v.adres.plaats,
       plaats: v.adres.plaats,
-      provincie: v.adres.provincie,
     })),
     plaats,
-    provincie,
     raw: mcp,
   };
 }
 
-// Bepaalt de plaatsen-set waar `kvk_zoeken` op moet schieten. Met een
-// center+radius wordt PDOK aangeslagen (gebundeld in plaatsenWithinRadius).
-// Zonder center valt-ie terug op een vaste top-50 (>70% KvK-coverage); de
-// UI moedigt gebruikers aan een radius te kiezen voor volledigere
-// dekking.
-async function resolvePlaatsen(
-  center: LatLng | null,
-  radiusKm: number,
-): Promise<string[]> {
-  if (!center) return FALLBACK_PLAATSEN_NL_TOP;
-  const plaatsen = await plaatsenWithinRadius(center, radiusKm);
-  if (plaatsen.length === 0) {
-    // PDOK-failure of nul matches → terugvallen op top-50 zodat de
-    // search nog íets oplevert. Log het zodat we het in dashboard zien.
-    console.warn(
-      `[resolvePlaatsen] geen plaatsen voor center=${JSON.stringify(center)} radius=${radiusKm}km — fallback op top-50.`,
-    );
-    return FALLBACK_PLAATSEN_NL_TOP;
-  }
-  return plaatsen;
-}
-
-// Filter `KvkZoekHit[]` op haversine-afstand vanaf het center. Werkt op
-// de zoek-hit (vóór basisprofiel) zodat we 60-80% van de duurste
-// KvK-calls besparen. Coords komen uit Supabase-cache eerst, daarna
-// PDOK via mcp-bedrijven; missende coords laten we door (anders
-// verliezen we plaatsen die nét niet in de cache zaten).
-async function filterHitsByRadius(
+async function loadCoordsByPlaats(
   bedrijven: BedrijvenMcp,
   ctx: TenantContext,
-  hits: KvkZoekHit[],
-  center: LatLng | null,
-  radiusKm: number,
+  profiles: LocalKvkBasisprofiel[],
   supabase: SupabaseClient,
-): Promise<{ hits: KvkZoekHit[]; coords: Map<string, LatLng> }> {
+): Promise<Map<string, LatLng>> {
   const coordsByPlaats = new Map<string, LatLng>();
-  if (hits.length === 0) return { hits, coords: coordsByPlaats };
-
+  if (profiles.length === 0) {
+    return coordsByPlaats;
+  }
   const uniquePlaatsen = [
-    ...new Set(
-      hits
-        .map((h) => h.adres.plaats)
-        .filter((p): p is string => !!p && p.length > 0),
-    ),
+    ...new Set(profiles.map((profile) => profile.plaats).filter((p): p is string => !!p)),
   ];
 
+  // 1) Lees gecachte coords uit companies — al lang bekende plaatsen
+  //    raken PDOK niet meer.
   const { data: cached } = await supabase
     .from("companies")
     .select("plaats, lat, lng")
@@ -521,6 +1038,7 @@ async function filterHitsByRadius(
     }
   }
 
+  // 2) Resterende plaatsen: PDOK via mcp-bedrijven.
   const missing = uniquePlaatsen.filter((p) => !coordsByPlaats.has(p));
   await Promise.all(
     missing.map(async (p) => {
@@ -528,35 +1046,36 @@ async function filterHitsByRadius(
         const geo = await bedrijven.pdokGeocode(ctx, p);
         if (geo) coordsByPlaats.set(p, { lat: geo.lat, lng: geo.lng });
       } catch {
-        // skip — hit blijft door, marginaal false-positive risk
+        // skip — bij regio-searches worden bedrijven zonder coords later
+        // strikt uit de leadset gelaten.
       }
     }),
   );
 
-  if (!center) return { hits, coords: coordsByPlaats };
-
-  // Met een actief center is "geen plaats bekend" geen license to pass:
-  // anders glipt een (klein) deel van de hits onversleten door de
-  // geo-filter en eet alsnog KvK basisprofiel-quota op. Wél door
-  // laten wanneer center null is (heel-NL search) — zie hierboven.
-  const filtered = hits.filter((h) => {
-    if (!h.adres.plaats) return false;
-    const coords = coordsByPlaats.get(h.adres.plaats);
-    // Plaats wel bekend maar PDOK leverde geen coords: laten staan zodat
-    // we plaatsen die nét niet in de cache zaten niet wegfilteren.
-    if (!coords) return true;
-    return haversineKm(center, coords) <= radiusKm;
-  });
-  return { hits: filtered, coords: coordsByPlaats };
+  return coordsByPlaats;
 }
 
-// SBI-prefix-match. KvK levert SBI-codes punt-genotaeerd ("41.20.1") of
-// soms plat ("4120"); we matchen op startsWith van de prefix na het
-// verwijderen van punten zodat beide varianten kloppen.
-function matchesSbi(sbiCodes: string[], prefixes: string[]): boolean {
-  if (prefixes.length === 0) return true;
-  const flatCodes = sbiCodes.map((c) => c.replace(/\./g, ""));
-  return flatCodes.some((c) => prefixes.some((p) => c.startsWith(p)));
+function applyGeoFilter<T extends { profile: LocalKvkBasisprofiel }>(
+  enriched: T[],
+  center: LatLng | null,
+  radiusKm: number,
+  coordsByPlaats: Map<string, LatLng>,
+): T[] {
+  if (!center) return enriched;
+  // Strict mode wanneer regio_center is gezet: bedrijven zonder plaats
+  // OF zonder gecachete/PDOK-coords kunnen niet geverifieerd worden tegen
+  // de straal. De vorige "graceful keep" fallback (return true) liet
+  // bedrijven uit andere provincies doorglippen wanneer PDOK een
+  // plaats-geocode niet leverde — symptoom: een Westwoud + 10km zoekopdracht
+  // gaf 12 Almere-leads (~45km verderop) omdat coords voor "Almere"
+  // onterecht ontbraken in de cache. Nu: liever uitsluiten dan een verre
+  // lead opnemen.
+  return enriched.filter(({ profile }) => {
+    if (!profile.plaats) return false;
+    const coords = coordsByPlaats.get(profile.plaats);
+    if (!coords) return false;
+    return haversineKm(center, coords) <= radiusKm;
+  });
 }
 
 async function upsertCompanies<T extends { profile: LocalKvkBasisprofiel }>(
@@ -591,23 +1110,39 @@ async function upsertCompanies<T extends { profile: LocalKvkBasisprofiel }>(
     .upsert(rows, { onConflict: "kvk" });
   if (error) console.warn(`companies upsert: ${error.message}`);
 
+  // KvK-bestuurders → lead_contacts. Deze data zit al in het basisprofiel,
+  // we surface 'em zodat sales direct namen + functies ziet.
+  await Promise.all(
+    enriched.map(({ profile }) =>
+      upsertKvkBestuurders(
+        supabase,
+        profile.kvkNummer,
+        profile.bestuurders ?? [],
+      ),
+    ),
+  );
+
   // Append KvK-snapshot — lichtgewicht historie zodat we later
   // FTE-mutaties of bestuurders-veranderingen kunnen detecteren.
-  const snapshotRows = enriched.map(({ profile }) => ({
-    kvk: profile.kvkNummer,
-    raw_data: profile.raw as object,
-    fte_klasse: profile.fteKlasse,
-    bestuurders: profile.bestuurders as object,
-    vestigingen: profile.vestigingen as object,
-  }));
+  const snapshotRows = enriched
+    .filter(({ profile }) => profile.raw !== null && profile.raw !== undefined)
+    .map(({ profile }) => ({
+      kvk: profile.kvkNummer,
+      raw_data: profile.raw as object,
+      fte_klasse: profile.fteKlasse,
+      bestuurders: profile.bestuurders as object,
+      vestigingen: profile.vestigingen as object,
+    }));
   // We slaan max 1 snapshot per dag op (unique constraint op
   // (kvk, snapshot_at) maakt dit best-effort). On-conflict do nothing
   // wordt door supabase-js niet direct ondersteund; we slikken errors.
-  const { error: snapErr } = await supabase
-    .from("kvk_snapshots")
-    .insert(snapshotRows);
-  if (snapErr && !snapErr.message.includes("duplicate")) {
-    console.warn(`kvk_snapshots insert: ${snapErr.message}`);
+  if (snapshotRows.length > 0) {
+    const { error: snapErr } = await supabase
+      .from("kvk_snapshots")
+      .insert(snapshotRows);
+    if (snapErr && !snapErr.message.includes("duplicate")) {
+      console.warn(`kvk_snapshots insert: ${snapErr.message}`);
+    }
   }
 }
 
@@ -637,7 +1172,27 @@ async function isScrapeStale(
     .select("id", { count: "exact", head: true })
     .eq("kvk", kvk)
     .gte("detected_at", cutoff);
-  return (count ?? 0) === 0;
+  if ((count ?? 0) === 0) return true;
+
+  // Schema-staleness: signals zijn fresh, maar één van de cached
+  // MCP-payloads heeft een verouderd schema-version (bv. nieuwe
+  // contactPoints-veld na een MCP-upgrade). Dan moeten we toch een
+  // re-scrape doen zodat de nieuwe data binnenkomt.
+  const { detectStaleTools } = await import("@/lib/orchestrator/raw-cache");
+  const staleTools = await detectStaleTools(
+    supabase,
+    kvk,
+    [
+      "get_company_website_content",
+      "extract_vacancies_from_company_site",
+      "search_court_cases",
+      "search_labor_inspections",
+      "search_insolvencies",
+      "search_company_news",
+    ],
+    ttlDays,
+  );
+  return staleTools.length > 0;
 }
 
 async function fetchRecentSignals(
@@ -646,9 +1201,12 @@ async function fetchRecentSignals(
   ttlDays: number,
 ): Promise<StoredSignal[]> {
   const cutoff = new Date(Date.now() - ttlDays * 86_400_000).toISOString();
+  // detected_at meeselecteren — scoring/index.ts::recencyFactor() heeft
+  // 'm nodig voor de exp-decay. Zonder deze kolom in SELECT viel decay
+  // permanent op 1, waardoor oude signalen even zwaar telden als verse.
   const { data } = await supabase
     .from("signals")
-    .select("categorie, cluster, sterkte, confidence, observatie, bron_type, bron_url, bewijs")
+    .select("categorie, cluster, sterkte, confidence, observatie, detected_at, bron_type, bron_url, bewijs")
     .eq("kvk", kvk)
     .gte("detected_at", cutoff);
   return ((data ?? []) as Array<{
@@ -689,12 +1247,18 @@ function parseClusterColumn(
 async function logSearchStart(
   supabase: SupabaseClient,
   filters: SearchFilters,
+  scope: { orgId: string | null; ownerId: string | null } = {
+    orgId: null,
+    ownerId: null,
+  },
 ): Promise<string> {
   const { data, error } = await supabase
     .from("search_queries")
     .insert({
       filters: filters as unknown as object,
       status: "running",
+      org_id: scope.orgId,
+      created_by: scope.ownerId,
     })
     .select("id")
     .single();
@@ -704,6 +1268,16 @@ async function logSearchStart(
     return `local-${Date.now()}`;
   }
   return data.id as string;
+}
+
+async function tryGetOrgId(): Promise<string | null> {
+  if (!authConfigured()) return null;
+  try {
+    const me = await getCurrentUser();
+    return me?.orgId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function updateStep(
@@ -726,6 +1300,20 @@ async function logSearchComplete(
     totalScraped: number;
     totalLeadsReturned: number;
     durationMs: number;
+    timing: {
+      kvk_ms: number;
+      basisprofiel_ms: number;
+      geo_ms: number;
+      scrape_ms: number;
+      score_ms: number;
+    };
+    cost: {
+      totalUsd: number;
+      calls: number;
+      inputTokens: number;
+      outputTokens: number;
+      budgetExceeded: boolean;
+    };
   },
 ): Promise<void> {
   if (searchQueryId.startsWith("local-")) return;
@@ -738,6 +1326,16 @@ async function logSearchComplete(
       total_leads_returned: meta.totalLeadsReturned,
       duration_ms: meta.durationMs,
       completed_at: new Date().toISOString(),
+      kvk_ms: meta.timing.kvk_ms,
+      basisprofiel_ms: meta.timing.basisprofiel_ms,
+      geo_ms: meta.timing.geo_ms,
+      scrape_ms: meta.timing.scrape_ms,
+      score_ms: meta.timing.score_ms,
+      total_cost_usd: meta.cost.totalUsd,
+      classification_calls: meta.cost.calls,
+      classification_input_tokens: meta.cost.inputTokens,
+      classification_output_tokens: meta.cost.outputTokens,
+      budget_exceeded: meta.cost.budgetExceeded,
     })
     .eq("id", searchQueryId);
 }
@@ -760,12 +1358,19 @@ async function logSearchFailed(
 
 async function persistScoredLeads(
   supabase: SupabaseClient,
-  searchQueryId: string,
+  searchQueryId: string | null,
   leads: Lead[],
+  orgId: string | null,
 ): Promise<void> {
-  if (searchQueryId.startsWith("local-") || leads.length === 0) return;
+  if (
+    leads.length === 0 ||
+    (searchQueryId !== null && searchQueryId.startsWith("local-"))
+  ) {
+    return;
+  }
   const rows = leads.map((l) => ({
     search_query_id: searchQueryId,
+    org_id: orgId,
     kvk: l.kvk,
     warmte: l.warmte,
     totale_score: scoreFromObservatie(l) ?? 0,
@@ -788,13 +1393,18 @@ const BRON_TYPE_TO_BRON: Record<string, Bron> = {
   nla: "NLA",
   insolventie: "Insolventieregister",
   news: "Nieuws",
-  vacatures: "Jobdigger",
+  vacatures: "Vacatures",
   kvk: "KvK",
 };
 
 function toLeadSignaal(row: StoredSignal): UiSignaal {
   const bron = BRON_TYPE_TO_BRON[row.bron_type ?? ""] ?? "Nieuws";
-  return { tekst: row.observatie, bron };
+  return {
+    tekst: row.observatie,
+    bron,
+    bewijs: row.bewijs && row.bewijs.length > 0 ? row.bewijs : undefined,
+    bronUrl: row.bron_url || undefined,
+  };
 }
 
 function scoreToLead(
@@ -829,6 +1439,8 @@ function scoreToLead(
       score: d.score,
     })),
     observatie: score.samenvatting,
+    cold_redenen:
+      score.cold_redenen.length > 0 ? score.cold_redenen : undefined,
   };
 }
 

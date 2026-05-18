@@ -14,9 +14,9 @@
 //     errors (max 2 retries, totaal max ~3s extra latency).
 //   - Circuit breaker: 5 opeenvolgende failures binnen 30s → break;
 //     vervolgens 60s open en daarna half-open (1 probe).
-//   - RPS-throttle: per-instance token-bucket zodat parallel werkers
-//     niet meer dan N calls/sec naar dezelfde MCP-server schieten.
-//     Beschermt vooral mcp-bedrijven tegen KvK's harde 3 rps quota.
+//   - RPS-throttle: per-instance token-bucket zodat parallel werkers niet
+//     meer dan N calls/sec naar dezelfde MCP-server schieten. Beschermt
+//     vooral mcp-bedrijven tegen KvK's harde 3 rps quota.
 
 import type { ZodSchema } from "zod";
 
@@ -86,18 +86,21 @@ function isRetryableHttp(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
+function isRetryableToolError(message: string): boolean {
+  if (/tenant resolution failed/i.test(message)) return false;
+  return /\b(429|too many requests)\b/i.test(message);
+}
+
 async function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // Token-bucket rate-limiter — refilled bij elke acquire op basis van
 // verstreken tijd. Doel: gemiddeld ≤ ratePerSec calls/sec; korte burst
-// tot `burst` tokens. Volgorde is FIFO via een wait-queue zodat een
-// hammered instance niet één worker laat verhongeren.
+// tot `burst` tokens.
 class RateLimiter {
   private tokens: number;
   private lastRefill = Date.now();
-  private readonly waiters: Array<() => void> = [];
 
   constructor(
     private readonly ratePerSec: number,
@@ -114,19 +117,8 @@ class RateLimiter {
         this.tokens -= 1;
         return;
       }
-      // Wacht tot we minstens 1 token verdiend hebben.
       const ms = Math.ceil(((1 - this.tokens) / this.ratePerSec) * 1000);
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          const idx = this.waiters.indexOf(resolve);
-          if (idx !== -1) this.waiters.splice(idx, 1);
-          resolve();
-        }, ms);
-        this.waiters.push(() => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
+      await delay(ms);
     }
   }
 
@@ -192,8 +184,11 @@ export class McpHttpClient {
         false,
       );
     }
+    const startedAt = Date.now();
     let lastErr: unknown;
+    let attempts = 0;
     for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+      attempts = attempt;
       try {
         const result = await this.attemptCallTool(
           toolName,
@@ -202,6 +197,7 @@ export class McpHttpClient {
           responseSchema,
         );
         this.breaker.onSuccess();
+        void this.logCall(toolName, tenantContext, startedAt, attempts, null);
         return result;
       } catch (err) {
         lastErr = err;
@@ -213,8 +209,48 @@ export class McpHttpClient {
         await delay(wait + Math.floor(Math.random() * 100));
       }
     }
-    this.breaker.onFailure();
+    // Tel alleen server-degraded fouten mee voor de breaker. Application-
+    // level fouten (404, isError-tool-results, schema-mismatch) zijn
+    // legitieme uitkomsten en mogen 'm niet openen — anders trippt 'ie
+    // op een handvol uitgeschreven kvk-nummers in een batch van 100.
+    if (lastErr instanceof McpCallError ? lastErr.retryable : true) {
+      this.breaker.onFailure();
+    }
+    void this.logCall(toolName, tenantContext, startedAt, attempts, lastErr);
     throw lastErr;
+  }
+
+  private async logCall(
+    toolName: string,
+    tenantContext: TenantContext,
+    startedAt: number,
+    attempts: number,
+    err: unknown,
+  ): Promise<void> {
+    try {
+      const { logObs } = await import("@/lib/observability/logger");
+      const orgId =
+        (tenantContext as { organizationId?: string }).organizationId ?? null;
+      await logObs({
+        type: err ? "warning" : "info",
+        category: "mcp",
+        message: `MCP ${toolName} ${err ? "FAIL" : "OK"} · ${this.clientName}`,
+        orgId,
+        metadata: {
+          tool: toolName,
+          mcp_url: this.baseUrl,
+          duration_ms: Date.now() - startedAt,
+          attempts,
+          error: err
+            ? err instanceof Error
+              ? err.message
+              : String(err)
+            : undefined,
+        },
+      });
+    } catch {
+      // observability mag de hot-path nooit ophouden
+    }
   }
 
   private async attemptCallTool<T>(
@@ -277,6 +313,13 @@ export class McpHttpClient {
     if (!textBlock) {
       throw new McpCallError("Geen text-block in MCP-response", toolName, false);
     }
+    // MCP-tools die falen retourneren `{isError: true, content:[{text: "..."}]}`
+    // met een plain-text error message — geen JSON. Surface de tekst zodat
+    // upstream issues (bv. KvK 520) niet als "Ongeldige JSON" verschijnen.
+    if (json.result?.isError === true) {
+      const message = textBlock.text || "MCP tool error";
+      throw new McpCallError(message, toolName, isRetryableToolError(message));
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(textBlock.text);
@@ -287,7 +330,19 @@ export class McpHttpClient {
         false,
       );
     }
-    return responseSchema.parse(parsed);
+    // Wrap zod-validatie zodat schema-mismatch een non-retryable
+    // McpCallError wordt — anders telt 'ie als "server degraded" en
+    // trippt de breaker bij het eerste handvol records met onverwachte
+    // velden.
+    try {
+      return responseSchema.parse(parsed);
+    } catch (err) {
+      throw new McpCallError(
+        `Schema-mismatch in MCP-response van ${toolName}: ${String(err)}`,
+        toolName,
+        false,
+      );
+    }
   }
 
   private buildHeaders(): Record<string, string> {
@@ -358,7 +413,7 @@ export class McpHttpClient {
 // MCP Streamable HTTP kan zowel application/json als text/event-stream
 // retourneren voor JSON-RPC responses. We accepteren beide.
 async function parseJsonRpc(response: Response): Promise<{
-  result?: { content?: unknown[] };
+  result?: { content?: unknown[]; isError?: boolean };
   error?: { message?: string };
 }> {
   const contentType = response.headers.get("content-type") ?? "";

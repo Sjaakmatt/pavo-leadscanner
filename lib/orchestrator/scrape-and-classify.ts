@@ -19,7 +19,7 @@ import { VacaturesMcp } from "@/lib/mcp/vacatures";
 import { JuridischMcp } from "@/lib/mcp/juridisch";
 import { NewsMcp } from "@/lib/mcp/news";
 import {
-  classifyWebsite,
+  classifyWebsiteFull,
   classifyRechtspraak,
   classifyNla,
   classifyInsolventie,
@@ -30,6 +30,12 @@ import {
 } from "@/lib/classification";
 import type { Signaal } from "@/lib/scoring/types";
 import { persistRaw, readRaw, type CachedToolName } from "./raw-cache";
+import { upsertWebsiteContacts } from "@/lib/lead-source/contacts";
+import {
+  deriveContactsFromPages,
+  upsertDeterministicContacts,
+} from "@/lib/contacts/from-website";
+import { inferWebsiteUrl, resolveWebsiteUrl } from "./website-inference";
 import type {
   WebsiteScrapeResult,
   VacatureRawResult,
@@ -67,6 +73,9 @@ export type OrchestrationResult = {
   signalen: Signaal[];
   durationMs: number;
   failures: string[]; // tool-namen die faalden, voor logging
+  // Geinferreerde website-URL als KvK 'm niet leverde — caller kan deze
+  // optioneel terug-persisten naar companies-tabel.
+  inferredWebsiteUrl?: string;
 };
 
 const TOOL_TIMEOUT_MS = 60_000;
@@ -98,11 +107,64 @@ export async function scrapeAndClassifyCompany(
     parentCallId: parentCtx.toolCallId,
   });
 
+  // Website-resolutie: valideer KvK-URL en probeer www/non-www fallback.
+  // Als KvK geen websiteUrl had, leid 'm af uit de bedrijfsnaam
+  // ("Joz B.V." → joz.nl). Persist terug naar companies zodat volgende
+  // searches direct de werkende variant gebruiken.
+  let resolvedWebsiteUrl = company.websiteUrl;
+  let inferredWebsiteUrl: string | undefined;
+  if (resolvedWebsiteUrl) {
+    try {
+      const resolved = await resolveWebsiteUrl(resolvedWebsiteUrl);
+      if (resolved) {
+        if (resolved !== resolvedWebsiteUrl) {
+          console.log(
+            `[orchestrator] resolved website variant for ${company.kvk}: ${resolvedWebsiteUrl} -> ${resolved}`,
+          );
+          void persistWebsiteUrl(supabase, company.kvk, resolved);
+        }
+        resolvedWebsiteUrl = resolved;
+      } else {
+        // Probe faalt — kan ook bij sites die HEAD/GET voor scrapers
+        // blokkeren maar wel echt content serveren (Cloudflare-protected,
+        // WAF, etc.). NIET de URL droppen; geef 'm aan de MCP, die
+        // doet z'n eigen www-toggle + browser-rendered fetch in
+        // shared/scraping/browser-fetcher.ts. Logging blijft staan
+        // zodat we weten wanneer 't gebeurt.
+        console.warn(
+          `[orchestrator] probe-fail ${company.kvk}: ${resolvedWebsiteUrl} — geef alsnog aan MCP, die heeft eigen fallback`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[orchestrator] resolveWebsiteUrl faalde voor ${company.kvk}: ${String(err)}`,
+      );
+    }
+  } else {
+    try {
+      const inferred = await inferWebsiteUrl(company.naam);
+      if (inferred) {
+        resolvedWebsiteUrl = inferred;
+        inferredWebsiteUrl = inferred;
+        console.log(
+          `[orchestrator] inferred website for ${company.kvk} "${company.naam}": ${inferred}`,
+        );
+        // Best-effort persist; faalt deze update dan loopt de pipeline
+        // gewoon door — next-run probeert opnieuw.
+        void persistWebsiteUrl(supabase, company.kvk, inferred);
+      }
+    } catch (err) {
+      console.warn(
+        `[orchestrator] inferWebsiteUrl faalde voor ${company.kvk}: ${String(err)}`,
+      );
+    }
+  }
+
   // Fase 1: alle scrapers parallel — elk faalt onafhankelijk.
   // Iedere fetch loopt via fetchWithCache() die de raw-cache leest/schrijft.
   const tasks: Array<Promise<{ tool: string; signals: Signaal[] }>> = [];
 
-  if (company.websiteUrl) {
+  if (resolvedWebsiteUrl) {
     tasks.push(
       fetchWithCache<WebsiteScrapeResult>(
         supabase,
@@ -112,13 +174,25 @@ export async function scrapeAndClassifyCompany(
         () =>
           mcps.bedrijven.getCompanyWebsiteContent(
             ctxFor("get_company_website_content"),
-            { url: company.websiteUrl!, maxPages: 5 },
+            { url: resolvedWebsiteUrl!, maxPages: 5 },
           ),
-      ).then(async (r) =>
-        r
-          ? { tool: "website", signals: await classifyWebsite(company, r) }
-          : mark("get_company_website_content"),
-      ),
+      ).then(async (r) => {
+        if (!r) return mark("get_company_website_content");
+        // Deterministische contact-extractie eerst — gratis, instant.
+        // Pakt info@/sales@/+31… die in HTML-anchors of JSON-LD staan
+        // maar door de cleaned-text-LLM-flow gemist worden.
+        const deterministic = deriveContactsFromPages(company.kvk, r.pages);
+        if (deterministic.length > 0) {
+          void upsertDeterministicContacts(supabase, deterministic);
+        }
+        const full = await classifyWebsiteFull(company, r);
+        // Best-effort: contacten persisten in een fire-and-forget zodat
+        // signaal-flow niet wacht op de contacts-upsert.
+        if (full.contacten.length > 0) {
+          void upsertWebsiteContacts(supabase, company.kvk, full.contacten);
+        }
+        return { tool: "website", signals: full.signalen };
+      }),
     );
     tasks.push(
       fetchWithCache<VacatureRawResult>(
@@ -129,7 +203,7 @@ export async function scrapeAndClassifyCompany(
         () =>
           mcps.vacatures.extractVacanciesFromCompanySite(
             ctxFor("extract_vacancies_from_company_site"),
-            { url: company.websiteUrl! },
+            { url: resolvedWebsiteUrl! },
           ),
       ).then((r) =>
         r
@@ -148,6 +222,13 @@ export async function scrapeAndClassifyCompany(
       () =>
         mcps.juridisch.searchCourtCases(ctxFor("search_court_cases"), {
           company_names: company.zoeknamen,
+          // Pre-filter op rechtsgebied bij de feed. Eerder werd dit
+          // veld leeggelaten waardoor BPM/strafrecht/bestuursrecht-
+          // cases die toevallig op naam matchten doorkwamen en door
+          // de classifier ten onrechte als arbeidsrecht-patroon werden
+          // geïnterpreteerd. Server-side is er een extra strict filter
+          // op rechtsgebied + naam-match (defense in depth).
+          legal_area: "arbeidsrecht",
         }),
     ).then(async (r) =>
       r
@@ -199,9 +280,8 @@ export async function scrapeAndClassifyCompany(
       opts.refreshRaw ?? false,
       () =>
         mcps.news.searchCompanyNews(ctxFor("search_company_news"), {
-          company_names: company.zoeknamen.length > 0
-            ? company.zoeknamen
-            : [company.naam],
+          company_names:
+            company.zoeknamen.length > 0 ? company.zoeknamen : [company.naam],
           max_results: 20,
         }),
     ).then(async (r) =>
@@ -237,6 +317,7 @@ export async function scrapeAndClassifyCompany(
     signalen: allSignals,
     durationMs: Date.now() - start,
     failures,
+    inferredWebsiteUrl,
   };
 
   function mark(tool: string): { tool: string; signals: Signaal[] } {
@@ -264,6 +345,23 @@ export async function scrapeAndClassifyCompany(
       console.warn(`[orchestrator] ${tool} faalde voor ${kvk}:`, err);
       return null;
     }
+  }
+}
+
+async function persistWebsiteUrl(
+  supabase: SupabaseClient,
+  kvk: string,
+  websiteUrl: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("companies")
+    .update({
+      website_url: websiteUrl,
+      last_updated_at: new Date().toISOString(),
+    })
+    .eq("kvk", kvk);
+  if (error) {
+    console.warn(`[orchestrator] website_url update faalde voor ${kvk}: ${error.message}`);
   }
 }
 

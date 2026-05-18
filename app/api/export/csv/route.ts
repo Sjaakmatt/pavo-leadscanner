@@ -1,5 +1,6 @@
 import { getLeadSource } from "@/lib/lead-source";
 import type { Lead, SearchFilters } from "@/lib/adapters/types";
+import { parseSearchFilters, validationErrorMessage } from "@/lib/adapters/validation";
 import { factum } from "@/lib/factum/client";
 
 export const runtime = "nodejs";
@@ -47,9 +48,9 @@ function leadToRow(lead: Lead): string {
 export async function POST(req: Request) {
   let filters: SearchFilters;
   try {
-    filters = (await req.json()) as SearchFilters;
-  } catch {
-    return new Response("Invalid JSON body", { status: 400 });
+    filters = parseSearchFilters(await req.json());
+  } catch (err) {
+    return new Response(validationErrorMessage(err), { status: 400 });
   }
 
   const startedAt = Date.now();

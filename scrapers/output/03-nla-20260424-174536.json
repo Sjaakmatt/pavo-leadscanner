@@ -1,0 +1,100 @@
+{
+  "scraper": "03-nla",
+  "startedAt": "2026-04-24T15:44:51.069Z",
+  "finishedAt": "2026-04-24T15:45:36.684Z",
+  "companiesAttempted": 3,
+  "companiesSucceeded": 3,
+  "totalSignals": 0,
+  "verdict": "productie_klaar",
+  "verdict_toelichting": "Portals ondervraagbaar voor 100% van de bedrijven. 0 treffer(s). < 5% hit-rate is normaal voor NLA — geen hits is geen falen.",
+  "totalCost": {
+    "inputTokens": 17866,
+    "outputTokens": 1716,
+    "estimatedUsd": 0.079338
+  },
+  "results": [
+    {
+      "company": {
+        "id": "kuin",
+        "naam": "Kuin Aannemingsbedrijf",
+        "zoeknamen": [
+          "Kuin Aannemingsbedrijf",
+          "Aannemingsbedrijf Kuin",
+          "Kuin B.V."
+        ],
+        "url": "https://kuinbv.nl",
+        "verwachteFte": 50,
+        "sector": "Bouw",
+        "cluster": 2,
+        "notitie": "West-Friese bouwer"
+      },
+      "success": true,
+      "durationMs": 17847,
+      "hitCount": 0,
+      "signals": [],
+      "cost": {
+        "inputTokens": 6029,
+        "outputTokens": 713,
+        "estimatedUsd": 0.028782
+      },
+      "debug": {
+        "pathTaken": "web_fetch"
+      }
+    },
+    {
+      "company": {
+        "id": "joz",
+        "naam": "JOZ",
+        "zoeknamen": [
+          "JOZ B.V.",
+          "JOZ Westwoud",
+          "JOZ stalreiniging"
+        ],
+        "url": "https://joz.nl",
+        "verwachteFte": 95,
+        "sector": "Agri-tech productie",
+        "cluster": 2,
+        "notitie": "Machinebouwer voor veehouderij"
+      },
+      "success": true,
+      "durationMs": 14761,
+      "hitCount": 0,
+      "signals": [],
+      "cost": {
+        "inputTokens": 6147,
+        "outputTokens": 544,
+        "estimatedUsd": 0.026601
+      },
+      "debug": {
+        "pathTaken": "web_fetch"
+      }
+    },
+    {
+      "company": {
+        "id": "tpahga",
+        "naam": "TPAHG architecten",
+        "zoeknamen": [
+          "TPAHG architecten",
+          "TPAHG"
+        ],
+        "url": "https://www.tpahga.nl",
+        "verwachteFte": 23,
+        "sector": "Architectuur",
+        "cluster": 3,
+        "notitie": "Klein architectenbureau"
+      },
+      "success": true,
+      "durationMs": 13005,
+      "hitCount": 0,
+      "signals": [],
+      "cost": {
+        "inputTokens": 5690,
+        "outputTokens": 459,
+        "estimatedUsd": 0.023955000000000004
+      },
+      "debug": {
+        "pathTaken": "web_fetch"
+      }
+    }
+  ]
+}

@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { tryGetSupabase } from "@/lib/supabase/client";
 import type { SearchFilters } from "@/lib/adapters/types";
+import { resolveOwnerScope } from "@/lib/auth/server";
+import { parseSearchFilters, validationErrorMessage } from "@/lib/adapters/validation";
 
 export const runtime = "nodejs";
 
-function resolveOwner(req: Request): string {
-  return req.headers.get("x-pavo-owner")?.trim() || "default";
-}
-
 export async function GET(req: Request) {
-  const owner = resolveOwner(req);
+  const scope = await resolveOwnerScope(req);
+  if (!scope.ownerId && !req.headers.get("x-pavo-owner")) {
+    return NextResponse.json({ error: "Niet ingelogd" }, { status: 401 });
+  }
   const supabase = tryGetSupabase();
   if (!supabase) {
     return NextResponse.json(
@@ -17,11 +18,15 @@ export async function GET(req: Request) {
       { status: 503 },
     );
   }
-  const { data, error } = await supabase
+  let query = supabase
     .from("saved_searches")
     .select("*")
-    .eq("owner", owner)
     .order("updated_at", { ascending: false });
+  if (scope.orgId) query = query.eq("org_id", scope.orgId);
+  query = scope.ownerId
+    ? query.eq("owner_id", scope.ownerId)
+    : query.eq("owner", scope.ownerLabel);
+  const { data, error } = await query;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -29,7 +34,10 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const owner = resolveOwner(req);
+  const scope = await resolveOwnerScope(req);
+  if (!scope.ownerId && !req.headers.get("x-pavo-owner")) {
+    return NextResponse.json({ error: "Niet ingelogd" }, { status: 401 });
+  }
 
   let body: {
     naam?: string;
@@ -48,6 +56,15 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  let filters: SearchFilters;
+  try {
+    filters = parseSearchFilters(body.filters);
+  } catch (err) {
+    return NextResponse.json(
+      { error: validationErrorMessage(err) },
+      { status: 400 },
+    );
+  }
 
   const supabase = tryGetSupabase();
   if (!supabase) {
@@ -61,9 +78,11 @@ export async function POST(req: Request) {
     .from("saved_searches")
     .insert([
       {
-        owner,
+        owner: scope.ownerLabel,
+        owner_id: scope.ownerId,
+        org_id: scope.orgId,
         naam: body.naam,
-        filters: body.filters as unknown as object,
+        filters: filters as unknown as object,
         alert_enabled: !!body.alert_enabled,
       },
     ])

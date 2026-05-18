@@ -4,7 +4,7 @@ export type Bron =
   | "KvK"
   | "KvK-historie"
   | "KvK-deponering"
-  | "Jobdigger"
+  | "Vacatures"
   | "bedrijfswebsite"
   | "Rechtspraak.nl"
   | "NLA"
@@ -17,6 +17,12 @@ export type Bron =
 export type Signaal = {
   tekst: string;
   bron: Bron;
+  // Optioneel — wordt door de productie-laag aangeleverd uit
+  // signals.bewijs (letterlijke quote(s)) en signals.bron_url
+  // (klikbare link). Demo-data heeft deze velden meestal niet, dus
+  // zijn ze optioneel zodat de UI graceful degradeert.
+  bewijs?: string[];
+  bronUrl?: string;
 };
 
 export type DienstCode =
@@ -74,6 +80,10 @@ export type Lead = {
   signalen: Signaal[];
   diensten: DienstMatch[];
   observatie: string;
+  // Voor COLD leads: korte lijst met concrete redenen waarom er geen
+  // HR-signalen zijn gevonden. Optional zodat HOT/WARM 'm gewoon
+  // weglaten en oude data zonder veld blijft werken.
+  cold_redenen?: string[];
   // Optional so leads without coordinates still load. When regio_center is
   // set on a search, leads without coords are excluded.
   lat?: number;
@@ -86,6 +96,13 @@ export type SearchFilters = {
   regio_center: LatLng | null;
   regio_straal_km: number;
   signaal_query: string;
+  /**
+   * Optionele runtime override op het max-aantal betaalde KvK-basisprofielen
+   * per zoekopdracht. Default uit env-var `MAX_BASISPROFIELEN_PER_SEARCH`
+   * (500). Wordt server-side gecapped op het hard-ceiling om kosten-uit-
+   * de-hand-lopen te voorkomen.
+   */
+  max_basisprofielen?: number;
 };
 
 export type SearchResult = {
@@ -109,6 +126,9 @@ export type SearchProgressEvent =
   | { type: "geo"; remaining: number }
   | { type: "scrape"; kvk: string; naam: string; scraped: number; total: number; costUsd: number }
   | { type: "score"; scored: number; total: number }
+  // Incremental delivery — emit per lead zodra hij gescoord is, zodat
+  // de UI 'em direct kan tonen.
+  | { type: "lead"; lead: Lead }
   | { type: "done"; totalLeadsReturned: number; totalCostUsd: number; durationMs: number }
   | { type: "error"; message: string };
 
@@ -116,10 +136,17 @@ export type RunSearchOptions = {
   onEvent?: (event: SearchProgressEvent) => void;
   // Negeert de 30-dagen cache en forceert herscrapen van alle kandidaten.
   refresh?: boolean;
+  // Org/owner-scope-overrides voor cron + background jobs zonder
+  // request-context. Bij user-driven searches blijven deze leeg en
+  // pakt de pipeline 'm uit de session.
+  orgId?: string | null;
+  ownerId?: string | null;
 };
 
 export type GetLeadOptions = {
   refresh?: boolean;
+  /** Optionele org-context (defaults via getCurrentUser). */
+  orgId?: string | null;
 };
 
 export interface LeadSource {

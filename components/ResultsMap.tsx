@@ -21,26 +21,27 @@ type Props = {
 // Warmte-colored dot marker — rendered via divIcon to avoid shipping
 // Leaflet's default marker PNGs and to keep the palette consistent
 // with the rest of the UI.
-const COLORS: Record<Warmte, { fill: string; ring: string }> = {
-  HOT: { fill: "#E87544", ring: "#B85628" },
-  WARM: { fill: "#E3C35C", ring: "#A88E30" },
-  COLD: { fill: "#CED4DA", ring: "#6C757D" },
+const COLORS: Record<Warmte, { fill: string; ring: string; glow: string }> = {
+  HOT: { fill: "#FF6B47", ring: "#B85628", glow: "rgba(255,107,71,0.45)" },
+  WARM: { fill: "#F5C84A", ring: "#A88E30", glow: "rgba(245,200,74,0.40)" },
+  COLD: { fill: "#CED4DA", ring: "#6C757D", glow: "rgba(206,212,218,0.30)" },
 };
 
 function markerIcon(warmte: Warmte): L.DivIcon {
   const c = COLORS[warmte];
+  const size = warmte === "HOT" ? 22 : warmte === "WARM" ? 18 : 14;
   return L.divIcon({
     className: "pavo-result-marker",
     html: `<div style="
-      width: 20px;
-      height: 20px;
+      width: ${size}px;
+      height: ${size}px;
       border-radius: 50%;
       background: ${c.fill};
       border: 2px solid white;
-      box-shadow: 0 0 0 1.5px ${c.ring};
+      box-shadow: 0 0 0 1.5px ${c.ring}, 0 4px 12px ${c.glow};
     "></div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
   });
 }
 
@@ -71,7 +72,7 @@ export default function ResultsMap({ leads }: Props) {
   );
 
   return (
-    <div className="relative h-[520px] w-full overflow-hidden rounded-lg border border-pavo-gray-100">
+    <div className="relative h-[520px] w-full overflow-hidden rounded-2xl border border-pavo-ink/[0.06] shadow-card">
       <MapContainer
         center={NL_CENTER}
         zoom={7}
@@ -117,8 +118,11 @@ export default function ResultsMap({ leads }: Props) {
       </MapContainer>
 
       {/* Compacte legenda rechtsonder */}
-      <div className="pointer-events-none absolute bottom-3 right-3 rounded-lg bg-white/95 px-3 py-2 text-xs shadow-md">
-        <div className="flex flex-col gap-1">
+      <div className="pointer-events-none absolute bottom-3 right-3 rounded-xl border border-pavo-ink/[0.06] bg-white/90 px-3 py-2 text-xs shadow-card backdrop-blur-sm">
+        <div className="mb-1.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-pavo-gray-600">
+          Warmte
+        </div>
+        <div className="flex flex-col gap-1.5">
           {(["HOT", "WARM", "COLD"] as const).map((w) => (
             <div key={w} className="flex items-center gap-2">
               <span
@@ -128,7 +132,7 @@ export default function ResultsMap({ leads }: Props) {
                   boxShadow: `0 0 0 1.5px ${COLORS[w].ring}`,
                 }}
               />
-              <span className="text-pavo-gray-900">{w}</span>
+              <span className="font-medium text-pavo-navy">{w}</span>
             </div>
           ))}
         </div>

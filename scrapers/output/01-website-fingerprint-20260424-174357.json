@@ -1,0 +1,289 @@
+{
+  "scraper": "01-website-fingerprint",
+  "startedAt": "2026-04-24T15:42:00.003Z",
+  "finishedAt": "2026-04-24T15:43:57.002Z",
+  "companiesAttempted": 3,
+  "companiesSucceeded": 3,
+  "totalSignals": 13,
+  "verdict": "productie_klaar",
+  "verdict_toelichting": "100% slagingspercentage, waarvan 3 via web_fetch. Stabiele hybride scraper.",
+  "totalCost": {
+    "inputTokens": 46963,
+    "outputTokens": 3692,
+    "estimatedUsd": 0.196269
+  },
+  "results": [
+    {
+      "company": {
+        "id": "kuin",
+        "naam": "Kuin Aannemingsbedrijf",
+        "zoeknamen": [
+          "Kuin Aannemingsbedrijf",
+          "Aannemingsbedrijf Kuin",
+          "Kuin B.V."
+        ],
+        "url": "https://kuinbv.nl",
+        "verwachteFte": 50,
+        "sector": "Bouw",
+        "cluster": 2,
+        "notitie": "West-Friese bouwer"
+      },
+      "success": true,
+      "durationMs": 30939,
+      "hitCount": 4,
+      "signals": [
+        {
+          "categorie": "geen_hr_rol_zichtbaar",
+          "cluster": 1,
+          "sterkte": 85,
+          "confidence": 90,
+          "observatie": "Navigatie en contactpagina tonen geen HR-, P&O- of peoplemanagement-rol.",
+          "bewijs": [
+            "\"home\", \"nieuws\", \"over KUIN\", \"team\", \"kopersbegeleiding\", \"Brochures\", \"Woningborg\", \"showroom\", \"nieuwbouw\", \"projectontwikkeling\", \"verhuur\", \"Werken bij\", \"contact\""
+          ],
+          "bron_url": "https://kuinbv.nl"
+        },
+        {
+          "categorie": "langlopende_vacatures",
+          "cluster": 2,
+          "sterkte": 80,
+          "confidence": 95,
+          "observatie": "Vacaturepagina's staan al 563 tot 1031 dagen ongewijzigd in de sitemap.",
+          "bewijs": [
+            "Sitemap: https://kuinbv.nl/vacatures/ — lastmod 2023-06-28 (1031 dagen geleden)",
+            "Sitemap: https://kuinbv.nl/werken-bij/ — lastmod 2024-10-08 (563 dagen geleden)",
+            "JSON-LD JobPostings: 0 gestructureerde vacatures gedetecteerd"
+          ],
+          "bron_url": "https://kuinbv.nl"
+        },
+        {
+          "categorie": "klein_team_in_groei",
+          "cluster": 3,
+          "sterkte": 65,
+          "confidence": 80,
+          "observatie": "75 medewerkers maar actief in meerdere provincies met lopende nieuwbouwprojecten.",
+          "bewijs": [
+            "\"Met ruim 75 medewerkers staat Kuin al meer dan 100 jaar zo vast als een huis.\"",
+            "\"op diverse locaties in Noord-Holland, Flevoland, Zuid-Holland en Friesland sterk vertegenwoordigd\""
+          ],
+          "bron_url": "https://kuinbv.nl"
+        },
+        {
+          "categorie": "founder_run",
+          "cluster": 3,
+          "sterkte": 55,
+          "confidence": 60,
+          "observatie": "Familiebedrijf met meer dan 100 jaar geschiedenis; familienaam Kuin centraal in merk en auteursnaam.",
+          "bewijs": [
+            "\"Kuin begon als klein familiebedrijf en is uitgegroeid tot een belangrijke speler binnen de bouw- en vastgoedwereld.\"",
+            "Auteur nieuwsberichten: \"Martine Dekker\" (auteur-slug: martine-kuin)"
+          ],
+          "bron_url": "https://kuinbv.nl"
+        }
+      ],
+      "cost": {
+        "inputTokens": 14419,
+        "outputTokens": 926,
+        "estimatedUsd": 0.057147
+      },
+      "debug": {
+        "pathTaken": "web_fetch",
+        "enrichment": {
+          "jobPostings": 0,
+          "vacancyUrls": 2,
+          "pagesProbed": 10,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "company": {
+        "id": "joz",
+        "naam": "JOZ",
+        "zoeknamen": [
+          "JOZ B.V.",
+          "JOZ Westwoud",
+          "JOZ stalreiniging"
+        ],
+        "url": "https://joz.nl",
+        "verwachteFte": 95,
+        "sector": "Agri-tech productie",
+        "cluster": 2,
+        "notitie": "Machinebouwer voor veehouderij"
+      },
+      "success": true,
+      "durationMs": 56511,
+      "hitCount": 6,
+      "signals": [
+        {
+          "categorie": "veel_open_vacatures",
+          "cluster": 2,
+          "sterkte": 90,
+          "confidence": 95,
+          "observatie": "Sitemap toont 9 actieve vacature-URLs, alle gepost of bijgewerkt in 2025–2026.",
+          "bewijs": [
+            "https://joz.nl/vacature/dealer-support-engineer/ (lastmod 2026-02-16)",
+            "https://joz.nl/vacature/inkoop-manager/ (lastmod 2026-02-20)",
+            "https://joz.nl/vacature/operations-manager-gazoo/ (lastmod 2026-03-05)",
+            "https://joz.nl/vacature/operationeel-inkoper/ (lastmod 2026-03-05)",
+            "https://joz.nl/vacature/technical-writer/ (lastmod 2026-03-10)",
+            "https://joz.nl/vacature/financial-controller/ (lastmod 2026-03-19)",
+            "https://joz.nl/vacature/planner/ (lastmod 2026-03-26)",
+            "https://joz.nl/vacature/engineering-robotplatformen-stage/ (lastmod 2026-04-20)",
+            "https://joz.nl/vacature/engineering-simulatieomgeving-stage/ (lastmod 2026-04-20)"
+          ],
+          "bron_url": "https://joz.nl"
+        },
+        {
+          "categorie": "langlopende_vacatures",
+          "cluster": 2,
+          "sterkte": 70,
+          "confidence": 80,
+          "observatie": "Kwaliteit-medewerker-stage al actief sinds januari 2026 (109 dagen geleden); werken-bij pagina bestaat al sinds 2019.",
+          "bewijs": [
+            "https://joz.nl/vacature/kwaliteit-medewerker-stage/ (lastmod 2026-01-05, 109d geleden)",
+            "https://joz.nl/werken-bij/ (lastmod 2019-10-17, 2381d geleden)"
+          ],
+          "bron_url": "https://joz.nl"
+        },
+        {
+          "categorie": "veel_functies_geen_structuur",
+          "cluster": 1,
+          "sterkte": 72,
+          "confidence": 75,
+          "observatie": "Vacatures beslaan inkoop, operations, finance, engineering, technisch schrijven én stages zonder zichtbare afdelingsstructuur.",
+          "bewijs": [
+            "https://joz.nl/vacature/inkoop-manager/",
+            "https://joz.nl/vacature/operations-manager-gazoo/",
+            "https://joz.nl/vacature/financial-controller/",
+            "https://joz.nl/vacature/technical-writer/",
+            "https://joz.nl/vacature/dealer-support-engineer/"
+          ],
+          "bron_url": "https://joz.nl"
+        },
+        {
+          "categorie": "geen_hr_rol_zichtbaar",
+          "cluster": 1,
+          "sterkte": 85,
+          "confidence": 90,
+          "observatie": "Geen HR-, People- of personeelszaken-rol zichtbaar in navigatie, footer of contactpagina.",
+          "bewijs": [
+            "Navigatie toont: Oplossingen, Boeren vertellen, Kennis & Nieuws, Dealers, Stikstof3, Over JOZ, Werken bij JOZ, Contact",
+            "Footer toont: ISO 9001-gecertificeerd, Downloads — geen HR-vermelding"
+          ],
+          "bron_url": "https://joz.nl"
+        },
+        {
+          "categorie": "internationale_uitbreiding",
+          "cluster": 1,
+          "sterkte": 65,
+          "confidence": 70,
+          "observatie": "Website beschikbaar in NL, EN, FR, DE en PL; dealer-netwerk en export-focus zichtbaar.",
+          "bewijs": [
+            "Nederlands (NL), English (EN), Français (FR), Deutsch (DE), polski (PL)",
+            "Vind een dealer bij jou in de buurt",
+            "https://joz.nl/vacature/dealer-support-engineer/"
+          ],
+          "bron_url": "https://joz.nl"
+        },
+        {
+          "categorie": "snelle_groei",
+          "cluster": 1,
+          "sterkte": 65,
+          "confidence": 65,
+          "observatie": "Nieuwe productlijn (Stikstofkraker Gazoo) én operations-manager-vacature daarvoor duiden op snelle productontwikkeling.",
+          "bewijs": [
+            "Stikstofkraker Gazoo",
+            "https://joz.nl/vacature/operations-manager-gazoo/",
+            "Voeraanschuifrobot Moov 2PRO — Nieuw"
+          ],
+          "bron_url": "https://joz.nl"
+        }
+      ],
+      "cost": {
+        "inputTokens": 17753,
+        "outputTokens": 1865,
+        "estimatedUsd": 0.081234
+      },
+      "debug": {
+        "pathTaken": "web_fetch",
+        "enrichment": {
+          "jobPostings": 0,
+          "vacancyUrls": 13,
+          "pagesProbed": 10,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "company": {
+        "id": "tpahga",
+        "naam": "TPAHG architecten",
+        "zoeknamen": [
+          "TPAHG architecten",
+          "TPAHG"
+        ],
+        "url": "https://www.tpahga.nl",
+        "verwachteFte": 23,
+        "sector": "Architectuur",
+        "cluster": 3,
+        "notitie": "Klein architectenbureau"
+      },
+      "success": true,
+      "durationMs": 29548,
+      "hitCount": 3,
+      "signals": [
+        {
+          "categorie": "geen_hr_rol_zichtbaar",
+          "cluster": 1,
+          "sterkte": 90,
+          "confidence": 85,
+          "observatie": "Geen HR-, people- of personeelsrol zichtbaar in navigatie, footer of contactgegevens.",
+          "bewijs": [
+            "Tel.: 0229 212 919",
+            "E-mail: info@tpahga.nl"
+          ],
+          "bron_url": "https://www.tpahga.nl"
+        },
+        {
+          "categorie": "founder_run",
+          "cluster": 3,
+          "sterkte": 65,
+          "confidence": 60,
+          "observatie": "Bedrijfsnaam TPAHG suggereert naamgevingsconventie van oprichter(s); over-ons pagina niet bereikbaar voor bevestiging.",
+          "bewijs": [
+            "TPAHG architecten is gevestigd op het Oostereiland te Hoorn"
+          ],
+          "bron_url": "https://www.tpahga.nl"
+        },
+        {
+          "categorie": "klein_team_in_groei",
+          "cluster": 3,
+          "sterkte": 70,
+          "confidence": 72,
+          "observatie": "Klein architectenbureau met breed en actief projectportfolio, inclusief meerdere recente nieuwbouwstarts in 2025–2026.",
+          "bewijs": [
+            "Eerste paal Meerzicht Scharwoude officieel geslagen",
+            "Eerste contouren iPB Printing in Reusel zichtbaar",
+            "Nieuw Auditorium voor Museum Huis Doorn"
+          ],
+          "bron_url": "https://www.tpahga.nl"
+        }
+      ],
+      "cost": {
+        "inputTokens": 14791,
+        "outputTokens": 901,
+        "estimatedUsd": 0.057888
+      },
+      "debug": {
+        "pathTaken": "web_fetch",
+        "enrichment": {
+          "jobPostings": 0,
+          "vacancyUrls": 0,
+          "pagesProbed": 10,
+          "errors": 0
+        }
+      }
+    }
+  ]
+}

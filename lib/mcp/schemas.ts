@@ -12,27 +12,28 @@ import { z } from "zod";
 
 // ============ mcp-bedrijven ============
 
-// KvK Zoeken-API v2 levert geen SBI of provincie in de zoek-hit (zie
-// shared schema in factumai-mcps). Die velden komen pas uit basisprofiel.
-// Houdt sbiCodes optioneel zodat bestaande consumers blijven werken; nieuwe
-// code leest sbiCodes alleen uit `KvkBasisprofiel`.
+// KvK Zoeken-API v2 levert geen SBI of provincie in de zoek-hit — sbiCodes
+// komen pas uit basisprofiel. `sbiCodes` blijft hier optioneel zodat oudere
+// MCP-adapters niet hard breken. Adres is op de wire genest onder
+// `adres.binnenlandsAdres` maar de MCP projecteert naar deze platte vorm.
 export const KvkZoekHit = z
   .object({
     kvkNummer: z.string(),
     naam: z.string(),
-    handelsnaam: z.string().optional(),
     vestigingsnummer: z.string().optional(),
+    rsin: z.string().optional(),
     sbiCodes: z.array(z.string()).optional(),
-    adres: z.object({
-      straat: z.string().optional(),
-      huisnummer: z.string().optional(),
-      huisletter: z.string().optional(),
-      postcode: z.string().optional(),
-      plaats: z.string(),
-    }).passthrough(),
     type: z.enum(["hoofdvestiging", "nevenvestiging", "rechtspersoon"]).optional(),
     actief: z.boolean().optional(),
-    rsin: z.string().optional(),
+    adres: z
+      .object({
+        straat: z.string().optional(),
+        huisnummer: z.string().optional(),
+        huisletter: z.string().optional(),
+        postcode: z.string().optional(),
+        plaats: z.string(),
+      })
+      .passthrough(),
     fteKlasse: z.string().optional(),
   })
   .passthrough();
@@ -48,7 +49,6 @@ export const KvkVestiging = z.object({
   vestigingsnummer: z.string(),
   adres: z.object({
     plaats: z.string(),
-    provincie: z.string().optional(),
   }),
   isHoofdvestiging: z.boolean(),
 });
@@ -65,8 +65,11 @@ export const KvkBasisprofiel = z
     bestuurders: z.array(KvkBestuurder),
     vestigingen: z.array(KvkVestiging),
     actief: z.boolean(),
-    fteKlasse: z.string().optional(),
+    // FTE-data direct uit basisprofiel (sinds mcp-bedrijven 0.4.0).
     totaalWerkzamePersonen: z.number().int().nonnegative().optional(),
+    fteKlasse: z
+      .enum(["0", "1", "2-4", "5-9", "10-19", "20-49", "50-99", "100-249", "250+"])
+      .optional(),
   })
   .passthrough();
 export type KvkBasisprofiel = z.infer<typeof KvkBasisprofiel>;
@@ -200,6 +203,11 @@ export const VacatureRawResult = z
     vacatures: z.array(Vacature),
     sitemapUrls: z.array(SitemapEntry),
     oudsteVacature: z.string().optional(),
+    // Welke MCP-adapters daadwerkelijk data hebben geleverd (bv.
+    // ['site-scraping','recruitee']). Optioneel — oudere mcp-vacatures
+    // versies vullen 'm niet, dan rendert de classifier "site-scrape"
+    // als bron-label.
+    sourcesChecked: z.array(z.string()).optional(),
   })
   .passthrough();
 export type VacatureRawResult = z.infer<typeof VacatureRawResult>;

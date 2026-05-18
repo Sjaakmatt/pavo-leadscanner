@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { factum } from "@/lib/factum/client";
 import { collectDailyMetrics } from "@/lib/factum/metrics-aggregator";
+import { requireCronAuth } from "@/lib/cron/auth";
+import { runCronWithAlerting } from "@/lib/cron/run-with-alerting";
 
 /**
  * Vercel Cron — elke 5 minuten.
@@ -15,20 +17,14 @@ import { collectDailyMetrics } from "@/lib/factum/metrics-aggregator";
  * draait. Lokaal kun je 'm gewoon met curl triggeren.
  *
  * Auth: Vercel zet `Authorization: Bearer <CRON_SECRET>` op cron-calls.
- * In development (zonder CRON_SECRET) accepteren we elke call zodat
- * lokaal testen met curl gewoon werkt.
+ * In production failt de route gesloten wanneer CRON_SECRET ontbreekt.
  */
 
 let connectedThisInstance = false;
 
 export async function GET(req: NextRequest) {
-  const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${expected}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const authError = requireCronAuth(req);
+  if (authError) return authError;
 
   if (!factum.enabled) {
     return NextResponse.json({
@@ -37,31 +33,30 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Connect bij eerste tick van deze lambda-instance. `factum.connect`
-  // is intern al idempotent (`this.connected` flag), dus dubbel-call
-  // is goedkoop maar overbodig.
-  if (!connectedThisInstance) {
-    await factum.connect({
-      version:
-        process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ??
-        process.env.npm_package_version ??
-        "dev",
-      hostname: process.env.VERCEL_URL ?? "pavo-leadscanner",
-      runtime: `nodejs-${process.version}`,
+  return runCronWithAlerting("factum-sync", async () => {
+    if (!connectedThisInstance) {
+      await factum.connect({
+        version:
+          process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ??
+          process.env.npm_package_version ??
+          "dev",
+        hostname: process.env.VERCEL_URL ?? "pavo-leadscanner",
+        runtime: `nodejs-${process.version}`,
+      });
+      connectedThisInstance = true;
+    }
+
+    const started = Date.now();
+    const metrics = await collectDailyMetrics();
+    const collectMs = Date.now() - started;
+
+    await factum.sendBatch({
+      heartbeat: { status: "online", responseTimeMs: collectMs },
+      metrics,
     });
-    connectedThisInstance = true;
-  }
 
-  const started = Date.now();
-  const metrics = await collectDailyMetrics();
-  const collectMs = Date.now() - started;
-
-  await factum.sendBatch({
-    heartbeat: { status: "online", responseTimeMs: collectMs },
-    metrics,
+    return { metrics, collectMs };
   });
-
-  return NextResponse.json({ ok: true, metrics, collectMs });
 }
 
 export const maxDuration = 30;

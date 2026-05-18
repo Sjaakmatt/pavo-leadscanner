@@ -1,0 +1,106 @@
+// Magic-link callback. Supabase stuurt de browser hierheen met een
+// `?code=...` parameter; we wisselen 'm in voor een sessie en zetten
+// de cookies via @supabase/ssr.
+
+import { NextResponse, type NextRequest } from "next/server";
+import { supabaseRouteClient } from "@/lib/auth/server";
+import { logObs } from "@/lib/observability/logger";
+
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const code = url.searchParams.get("code");
+  const from = url.searchParams.get("from") ?? "/";
+  const supabaseError = url.searchParams.get("error");
+  const supabaseErrorCode = url.searchParams.get("error_code");
+  const supabaseErrorDesc = url.searchParams.get("error_description");
+  const ua = req.headers.get("user-agent")?.slice(0, 100) ?? "?";
+  const incomingCookies = req.cookies.getAll().map((c) => c.name);
+  console.log(
+    `[auth/callback] hit code=${code ? "yes" : "no"} from=${from} cookies=[${incomingCookies.join(",")}] sbErr=${supabaseError ?? "none"}/${supabaseErrorCode ?? "none"} ua=${ua}`,
+  );
+
+  // Supabase stuurt errors via query-params door naar onze callback bij
+  // bv. otp_expired ('Email link is invalid or has expired'). Wij sturen
+  // de gebruiker dan met een herkenbaar bericht naar /login zodat ze
+  // weten waarom 't faalt — niet stilletjes redirecten.
+  if (supabaseError) {
+    void logObs({
+      type: "warning",
+      category: "auth",
+      message: `Magic-link callback faalde · ${supabaseErrorCode ?? supabaseError}`,
+      audit: true,
+      metadata: { error_code: supabaseErrorCode, error: supabaseError },
+    });
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set(
+      "error",
+      supabaseErrorCode === "otp_expired"
+        ? "Magic-link is verlopen. Vraag een nieuwe aan."
+        : (supabaseErrorDesc ?? supabaseError),
+    );
+    return NextResponse.redirect(loginUrl);
+  }
+
+  if (!code) {
+    console.warn("[auth/callback] no ?code → redirect /login");
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set(
+      "error",
+      "Geen geldige sessie ontvangen — vraag opnieuw een magic-link aan.",
+    );
+    return NextResponse.redirect(loginUrl);
+  }
+
+  const supabase = await supabaseRouteClient();
+  if (!supabase) {
+    console.warn("[auth/callback] supabaseRouteClient() = null (env missing?) → /login");
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    // PKCE-verifier ontbreekt = magic-link werd in een andere browser/
+    // device geopend dan waar 'm is aangevraagd, of een link-scanner
+    // (Outlook/Defender Safe Links) heeft de code al opgebrand.
+    // Geef de gebruiker een werkbaar alternatief: de 6-cijferige code.
+    const isVerifierMissing =
+      error.message.toLowerCase().includes("code verifier") ||
+      error.message.toLowerCase().includes("invalid request") ||
+      incomingCookies.length === 0;
+    console.warn(
+      `[auth/callback] exchange failed: ${error.message} verifierMissing=${isVerifierMissing}`,
+    );
+    void logObs({
+      type: "warning",
+      category: "auth",
+      message: `Magic-link exchange faalde`,
+      audit: true,
+      metadata: {
+        error: error.message,
+        verifier_missing: isVerifierMissing,
+      },
+    });
+    const loginUrl = new URL("/login", req.url);
+    loginUrl.searchParams.set(
+      "error",
+      isVerifierMissing
+        ? "Magic-link kan niet worden geverifieerd in deze browser. Open de link in dezelfde browser waar je 'm aangevraagd hebt, óf vul hieronder de 6-cijferige code in die in dezelfde e-mail staat."
+        : error.message,
+    );
+    loginUrl.searchParams.set("showCode", "1");
+    return NextResponse.redirect(loginUrl);
+  }
+  console.log(
+    `[auth/callback] exchange OK userId=${data.user?.id ?? "?"} email=${data.user?.email ?? "?"} hasSession=${data.session ? "yes" : "no"}`,
+  );
+  void logObs({
+    type: "info",
+    category: "auth",
+    message: `Login succes`,
+    audit: true,
+    userId: data.user?.id ?? null,
+    metadata: { has_session: !!data.session },
+  });
+
+  return NextResponse.redirect(new URL(from, req.url));
+}

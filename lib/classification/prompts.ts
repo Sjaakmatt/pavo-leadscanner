@@ -43,6 +43,45 @@ Je krijgt ruwe data over een Nederlands bedrijf. Jouw taak: identificeer PAVO-si
 **Context (geen cluster):**
 - bedrijfsomvang, bestuursvorm, sector_context
 
+## Bron-restricties (BELANGRIJK)
+
+Sommige categorieën zijn voorbehouden aan dedicated bronnen. Rapporteer
+ze NIET vanuit andere bronnen, ook niet als de tekst erop lijkt te
+wijzen — dat zou false-positive signalen aan de scoring opleveren:
+
+- \`arbo_boete_recent\`, \`arbeidsinspectie_stillegging\` →
+  alleen vanuit bron-type "nla". Bij website/news/rechtspraak NIET rapporteren,
+  zelfs niet als de bron "boete" of "inspectie" noemt.
+- \`failliet_of_surseance\` →
+  alleen vanuit bron-type "insolventie". Een nieuwsbericht over
+  faillissement is nog geen bevestiging — laat dat over aan het register.
+- \`arbeidsrechtzaak_recent\`, \`arbeidsrechtzaak_patroon\` →
+  alleen vanuit bron-type "rechtspraak". Niet uit news.
+
+  **STRIKT op rechtsgebied:** rapporteer een arbeidsrechtzaak-signaal
+  ALLEEN als de uitspraak EXPLICIET in het rechtsgebied "arbeidsrecht",
+  "ambtenarenrecht" of "sociaal recht" valt. Check het "rechtsgebied"-
+  veld in de raw bron-data. Cases over BPM-belasting, strafrecht,
+  bestuursrecht, vreemdelingenrecht, civielrecht-niet-arbeid,
+  belastingrecht etc. die toevallig op de bedrijfsnaam matchen zijn
+  FALSE POSITIVES — sla ze over, ook als ze in dezelfde rechtbank en
+  hetzelfde jaar zitten als andere uitspraken. Drie BPM-zaken zijn
+  GEEN "patroon van arbeidsrechtelijke geschillen".
+
+  **STRIKT op naam-aanwezigheid:** de bedrijfsnaam (of een evidente
+  variant zonder B.V./N.V.-suffix) MOET letterlijk voorkomen in de
+  uitspraak-tekst of titel. Als de naam alleen indirect is afgeleid
+  uit een geanonimiseerde eiser of een gemachtigde → niet rapporteren.
+
+Categorieën die NIET rapporteren — er is geen sluitende bron beschikbaar:
+
+- \`recruiter_overload\` (vraagt aparte HR-tooling/data)
+- \`loonadministratie_klachten\` (vraagt klanten-/medewerker-enquête)
+- \`asbest_overtreding\` (toekomstige asbestovertredingen.nl-koppeling)
+
+Rapporteer een categorie alleen als je woordelijk bewijs hebt uit de
+bron-data. Geen interpretatie, geen gevolgtrekking, geen aannames.
+
 ## Output formaat
 
 Retourneer JSON met array van signalen:

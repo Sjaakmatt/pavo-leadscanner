@@ -4,6 +4,12 @@
 // dus zonder enige extra config.
 //
 // API-spec: docs/AGENT-INTEGRATION.md in factumai-dashboard.
+//
+// Fase 1 toevoeging: events kunnen nu een `category` en `audit` flag
+// meekrijgen bovenop het bestaande type/message contract. Het dashboard
+// gebruikt die om events te filteren per tab (search/llm/mcp/...) en om
+// per-row TTL-retention toe te passen (zie OBSERVABILITY.md §3 + §6).
+// Concrete invoer loopt via `lib/observability/logger.ts::logObs`.
 
 export type FactumEventType =
   | "task_completed"
@@ -14,6 +20,26 @@ export type FactumEventType =
   | "info"
   | "deploy"
   | "activity_summary";
+
+// Spiegel van EVENT_CATEGORIES in factumai-dashboard. Ongeldige waardes
+// worden door de ingest geweigerd (HTTP 400) op /api/v1/ingest/event.
+export type FactumEventCategory =
+  | "search"
+  | "search_stage"
+  | "scoring"
+  | "llm"
+  | "llm_decision"
+  | "mcp"
+  | "auth"
+  | "user_action"
+  | "cron"
+  | "compliance"
+  | "system";
+
+export interface FactumLogOptions {
+  category?: FactumEventCategory;
+  audit?: boolean;
+}
 
 type ConnectMeta = {
   version?: string;
@@ -45,6 +71,8 @@ export type FactumHeartbeat = {
 
 export type FactumBatchEvent = {
   type: FactumEventType;
+  category?: FactumEventCategory;
+  audit?: boolean;
   message: string;
   metadata?: Record<string, unknown>;
   timestamp?: string;
@@ -58,12 +86,14 @@ export type FactumBatch = {
 
 const REQUEST_TIMEOUT_MS = 5_000;
 const DEFAULT_HEARTBEAT_MS = 60_000;
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 5 * 60_000;
 
 class FactumClient {
   private readonly baseUrl: string | null;
   private readonly apiKey: string | null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private connected = false;
+  private rateLimitedUntil = 0;
 
   constructor() {
     const raw = process.env.FACTUM_DASHBOARD_URL ?? "";
@@ -77,8 +107,9 @@ class FactumClient {
 
   private async request(path: string, body?: unknown): Promise<Response | null> {
     if (!this.enabled) return null;
+    if (Date.now() < this.rateLimitedUntil) return null;
     try {
-      return await fetch(`${this.baseUrl}${path}`, {
+      const res = await fetch(`${this.baseUrl}${path}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
@@ -87,6 +118,13 @@ class FactumClient {
         body: JSON.stringify(body ?? {}),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
+      if (res.status === 429) {
+        this.rateLimitedUntil = Date.now() + readRetryAfterMs(res);
+        console.warn(
+          `[factum] ${path} rate-limited; pauzeert dashboard-calls tot ${new Date(this.rateLimitedUntil).toISOString()}`,
+        );
+      }
+      return res;
     } catch (err) {
       console.warn(`[factum] ${path} failed: ${String(err)}`);
       return null;
@@ -101,11 +139,13 @@ class FactumClient {
 
     const data = (await res.json().catch(() => ({}))) as ConnectResponse;
     const interval = data.config?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_MS;
-    this.heartbeatTimer = setInterval(() => {
-      void this.heartbeat();
-    }, interval);
-    // Niet de Node-event-loop blokkeren tijdens shutdown.
-    this.heartbeatTimer.unref?.();
+    if (shouldStartIntervalHeartbeat()) {
+      this.heartbeatTimer = setInterval(() => {
+        void this.heartbeat();
+      }, interval);
+      // Niet de Node-event-loop blokkeren tijdens shutdown.
+      this.heartbeatTimer.unref?.();
+    }
   }
 
   async heartbeat(
@@ -114,12 +154,23 @@ class FactumClient {
     await this.request("/api/v1/ingest/heartbeat", { status });
   }
 
+  /**
+   * Log een event richting het dashboard. `options.category` en
+   * `options.audit` worden top-level meegestuurd (niet in metadata),
+   * zodat de dashboard ingest ze direct kan promoveren naar kolommen
+   * + per-row TTL kan zetten. Legacy callers zonder options blijven
+   * werken — die landen dan onder `category = NULL` met 90d default-TTL.
+   */
   async logEvent(
     type: FactumEventType,
     message: string,
     metadata?: Record<string, unknown>,
+    options: FactumLogOptions = {},
   ): Promise<void> {
-    await this.request("/api/v1/ingest/event", { type, message, metadata });
+    const body: Record<string, unknown> = { type, message, metadata };
+    if (options.category) body.category = options.category;
+    if (options.audit) body.audit = true;
+    await this.request("/api/v1/ingest/event", body);
   }
 
   async pushMetrics(metrics: FactumMetrics): Promise<void> {
@@ -153,6 +204,26 @@ class FactumClient {
       reason ? { reason } : {},
     );
   }
+}
+
+function readRetryAfterMs(res: Response): number {
+  const header = res.headers.get("retry-after");
+  if (!header) return DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.max(1_000, seconds * 1_000);
+  }
+  const date = Date.parse(header);
+  if (Number.isFinite(date)) {
+    return Math.max(1_000, date - Date.now());
+  }
+  return DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+}
+
+function shouldStartIntervalHeartbeat(): boolean {
+  if (process.env.FACTUM_ENABLE_INTERVAL_HEARTBEAT === "true") return true;
+  if (process.env.FACTUM_ENABLE_INTERVAL_HEARTBEAT === "false") return false;
+  return !process.env.VERCEL;
 }
 
 declare global {

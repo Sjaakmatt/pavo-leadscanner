@@ -20,13 +20,19 @@ const LABELS: Record<LeadStatus, string> = {
   verloren: "Verloren",
 };
 
-const COLOR: Record<LeadStatus, string> = {
-  nieuw: "bg-pavo-gray-100 text-pavo-gray-900",
-  shortlist: "bg-pavo-teal/10 text-pavo-teal",
-  benaderd: "bg-pavo-teal/15 text-pavo-teal",
-  gesprek: "bg-pavo-orange/15 text-pavo-orange",
-  gewonnen: "bg-emerald-100 text-emerald-800",
-  verloren: "bg-pavo-gray-200 text-pavo-gray-600",
+const ACTIVE: Record<LeadStatus, string> = {
+  nieuw:
+    "border-pavo-gray-200 bg-pavo-gray-100 text-pavo-navy ring-1 ring-pavo-gray-200/60",
+  shortlist:
+    "border-pavo-teal bg-gradient-to-br from-pavo-teal to-pavo-navy text-white shadow-[0_4px_12px_-4px_rgba(15,62,71,0.5)]",
+  benaderd:
+    "border-pavo-teal-bright bg-gradient-to-br from-pavo-teal-bright to-pavo-teal text-white shadow-[0_4px_12px_-4px_rgba(42,143,163,0.5)]",
+  gesprek:
+    "border-pavo-orange bg-gradient-to-br from-pavo-orange to-pavo-coral text-white shadow-[0_4px_12px_-4px_rgba(232,117,68,0.5)]",
+  gewonnen:
+    "border-emerald-500 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-[0_4px_12px_-4px_rgba(16,185,129,0.5)]",
+  verloren:
+    "border-pavo-gray-200 bg-pavo-gray-200 text-pavo-gray-600 ring-1 ring-pavo-gray-200/60",
 };
 
 export default function LeadStatusBar({ kvk }: Props) {
@@ -77,37 +83,40 @@ export default function LeadStatusBar({ kvk }: Props) {
   if (!available) return null;
 
   return (
-    <section className="rounded-lg border border-pavo-gray-100 bg-white p-5 shadow-sm md:p-6">
+    <section className="rounded-2xl border border-pavo-ink/[0.06] bg-white p-5 shadow-card md:p-6">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-pavo-gray-600">
-          Lead-status
-        </h2>
-        <span
-          className={`rounded px-2 py-0.5 text-xs font-medium ${COLOR[current]}`}
-        >
-          {LABELS[current]}
-        </span>
+        <div className="flex items-center gap-2.5">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-pavo-frost text-pavo-gray-600">
+            <FlagIcon className="h-3.5 w-3.5" />
+          </span>
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-pavo-gray-600">
+            Lead-status
+          </h2>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-1.5">
-        {LEAD_STATUSES.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => update(s)}
-            disabled={saving || s === current}
-            className={`rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
-              s === current
-                ? "border-pavo-teal bg-pavo-teal text-white"
-                : "border-pavo-gray-100 bg-white text-pavo-gray-900 hover:border-pavo-teal hover:text-pavo-teal disabled:opacity-50"
-            }`}
-          >
-            {LABELS[s]}
-          </button>
-        ))}
+        {LEAD_STATUSES.map((s) => {
+          const isActive = s === current;
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => update(s)}
+              disabled={saving || isActive}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-200 ${
+                isActive
+                  ? ACTIVE[s]
+                  : "border-pavo-ink/[0.08] bg-white text-pavo-navy hover:border-pavo-teal/40 hover:text-pavo-teal disabled:opacity-50"
+              }`}
+            >
+              {LABELS[s]}
+            </button>
+          );
+        })}
       </div>
 
-      <label className="mt-4 block text-xs font-medium uppercase tracking-wide text-pavo-gray-600">
+      <label className="mt-5 block text-[11px] font-semibold uppercase tracking-[0.14em] text-pavo-gray-600">
         Reden / notitie (optioneel)
       </label>
       <textarea
@@ -115,8 +124,26 @@ export default function LeadStatusBar({ kvk }: Props) {
         onChange={(e) => setReden(e.target.value)}
         rows={2}
         placeholder="bv. 'Geen budget tot Q3' of 'CTO is oud-collega van Roy'"
-        className="mt-1.5 w-full resize-none rounded-lg border border-pavo-gray-100 bg-white px-3 py-2 text-sm text-pavo-gray-900 placeholder:text-pavo-gray-600/60 focus:border-pavo-teal focus:outline-none"
+        className="mt-2 w-full resize-none rounded-xl border border-pavo-ink/[0.08] bg-white px-3.5 py-2.5 text-sm text-pavo-navy placeholder:text-pavo-gray-600/60 focus:border-pavo-teal focus:outline-none focus:ring-4 focus:ring-pavo-teal/10"
       />
     </section>
+  );
+}
+
+function FlagIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M5 17V3" />
+      <path d="M5 4h9l-1.5 3.5L14 11H5" />
+    </svg>
   );
 }

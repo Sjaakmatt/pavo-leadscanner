@@ -1,3 +1,8 @@
+import type {
+  MessageParam,
+  ContentBlockParam,
+  ToolUseBlock,
+} from "@anthropic-ai/sdk/resources/messages";
 import { getLeadSource } from "@/lib/lead-source";
 import {
   CHAT_MAX_TOKENS,
@@ -5,8 +10,21 @@ import {
   buildSystemPrompt,
   getClient,
 } from "@/lib/claude";
+import {
+  LEAD_TOOLS,
+  executeLeadTool,
+  loadLeadContext,
+  newToolBudget,
+  toolLabel,
+} from "@/lib/agent/lead-tools";
+import { authConfigured, getCurrentUser } from "@/lib/auth/server";
+import { logObs } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
+// Tool-use loop kan meerdere turns + MCP-calls doen; vraagt extra tijd.
+export const maxDuration = 120;
+
+const MAX_AGENT_TURNS = 5;
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -40,6 +58,22 @@ export async function POST(
     return new Response("Lead not found", { status: 404 });
   }
 
+  let orgId: string | null = null;
+  let userId: string | null = null;
+  if (authConfigured()) {
+    const me = await getCurrentUser();
+    orgId = me?.orgId ?? null;
+    userId = me?.id ?? null;
+  }
+  void logObs({
+    type: "info",
+    category: "user_action",
+    message: `Chat-vraag · kvk=${kvk}`,
+    orgId,
+    userId,
+    metadata: { kvk, message_count: messages.length },
+  });
+
   let client;
   try {
     client = getClient();
@@ -49,32 +83,105 @@ export async function POST(
     });
   }
 
-  const system = buildSystemPrompt(lead);
+  // Lead-context: kvk + naam komen uit de URL/snapshot, website komt
+  // uit de companies-tabel. Tools krijgen 'm pre-bound zodat de agent
+  // niet hoeft te raden welke URL de scan gebruikte.
+  const leadCtx = await loadLeadContext(kvk, lead.naam).catch(() => ({
+    kvk,
+    naam: lead.naam,
+    websiteUrl: null,
+  }));
 
-  // cache_control on the system block → follow-up vragen over dezelfde
-  // lead raken dezelfde prefix en krijgen ~90% korting op input-tokens.
-  const stream = client.messages.stream({
-    model: CHAT_MODEL,
-    max_tokens: CHAT_MAX_TOKENS,
-    system: [
-      {
-        type: "text",
-        text: system,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
-  });
+  const system = buildSystemPrompt(lead, leadCtx.websiteUrl);
 
-  // Plain text streaming — simplest possible client-side consumption.
+  // Conversation-state voor de tool-use loop. Begin met de user-vraag,
+  // groei met assistant-turns + tool-results.
+  const conversation: MessageParam[] = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+  const budget = newToolBudget();
+
   const encoder = new TextEncoder();
   const readable = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        stream.on("text", (delta) => {
-          controller.enqueue(encoder.encode(delta));
-        });
-        await stream.finalMessage();
+        for (let turn = 0; turn < MAX_AGENT_TURNS; turn++) {
+          const stream = client.messages.stream({
+            model: CHAT_MODEL,
+            max_tokens: CHAT_MAX_TOKENS,
+            system: [
+              {
+                type: "text",
+                text: system,
+                cache_control: { type: "ephemeral" },
+              },
+            ],
+            tools: LEAD_TOOLS,
+            messages: conversation,
+          });
+
+          // Tekst → live naar de UI doorpompen.
+          stream.on("text", (delta) => {
+            controller.enqueue(encoder.encode(delta));
+          });
+
+          const final = await stream.finalMessage();
+
+          void logObs({
+            type: "info",
+            category: "llm",
+            message: `Claude chat · kvk=${kvk} turn=${turn} stop=${final.stop_reason}`,
+            orgId,
+            userId,
+            metadata: {
+              model: CHAT_MODEL,
+              kvk,
+              turn,
+              stop_reason: final.stop_reason,
+              input_tokens: final.usage?.input_tokens,
+              output_tokens: final.usage?.output_tokens,
+              cache_read_tokens: final.usage?.cache_read_input_tokens,
+              cache_create_tokens: final.usage?.cache_creation_input_tokens,
+            },
+          });
+
+          if (final.stop_reason !== "tool_use") {
+            // Klaar — de stream-text is al naar de UI gegaan.
+            controller.close();
+            return;
+          }
+
+          // Voeg de assistant-turn (incl. tool_use blocks) aan de conversatie toe.
+          conversation.push({ role: "assistant", content: final.content });
+
+          // Voer alle tool_use blocks uit + verzamel results.
+          const toolUseBlocks = final.content.filter(
+            (b): b is ToolUseBlock => b.type === "tool_use",
+          );
+          const toolResults: ContentBlockParam[] = [];
+          for (const block of toolUseBlocks) {
+            controller.enqueue(
+              encoder.encode(`\n\n[🔧 ${toolLabel(block.name)}…]\n`),
+            );
+            const result = await executeLeadTool(block, budget, leadCtx);
+            toolResults.push({
+              type: "tool_result",
+              tool_use_id: result.toolUseId,
+              content: result.content,
+              is_error: result.isError,
+            });
+          }
+          conversation.push({ role: "user", content: toolResults });
+          controller.enqueue(encoder.encode("\n\n"));
+        }
+
+        // Hit MAX_AGENT_TURNS zonder afsluiten — meld dat.
+        controller.enqueue(
+          encoder.encode(
+            `\n\n[Max ${MAX_AGENT_TURNS} agent-turns bereikt. Stel een vervolgvraag als je wilt dat ik dieper ga.]`,
+          ),
+        );
         controller.close();
       } catch (err) {
         const msg =
@@ -82,9 +189,6 @@ export async function POST(
         controller.enqueue(encoder.encode(`\n\n[Error: ${msg}]`));
         controller.close();
       }
-    },
-    cancel() {
-      stream.abort();
     },
   });
 

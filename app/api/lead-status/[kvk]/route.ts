@@ -7,21 +7,18 @@ import {
   type LeadStatusRow,
 } from "@/lib/lead-status/types";
 import { factum } from "@/lib/factum/client";
+import { resolveOwnerScope } from "@/lib/auth/server";
+import { email as emailLib } from "@/lib/email/client";
+import { leadStatusEmail } from "@/lib/email/templates";
 
 export const runtime = "nodejs";
-
-// Owner-resolutie. Voorlopig één globale "default" owner — bij intro
-// van auth lezen we 'm uit de session. Header-override is dev-handig.
-function resolveOwner(req: Request): string {
-  return req.headers.get("x-pavo-owner")?.trim() || "default";
-}
 
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ kvk: string }> },
 ) {
   const { kvk } = await params;
-  const owner = resolveOwner(req);
+  const scope = await resolveOwnerScope(req);
   const supabase = tryGetSupabase();
   if (!supabase) {
     return NextResponse.json(
@@ -29,12 +26,18 @@ export async function GET(
       { status: 503 },
     );
   }
-  const { data } = await supabase
+
+  // Met auth aan scopen we op org_id + owner_id; in demo-mode op
+  // owner-text. De API geeft alleen rijen binnen de eigen scope.
+  let query = supabase
     .from("lead_statuses")
     .select("kvk, owner, status, reden, notitie, updated_at, updated_by")
-    .eq("kvk", kvk)
-    .eq("owner", owner)
-    .maybeSingle();
+    .eq("kvk", kvk);
+  if (scope.orgId) query = query.eq("org_id", scope.orgId);
+  query = scope.ownerId
+    ? query.eq("owner_id", scope.ownerId)
+    : query.eq("owner", scope.ownerLabel);
+  const { data } = await query.maybeSingle();
   return NextResponse.json({ status: (data ?? null) as LeadStatusRow | null });
 }
 
@@ -43,8 +46,8 @@ export async function PUT(
   { params }: { params: Promise<{ kvk: string }> },
 ) {
   const { kvk } = await params;
-  const owner = resolveOwner(req);
-  const updatedBy = req.headers.get("x-pavo-user") ?? owner;
+  const scope = await resolveOwnerScope(req);
+  const updatedBy = scope.email;
 
   let body: { status?: string; reden?: string; notitie?: string };
   try {
@@ -69,12 +72,15 @@ export async function PUT(
     );
   }
 
-  const { data: existing } = await supabase
+  let existingQuery = supabase
     .from("lead_statuses")
     .select("status")
-    .eq("kvk", kvk)
-    .eq("owner", owner)
-    .maybeSingle();
+    .eq("kvk", kvk);
+  if (scope.orgId) existingQuery = existingQuery.eq("org_id", scope.orgId);
+  existingQuery = scope.ownerId
+    ? existingQuery.eq("owner_id", scope.ownerId)
+    : existingQuery.eq("owner", scope.ownerLabel);
+  const { data: existing } = await existingQuery.maybeSingle();
   const fromStatus: LeadStatus = (existing?.status as LeadStatus) ?? "nieuw";
   if (!canTransition(fromStatus, next)) {
     return NextResponse.json(
@@ -88,7 +94,9 @@ export async function PUT(
   const now = new Date().toISOString();
   const row = {
     kvk,
-    owner,
+    owner: scope.ownerLabel,
+    owner_id: scope.ownerId,
+    org_id: scope.orgId,
     status: next,
     reden: body.reden ?? null,
     notitie: body.notitie ?? null,
@@ -108,7 +116,9 @@ export async function PUT(
   await supabase.from("lead_status_history").insert([
     {
       kvk,
-      owner,
+      owner: scope.ownerLabel,
+      owner_id: scope.ownerId,
+      org_id: scope.orgId,
       status: next,
       reden: body.reden ?? null,
       notitie: body.notitie ?? null,
@@ -124,8 +134,128 @@ export async function PUT(
       ? "task_completed"
       : "info",
     `Lead-status · ${kvk} → ${next}`,
-    { kvk, owner, from: fromStatus, to: next, reden: body.reden ?? null },
+    {
+      kvk,
+      owner: scope.ownerLabel,
+      org_id: scope.orgId,
+      from: fromStatus,
+      to: next,
+      reden: body.reden ?? null,
+    },
   );
 
+  // Team-notifications voor "interessante" overgangen.
+  if (
+    scope.ownerId &&
+    scope.orgId &&
+    (next === "gesprek" || next === "gewonnen" || next === "verloren")
+  ) {
+    void notifyTeam(supabase, {
+      kvk,
+      ownerId: scope.ownerId,
+      ownerEmail: scope.email,
+      orgId: scope.orgId,
+      next,
+      from: fromStatus,
+      reden: body.reden ?? null,
+    });
+  }
+
   return NextResponse.json({ status: row });
+}
+
+async function notifyTeam(
+  supabase: import("@supabase/supabase-js").SupabaseClient,
+  args: {
+    kvk: string;
+    ownerId: string;
+    ownerEmail: string;
+    orgId: string;
+    next: LeadStatus;
+    from: LeadStatus;
+    reden: string | null;
+  },
+): Promise<void> {
+  // Alleen collega's binnen dezelfde org.
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, email, notif_email_team")
+    .eq("org_id", args.orgId)
+    .neq("id", args.ownerId);
+  const recipients = (profiles ?? []) as Array<{
+    id: string;
+    email: string;
+    notif_email_team: boolean | null;
+  }>;
+  if (recipients.length === 0) return;
+
+  const verbs: Record<LeadStatus, string> = {
+    nieuw: "naar nieuw teruggezet",
+    shortlist: "op shortlist gezet",
+    benaderd: "benaderd",
+    gesprek: "naar gesprek gezet",
+    gewonnen: "gewonnen 🎉",
+    verloren: "verloren",
+  };
+
+  const { data: company } = await supabase
+    .from("companies")
+    .select("naam")
+    .eq("kvk", args.kvk)
+    .maybeSingle();
+  const naam = company?.naam ?? args.kvk;
+
+  const title = `${args.ownerEmail} heeft ${naam} ${verbs[args.next]}`;
+  const body = args.reden ? `Reden: ${args.reden}` : null;
+
+  const inserts = recipients.map((r) => ({
+    user_id: r.id,
+    org_id: args.orgId,
+    saved_search_id: null,
+    kvk: args.kvk,
+    type: "lead_status" as const,
+    title,
+    body,
+    metadata: {
+      from: args.from,
+      to: args.next,
+      by: args.ownerEmail,
+    },
+  }));
+  const { error } = await supabase.from("notifications").insert(inserts);
+  if (error) {
+    console.warn(`[notify-team] insert: ${error.message}`);
+  }
+
+  // E-mail flow — alleen voor users die opt-in hebben.
+  if (emailLib.enabled) {
+    const base =
+      process.env.NEXT_PUBLIC_APP_URL ??
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    const url = base ? `${base}/lead/${args.kvk}` : `/lead/${args.kvk}`;
+    for (const r of recipients) {
+      if (!r.notif_email_team || !r.email) continue;
+      const tpl = leadStatusEmail({
+        changedBy: args.ownerEmail,
+        leadNaam: naam,
+        toStatus: args.next,
+        reden: args.reden,
+        dashboardUrl: url,
+      });
+      void emailLib
+        .send({
+          to: r.email,
+          subject: tpl.subject,
+          html: tpl.html,
+          text: tpl.text,
+        })
+        .then((res) => {
+          if (!res.ok) {
+            console.warn(
+              `[notify-team] email naar ${r.email} faalde: ${res.error}`,
+            );
+          }
+        });
+    }
+  }
 }

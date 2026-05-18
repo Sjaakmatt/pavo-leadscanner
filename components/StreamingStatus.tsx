@@ -80,11 +80,15 @@ export default function StreamingStatus({ steps, onComplete, live, liveDone }: P
     : Math.round((visible / Math.max(steps.length, 1)) * 100);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-pavo-gray-100 bg-white shadow-sm">
-      <div className="flex items-center gap-3 px-4 py-2.5 text-sm">
+    <div className="overflow-hidden rounded-2xl border border-pavo-ink/[0.06] bg-white/80 shadow-card backdrop-blur-sm">
+      <div className="flex items-center gap-3 px-4 py-3 text-sm md:px-5">
         {!done ? (
           <>
-            <Spinner />
+            <PulseRing />
+            <span className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-pavo-teal sm:inline">
+              Agent
+            </span>
+            <span className="h-3 w-px bg-pavo-ink/[0.10]" />
             <AnimatePresence mode="wait">
               <motion.span
                 key={visible}
@@ -92,27 +96,38 @@ export default function StreamingStatus({ steps, onComplete, live, liveDone }: P
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="truncate text-pavo-gray-900"
+                className="min-w-0 flex-1 truncate text-pavo-navy"
               >
                 {current?.text}
               </motion.span>
             </AnimatePresence>
-            <span className="ml-auto shrink-0 text-xs tabular-nums text-pavo-gray-600">
-              {visible}/{steps.length}
+            <span className="ml-auto shrink-0 rounded-full bg-pavo-frost px-2 py-0.5 font-mono text-[10px] font-semibold tabular-nums text-pavo-gray-600">
+              {visible}/{steps.length || "?"}
             </span>
           </>
         ) : (
           <>
-            <CheckIcon className="h-4 w-4 shrink-0 text-emerald-600" />
-            <span className="truncate text-pavo-gray-600">
-              Analyse voltooid · {steps.length} stappen doorlopen
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <CheckIcon className="h-3 w-3" />
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+              Klaar
+            </span>
+            <span className="h-3 w-px bg-pavo-ink/[0.10]" />
+            <span className="min-w-0 flex-1 truncate text-pavo-gray-600">
+              {steps.length} stappen doorlopen
             </span>
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="ml-auto shrink-0 text-xs font-medium text-pavo-teal transition-colors hover:text-pavo-teal-dark"
+              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full border border-pavo-ink/[0.08] bg-white px-2.5 py-1 text-[11px] font-semibold text-pavo-teal transition-colors hover:border-pavo-teal/40 hover:bg-pavo-teal/5"
             >
-              {expanded ? "Verberg stappen" : "Toon stappen"}
+              {expanded ? "Verberg" : "Toon"} stappen
+              <ChevronIcon
+                className={`h-3 w-3 transition-transform ${
+                  expanded ? "rotate-180" : ""
+                }`}
+              />
             </button>
           </>
         )}
@@ -127,11 +142,11 @@ export default function StreamingStatus({ steps, onComplete, live, liveDone }: P
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="h-0.5 w-full bg-pavo-gray-100"
+            className="h-[2px] w-full overflow-hidden bg-pavo-frost"
           >
             {progressPct === undefined ? (
               <motion.div
-                className="h-full w-1/3 bg-pavo-teal"
+                className="h-full w-1/3 bg-gradient-to-r from-pavo-teal via-pavo-teal-bright to-pavo-teal"
                 animate={{ x: ["-30%", "330%"] }}
                 transition={{
                   duration: 1.8,
@@ -144,7 +159,7 @@ export default function StreamingStatus({ steps, onComplete, live, liveDone }: P
                 initial={{ width: 0 }}
                 animate={{ width: `${progressPct}%` }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
-                className="h-full bg-pavo-teal"
+                className="h-full bg-gradient-to-r from-pavo-teal to-pavo-teal-bright"
               />
             )}
           </motion.div>
@@ -158,15 +173,15 @@ export default function StreamingStatus({ steps, onComplete, live, liveDone }: P
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="border-t border-pavo-gray-100 px-4 py-3"
+            transition={{ duration: 0.22 }}
+            className="border-t border-pavo-ink/[0.06] bg-pavo-frost/40 px-5 py-3"
           >
             {steps.map((s, idx) => (
               <li
                 key={idx}
-                className="flex items-start gap-2 py-0.5 text-xs text-pavo-gray-600"
+                className="flex items-start gap-2 py-1 text-xs text-pavo-gray-600"
               >
-                <CheckIcon className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />
+                <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-pavo-teal/40" />
                 <span>{s.text}</span>
               </li>
             ))}
@@ -177,12 +192,12 @@ export default function StreamingStatus({ steps, onComplete, live, liveDone }: P
   );
 }
 
-function Spinner() {
+function PulseRing() {
   return (
-    <span
-      aria-hidden
-      className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-pavo-teal/20 border-t-pavo-teal"
-    />
+    <span aria-hidden className="relative inline-flex h-2.5 w-2.5 shrink-0">
+      <span className="absolute inset-0 animate-ping rounded-full bg-pavo-teal/40" />
+      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-pavo-teal" />
+    </span>
   );
 }
 
@@ -192,13 +207,30 @@ function CheckIcon({ className = "" }: { className?: string }) {
       viewBox="0 0 20 20"
       fill="none"
       stroke="currentColor"
-      strokeWidth="2.5"
+      strokeWidth="2.8"
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
       aria-hidden
     >
       <path d="M4 10.5 8 14.5 16 6" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M5 8l5 5 5-5" />
     </svg>
   );
 }

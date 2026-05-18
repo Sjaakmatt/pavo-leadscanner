@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { currentMode } from "@/lib/lead-source";
+import { AuthError, requireUser } from "@/lib/auth/server";
 
 // Kosten- en tool-call observability leeft in het FactumAI-dashboard
 // (zie MCP_PLATFORM.md §6 — scheiding tussen consumer-business-state
@@ -31,6 +32,16 @@ export async function GET() {
     });
   }
 
+  let me;
+  try {
+    me = await requireUser();
+  } catch (err) {
+    if (err instanceof AuthError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+
   const supabase = tryGetSupabase();
   if (!supabase) {
     return NextResponse.json(
@@ -49,6 +60,7 @@ export async function GET() {
     .select(
       "total_candidates, total_scraped, total_leads_returned, duration_ms, status, created_at",
     )
+    .eq("org_id", me.orgId)
     .gte("created_at", cutoff)
     .order("created_at", { ascending: false })
     .limit(50);
